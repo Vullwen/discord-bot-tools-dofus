@@ -85,7 +85,7 @@ beb_raid/
   config.py          # variables d'env + helpers (Paris, parsing)
   db.py              # SQLite synchrone (raids, votes, participants, tickets)
   cogs/
-    core.py          # /ping, /about
+    core.py          # /ping
     admin.py         # /sync, /reload
     raid.py          # /raid, sondages boutons, planif, rappel MP
     ticket.py        # /raid_panel, tickets, modal de création
