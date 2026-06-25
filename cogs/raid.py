@@ -27,6 +27,7 @@ from config import (
     RAIDS_CHANNEL_ID,
     REMINDER_MINUTES,
     now_paris,
+    raid_cap,
 )
 from utils import embeds
 from utils import dates as dates_utils
@@ -283,7 +284,8 @@ class RaidCog(commands.Cog):
         raid = db.get_raid(raid_id)
         counts = db.get_vote_counts(raid_id, "hour")
         creator = await self._creator_display(raid["created_by"])
-        embed = embeds.hour_poll_embed(raid, counts, creator)
+        participants = db.count_participants(raid_id)
+        embed = embeds.hour_poll_embed(raid, counts, creator, participants)
         view = HourPollView(self, raid_id)
         msg = await channel.send(embed=embed, view=view)
         db.update_raid(raid_id, hour_poll_message_id=msg.id)
@@ -322,21 +324,36 @@ class RaidCog(commands.Cog):
         if not raid or raid["state"] != STATE_VOTING_HOUR:
             await interaction.response.send_message("Ce sondage est terminé.", ephemeral=True)
             return
-        choice = str(hour)
-        db.cast_vote(raid_id, interaction.user.id, "hour", choice)
-        db.add_participant(raid_id, interaction.user.id)
+        cap = raid_cap(raid["name"])
+        already = db.is_participant(raid_id, interaction.user.id)
+        if cap is not None and not already and db.count_participants(raid_id) >= cap:
+            await interaction.response.send_message(
+                f"⛔ Ce raid est complet ({cap}/{cap}). Impossible de s'inscrire.", ephemeral=True
+            )
+            return
+        db.cast_vote(raid_id, interaction.user.id, "hour", str(hour))
+        if not already:
+            db.add_participant(raid_id, interaction.user.id)
         counts = db.get_vote_counts(raid_id, "hour")
+        participants = db.count_participants(raid_id)
         creator = await self._creator_display(raid["created_by"])
         await interaction.response.send_message(f"Vote enregistré : **{hour}h** ✅", ephemeral=True)
         await self._edit_message(
             raid["channel_id"], raid["hour_poll_message_id"],
-            embed=embeds.hour_poll_embed(raid, counts, creator),
+            embed=embeds.hour_poll_embed(raid, counts, creator, participants),
         )
 
     async def handle_register(self, interaction: discord.Interaction, raid_id: int) -> None:
         raid = db.get_raid(raid_id)
         if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
             await interaction.response.send_message("Inscription impossible pour ce raid.", ephemeral=True)
+            return
+        cap = raid_cap(raid["name"])
+        already = db.is_participant(raid_id, interaction.user.id)
+        if cap is not None and not already and db.count_participants(raid_id) >= cap:
+            await interaction.response.send_message(
+                f"⛔ Ce raid est complet ({cap}/{cap}). Impossible de s'inscrire.", ephemeral=True
+            )
             return
         db.add_participant(raid_id, interaction.user.id)
         participants = db.count_participants(raid_id)

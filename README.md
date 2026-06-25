@@ -36,6 +36,9 @@ privé.
   choisit le raid d'abord, puis un sondage choisit l'heure.
 - Chaque votant à l'heure est inscrit au rappel MP ; le message final propose
   aussi un bouton **Je participe 📌** pour s'inscrire sans voter.
+- **Capacité limitée** par raid (`RAID_CAPS` : Gigalodon 12, Jardins Éternels 16).
+  Au-delà, nouvelles inscriptions bloquées (« 🟥 COMPLET »). Les inscrits peuvent
+  toujours changer d'heure.
 - Les sondages comportent un bouton **🔒 Clôturer (admin)** : admins **et créateur
   du raid** peuvent clôturer plus tôt en un clic (équivalent `/force_close`).
 
@@ -57,6 +60,7 @@ privé.
 | `RAID_DEFAULT_HOUR` | `21` | Heure si 0 vote |
 | `REMINDER_MINUTES` | `10` | Minutes avant le raid pour le rappel |
 | `RAID_NAMES` | `Gigalodon,Jardins Éternels` | Raids possibles |
+| `RAID_CAPS` | `Gigalodon:12,Jardins Éternels:16` | Participants max par raid (`Nom:nombre`) |
 | `RAIDS_CHANNEL_ID` | — | Salon des sondages (surchargeable par `/setchannel`, vide = salon courant) |
 | `TICKET_CATEGORY_ID` | — | Catégorie des tickets (surchargeable par `/setchannel`) |
 | `DB_PATH` | `/app/data/beb_raid.db` | Base SQLite |

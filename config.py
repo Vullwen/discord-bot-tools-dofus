@@ -82,6 +82,34 @@ RAID_NAMES = [
 if not RAID_NAMES:
     RAID_NAMES = ["Gigalodon", "Jardins Éternels"]
 
+# Capacité max de participants par raid ("Nom:nombre,..."). Surchage les défauts.
+_DEFAULT_CAPS = {"Gigalodon": 12, "Jardins Éternels": 16}
+
+
+def _parse_caps(raw: str) -> dict:
+    caps = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item or ":" not in item:
+            continue
+        name, number = item.rsplit(":", 1)
+        name = name.strip()
+        try:
+            caps[name] = int(number.strip())
+        except ValueError:
+            continue
+    return caps
+
+
+RAID_CAPS = {**_DEFAULT_CAPS, **_parse_caps(os.getenv("RAID_CAPS", ""))}
+
+
+def raid_cap(name):
+    """Capacité max d'un raid (None si pas de nom ou inconnu)."""
+    if not name:
+        return None
+    return RAID_CAPS.get(name)
+
 
 def now_paris() -> datetime:
     """Datetime-aware maintenant en Europe/Paris."""

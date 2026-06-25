@@ -56,6 +56,18 @@ def test_participants(tmp_path):
     assert set(db.get_participants(rid)) == {10, 20}
 
 
+def test_is_participant(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="Gigalodon", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="scheduled",
+    )
+    assert db.is_participant(rid, 10) is False
+    db.add_participant(rid, 10)
+    assert db.is_participant(rid, 10) is True
+    assert db.is_participant(rid, 99) is False
+
+
 def test_update_and_state_serializes_datetime(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(

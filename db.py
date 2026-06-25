@@ -231,6 +231,14 @@ def count_participants(raid_id: int) -> int:
     return row["n"] if row else 0
 
 
+def is_participant(raid_id: int, user_id: int) -> bool:
+    row = _db().execute(
+        "SELECT 1 FROM participants WHERE raid_id = ? AND user_id = ?",
+        (raid_id, user_id),
+    ).fetchone()
+    return row is not None
+
+
 # --------------------------------------------------------------------------- tickets
 
 

@@ -6,7 +6,7 @@ from typing import Mapping
 
 import discord
 
-from config import RAID_HOURS, RAID_NAMES
+from config import RAID_HOURS, RAID_NAMES, raid_cap
 from utils import dates as dates_utils
 from utils.poll import format_counts
 
@@ -21,6 +21,14 @@ _HOUR_ORDER = [str(h) for h in RAID_HOURS]
 
 def _parse_day(raid) -> date:
     return date.fromisoformat(raid["date"])
+
+
+def _format_spots(participants: int, cap) -> str:
+    """Affichage 'X/cap' avec marqueur COMPLET."""
+    if cap:
+        full = " 🟥 COMPLET" if participants >= cap else ""
+        return f"{participants}/{cap}{full}"
+    return str(participants)
 
 
 def _scheduled_dt(raid) -> datetime | None:
@@ -59,8 +67,9 @@ def raid_choice_result_embed(raid, winner: str, counts: Mapping[str, int]) -> di
     return embed
 
 
-def hour_poll_embed(raid, counts: Mapping[str, int], creator: str) -> discord.Embed:
+def hour_poll_embed(raid, counts: Mapping[str, int], creator: str, participants: int) -> discord.Embed:
     name = raid["name"] or "à définir"
+    cap = raid_cap(raid["name"])
     embed = discord.Embed(
         title=f"🗓️ Sondage — heure du raid {name}",
         description=(
@@ -74,6 +83,7 @@ def hour_poll_embed(raid, counts: Mapping[str, int], creator: str) -> discord.Em
         value=format_counts(counts, _HOUR_ORDER, suffix="h"),
         inline=False,
     )
+    embed.add_field(name="Inscriptions", value=_format_spots(participants, cap), inline=False)
     if raid["note"]:
         embed.add_field(name="Note", value=raid["note"], inline=False)
     closes = raid["hour_poll_closes_at"]
@@ -96,11 +106,12 @@ def hour_poll_result_embed(raid, winner_hour: str, counts: Mapping[str, int]) ->
 
 def scheduled_embed(raid, participants: int, creator: str) -> discord.Embed:
     dt = _scheduled_dt(raid)
+    cap = raid_cap(raid["name"])
     embed = discord.Embed(
         title=f"🎯 Raid planifié : {raid['name']}",
         description=(
             f"**Quand :** {dates_utils.format_dt_fr(dt)}\n"
-            f"**Participants :** {participants}\n"
+            f"**Participants :** {_format_spots(participants, cap)}\n"
             "Clique sur **Je participe 📌** pour recevoir un rappel en MP 10 min avant."
         ),
         color=GOLD,
@@ -128,7 +139,7 @@ def reminder_channel_embed(raid, participants: int) -> discord.Embed:
         title=f"⚡ Rappel — raid {raid['name']} bientôt",
         description=(
             f"**Début prévu : {dates_utils.format_dt_fr(dt)}**\n"
-            f"{participants} participant(s) inscrit(s) pour le rappel."
+            f"Inscriptions : {_format_spots(participants, raid_cap(raid['name']))}."
         ),
         color=BLUE,
     )
