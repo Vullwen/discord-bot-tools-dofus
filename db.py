@@ -1,0 +1,261 @@
+"""Couche de persistance SQLite synchrone (idiome monke-jukebox/db.py).
+
+Connexion globale, row_factory=Row, CREATE TABLE IF NOT EXISTS.
+Les datetimes sont stockées en ISO aware (Europe/Paris), les dates en ISO 'YYYY-MM-DD'.
+"""
+from __future__ import annotations
+
+import os
+import sqlite3
+from datetime import datetime
+from typing import Any, Iterable, Optional
+
+from config import DB_PATH
+
+_conn: Optional[sqlite3.Connection] = None
+
+
+def init(db_path: str = DB_PATH) -> None:
+    global _conn
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    _conn = sqlite3.connect(db_path)
+    _conn.row_factory = sqlite3.Row
+    _conn.execute("PRAGMA journal_mode=WAL;")
+    _conn.execute("PRAGMA foreign_keys=ON;")
+    _conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS raids (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                     TEXT,
+            date                     TEXT NOT NULL,
+            poll_duration_seconds    INTEGER NOT NULL,
+            created_by               INTEGER NOT NULL,
+            guild_id                 INTEGER NOT NULL,
+            channel_id               INTEGER NOT NULL,
+            state                    TEXT NOT NULL,
+            raid_poll_message_id     INTEGER,
+            hour_poll_message_id     INTEGER,
+            scheduled_message_id     INTEGER,
+            scheduled_at             TEXT,
+            raid_poll_closes_at      TEXT,
+            hour_poll_closes_at      TEXT,
+            note                     TEXT,
+            created_at               TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS votes (
+            raid_id   INTEGER NOT NULL,
+            user_id   INTEGER NOT NULL,
+            kind      TEXT NOT NULL,
+            choice    TEXT NOT NULL,
+            PRIMARY KEY (raid_id, user_id, kind, choice)
+        );
+
+        CREATE TABLE IF NOT EXISTS participants (
+            raid_id  INTEGER NOT NULL,
+            user_id  INTEGER NOT NULL,
+            PRIMARY KEY (raid_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS tickets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id  INTEGER NOT NULL UNIQUE,
+            guild_id    INTEGER NOT NULL,
+            opener_id   INTEGER NOT NULL,
+            created_at  TEXT NOT NULL,
+            closed      INTEGER DEFAULT 0
+        );
+        """
+    )
+    _conn.commit()
+
+
+def _db() -> sqlite3.Connection:
+    if _conn is None:
+        init()
+    return _conn
+
+
+def _now_iso() -> str:
+    from config import now_paris
+    return now_paris().isoformat()
+
+
+def _dt(value: Optional[str]) -> Optional[datetime]:
+    return datetime.fromisoformat(value) if value else None
+
+
+# --------------------------------------------------------------------------- raids
+
+
+def create_raid(
+    *,
+    name: Optional[str],
+    date_iso: str,
+    poll_duration_seconds: int,
+    created_by: int,
+    guild_id: int,
+    channel_id: int,
+    state: str,
+    raid_poll_closes_at: Optional[datetime] = None,
+    hour_poll_closes_at: Optional[datetime] = None,
+    note: Optional[str] = None,
+) -> int:
+    cur = _db().execute(
+        """
+        INSERT INTO raids
+            (name, date, poll_duration_seconds, created_by, guild_id, channel_id,
+             state, raid_poll_closes_at, hour_poll_closes_at, note, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            name,
+            date_iso,
+            poll_duration_seconds,
+            created_by,
+            guild_id,
+            channel_id,
+            state,
+            raid_poll_closes_at.isoformat() if raid_poll_closes_at else None,
+            hour_poll_closes_at.isoformat() if hour_poll_closes_at else None,
+            note,
+            _now_iso(),
+        ),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_raid(raid_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute("SELECT * FROM raids WHERE id = ?", (raid_id,)).fetchone()
+
+
+def list_active_raids() -> list[sqlite3.Row]:
+    rows = _db().execute(
+        "SELECT * FROM raids WHERE state IN ('choosing_raid','voting_hour','scheduled','reminded') ORDER BY id"
+    ).fetchall()
+    return list(rows)
+
+
+def list_all_raids(limit: int = 50) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        "SELECT * FROM raids ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return list(rows)
+
+
+def update_raid(raid_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    # Sérialisation des datetimes en ISO.
+    serialized = {}
+    for key, value in fields.items():
+        if isinstance(value, datetime):
+            serialized[key] = value.isoformat()
+        else:
+            serialized[key] = value
+    assignments = ", ".join(f"{col} = ?" for col in serialized)
+    _db().execute(
+        f"UPDATE raids SET {assignments} WHERE id = ?",
+        (*serialized.values(), raid_id),
+    )
+    _db().commit()
+
+
+def set_raid_state(raid_id: int, state: str) -> None:
+    update_raid(raid_id, state=state)
+
+
+# --------------------------------------------------------------------------- votes
+
+
+def cast_vote(raid_id: int, user_id: int, kind: str, choice: str) -> None:
+    """Vote changeable : un seul choix par (raid, user, kind)."""
+    conn = _db()
+    conn.execute(
+        "DELETE FROM votes WHERE raid_id = ? AND user_id = ? AND kind = ?",
+        (raid_id, user_id, kind),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO votes (raid_id, user_id, kind, choice) VALUES (?, ?, ?, ?)",
+        (raid_id, user_id, kind, choice),
+    )
+    conn.commit()
+
+
+def get_vote_counts(raid_id: int, kind: str) -> dict[str, int]:
+    rows = _db().execute(
+        "SELECT choice, COUNT(*) AS n FROM votes WHERE raid_id = ? AND kind = ? GROUP BY choice",
+        (raid_id, kind),
+    ).fetchall()
+    return {row["choice"]: row["n"] for row in rows}
+
+
+def get_voters(raid_id: int, kind: str, choice: str) -> list[int]:
+    rows = _db().execute(
+        "SELECT user_id FROM votes WHERE raid_id = ? AND kind = ? AND choice = ?",
+        (raid_id, kind, choice),
+    ).fetchall()
+    return [row["user_id"] for row in rows]
+
+
+# --------------------------------------------------------------------- participants
+
+
+def add_participant(raid_id: int, user_id: int) -> None:
+    _db().execute(
+        "INSERT OR IGNORE INTO participants (raid_id, user_id) VALUES (?, ?)",
+        (raid_id, user_id),
+    )
+    _db().commit()
+
+
+def get_participants(raid_id: int) -> list[int]:
+    rows = _db().execute(
+        "SELECT user_id FROM participants WHERE raid_id = ?", (raid_id,)
+    ).fetchall()
+    return [row["user_id"] for row in rows]
+
+
+def count_participants(raid_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM participants WHERE raid_id = ?", (raid_id,)
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+# --------------------------------------------------------------------------- tickets
+
+
+def create_ticket(*, channel_id: int, guild_id: int, opener_id: int) -> int:
+    cur = _db().execute(
+        "INSERT INTO tickets (channel_id, guild_id, opener_id, created_at) VALUES (?, ?, ?, ?)",
+        (channel_id, guild_id, opener_id, _now_iso()),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_ticket_by_channel(channel_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM tickets WHERE channel_id = ?", (channel_id,)
+    ).fetchone()
+
+
+def close_ticket(channel_id: int) -> None:
+    _db().execute(
+        "UPDATE tickets SET closed = 1 WHERE channel_id = ?", (channel_id,)
+    )
+    _db().commit()
+
+
+# ----------------------------------------------------------------- helpers tests
+
+
+def reset_for_tests(db_path: str) -> None:
+    """Réinitialise la connexion sur une BDD de test (chemin explicite)."""
+    global _conn
+    if _conn is not None:
+        _conn.close()
+        _conn = None
+    init(db_path)
