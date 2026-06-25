@@ -211,7 +211,7 @@ class RaidCog(commands.Cog):
                 return None
         return ch
 
-    async def _edit_message(self, channel_id: int, message_id: int, *, embed=None, view=None) -> None:
+    async def _edit_message(self, channel_id: int, message_id: int, *, embed=discord.utils.MISSING, view=discord.utils.MISSING) -> None:
         ch = await self._get_channel(channel_id)
         if ch is None:
             return
