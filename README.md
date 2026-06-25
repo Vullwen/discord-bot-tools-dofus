@@ -29,6 +29,8 @@ privé.
   choisit le raid d'abord, puis un sondage choisit l'heure.
 - Chaque votant à l'heure est inscrit au rappel MP ; le message final propose
   aussi un bouton **Je participe 📌** pour s'inscrire sans voter.
+- Les sondages comportent un bouton **🔒 Clôturer (admin)** permettant aux
+  admins (`ADMIN_IDS`) de clôturer plus tôt en un clic (équivalent `/force_close`).
 
 ### Tickets
 

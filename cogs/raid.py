@@ -100,11 +100,26 @@ class _RegisterButton(discord.ui.Button):
         await self.cog.handle_register(interaction, self.raid_id)
 
 
+class _ClosePollButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="🔒 Clôturer (admin)",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"bebraid:close:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.handle_close_poll(interaction, self.raid_id)
+
+
 class HourPollView(discord.ui.View):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(timeout=None)
         for hour in RAID_HOURS:
             self.add_item(_HourVoteButton(cog, raid_id, hour))
+        self.add_item(_ClosePollButton(cog, raid_id))
 
 
 class RaidChoiceView(discord.ui.View):
@@ -112,6 +127,7 @@ class RaidChoiceView(discord.ui.View):
         super().__init__(timeout=None)
         for name in RAID_NAMES:
             self.add_item(_RaidChoiceButton(cog, raid_id, name))
+        self.add_item(_ClosePollButton(cog, raid_id))
 
 
 class ScheduledRaidView(discord.ui.View):
@@ -315,6 +331,28 @@ class RaidCog(commands.Cog):
             raid["channel_id"], raid["scheduled_message_id"],
             embed=embeds.scheduled_embed(raid, participants, creator),
         )
+
+    async def handle_close_poll(self, interaction: discord.Interaction, raid_id: int) -> None:
+        """Bouton admin : clôture immédiatement le sondage en cours."""
+        if interaction.user.id not in ADMIN_IDS:
+            await interaction.response.send_message("🔒 Réservé aux admins.", ephemeral=True)
+            return
+        raid = db.get_raid(raid_id)
+        if not raid:
+            await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            return
+
+        state = raid["state"]
+        if state == STATE_CHOOSING_RAID:
+            self._cancel_tasks(raid_id)
+            await interaction.response.send_message("Sondage choix du raid clôturé…", ephemeral=True)
+            await self._close_raid_choice(raid_id)
+        elif state == STATE_VOTING_HOUR:
+            self._cancel_tasks(raid_id)
+            await interaction.response.send_message("Sondage heure clôturé…", ephemeral=True)
+            await self._close_hour_poll(raid_id)
+        else:
+            await interaction.response.send_message("Ce sondage est déjà terminé.", ephemeral=True)
 
     # --------------------------------------------------------------- clôtures
 
