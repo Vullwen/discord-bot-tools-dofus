@@ -4,6 +4,7 @@ Aucune dépendance Discord ni DB : testable unitairement.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from typing import Iterable, Mapping, Optional
 
@@ -69,15 +70,19 @@ def format_counts(counts: Mapping[str, int], order: Iterable[str], suffix: str =
     return " | ".join(parts) if parts else "—"
 
 
-def parse_duree(value: Optional[str], default: str = "12h") -> str:
-    """Normalise une durée de sondage saisie librement ('1h','12h','24h')."""
+def parse_duration_seconds(value, minimum: int = 300) -> int:
+    """Convertit une durée saisie librement en secondes (minimum appliqué).
+
+    Accepte : '5min', '15m', '30 minutes', '1h', '2h', '90', '90min'...
+    - unité 'h'/'heure' -> heures ; sinon -> minutes ; valeur brute seule -> minutes.
+    """
     if value is None:
-        return default
-    cleaned = value.strip().lower().replace(" ", "")
-    if cleaned in ("1h", "1"):
-        return "1h"
-    if cleaned in ("12h", "12"):
-        return "12h"
-    if cleaned in ("24h", "24"):
-        return "24h"
-    return default
+        return minimum
+    s = str(value).strip().lower()
+    hours = re.fullmatch(r"(\d+)\s*(h|heure|heures?)", s)
+    if hours:
+        return max(int(hours.group(1)) * 3600, minimum)
+    minutes = re.fullmatch(r"(\d+)\s*(min|m|minutes?)?", s)
+    if minutes:
+        return max(int(minutes.group(1)) * 60, minimum)
+    return minimum

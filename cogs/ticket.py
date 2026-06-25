@@ -19,7 +19,7 @@ from discord.ext import commands
 import db
 from config import ADMIN_IDS, RAID_NAMES, TICKET_CATEGORY_ID
 from utils import dates as dates_utils
-from utils.poll import parse_duree
+from utils.poll import parse_duration_seconds
 
 logger = logging.getLogger("beb-raid.ticket")
 
@@ -46,9 +46,9 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
     )
     duree_input = discord.ui.TextInput(
         label="Durée du sondage",
-        placeholder="1h / 12h / 24h",
+        placeholder="5min, 15min, 1h… (mini 5min)",
         required=True,
-        max_length=5,
+        max_length=20,
     )
 
     def __init__(self, bot: commands.Bot):
@@ -74,7 +74,7 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
         else:
             raid_name = None
 
-        duree_key = parse_duree(self.duree_input.value)
+        duree_seconds = parse_duration_seconds(self.duree_input.value)
         channel = raid_cog._resolve_raids_channel(interaction.guild, interaction.channel)
         if channel is None or not isinstance(channel, discord.abc.Messageable):
             await interaction.response.send_message("Aucun salon de raids configuré.", ephemeral=True)
@@ -82,7 +82,7 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
 
         try:
             raid_id = await raid_cog.create_raid(
-                interaction.guild, channel, interaction.user, raid_name, self.date_input.value, duree_key
+                interaction.guild, channel, interaction.user, raid_name, self.date_input.value, duree_seconds
             )
         except dates_utils.InvalidRaidDate as exc:
             await interaction.response.send_message(f"❌ Date invalide : {exc}", ephemeral=True)
@@ -161,6 +161,19 @@ class TicketCog(commands.Cog):
         await interaction.channel.send(embed=embed, view=TicketPanelView(self))
         await interaction.response.send_message("Panneau de ticket posté.", ephemeral=True)
 
+    def _resolve_ticket_category(self, guild: discord.Guild):
+        # 1) réglage /setchannel (DB) ; 2) variable d'env ; 3) None.
+        cid = db.get_guild_setting_int(guild.id, db.SETTING_TICKET_CATEGORY)
+        if cid:
+            cat = guild.get_channel(cid)
+            if isinstance(cat, discord.CategoryChannel):
+                return cat
+        if TICKET_CATEGORY_ID:
+            cat = guild.get_channel(TICKET_CATEGORY_ID)
+            if isinstance(cat, discord.CategoryChannel):
+                return cat
+        return None
+
     async def open_ticket(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         opener = interaction.user
@@ -189,15 +202,20 @@ class TicketCog(commands.Cog):
                     view_channel=True, send_messages=True, read_message_history=True
                 )
 
-        category = None
-        if TICKET_CATEGORY_ID:
-            cat = guild.get_channel(TICKET_CATEGORY_ID)
-            if isinstance(cat, discord.CategoryChannel):
-                category = cat
+        category = self._resolve_ticket_category(guild)
+
+        # Nom unique : raid-pseudo, raid-pseudo-2, raid-pseudo-3…
+        base = _channel_name(opener.display_name)
+        existing = {c.name for c in guild.text_channels}
+        name = base
+        suffix = 2
+        while name in existing:
+            name = f"{base}-{suffix}"
+            suffix += 1
 
         try:
             channel = await guild.create_text_channel(
-                _channel_name(opener.display_name),
+                name,
                 category=category,
                 overwrites=overwrites,
                 reason=f"Ticket raid ouvert par {opener}",

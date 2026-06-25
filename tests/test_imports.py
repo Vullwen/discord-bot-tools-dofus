@@ -5,6 +5,7 @@ def test_import_main_module():
 def test_import_cogs():
     import cogs.core  # noqa: F401
     import cogs.admin  # noqa: F401
+    import cogs.settings  # noqa: F401
     import cogs.raid  # noqa: F401
     import cogs.ticket  # noqa: F401
 

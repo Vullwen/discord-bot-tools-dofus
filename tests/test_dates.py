@@ -55,3 +55,16 @@ def test_combine_and_format():
     assert dt.hour == 21
     assert dt.tzinfo is not None
     assert "à 21h00" in d.format_dt_fr(dt)
+
+
+def test_ce_soir_and_time_mean_today():
+    today = NOW.date()
+    assert d.parse_raid_date("ce soir", NOW) == today
+    assert d.parse_raid_date("ce matin", NOW) == today
+    assert d.parse_raid_date("cet aprem", NOW) == today
+    assert d.parse_raid_date("cette après-midi", NOW) == today
+    assert d.parse_raid_date("ce soir 21h", NOW) == today
+    # une heure seule est comprise comme "aujourd'hui" (l'heure est décidée par le sondage)
+    assert d.parse_raid_date("21h", NOW) == today
+    assert d.parse_raid_date("21h30", NOW) == today
+    assert d.parse_raid_date("9:05", NOW) == today

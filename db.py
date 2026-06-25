@@ -65,6 +65,13 @@ def init(db_path: str = DB_PATH) -> None:
             created_at  TEXT NOT NULL,
             closed      INTEGER DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS guild_settings (
+            guild_id  INTEGER NOT NULL,
+            key       TEXT NOT NULL,
+            value     TEXT,
+            PRIMARY KEY (guild_id, key)
+        );
         """
     )
     _conn.commit()
@@ -247,6 +254,36 @@ def close_ticket(channel_id: int) -> None:
         "UPDATE tickets SET closed = 1 WHERE channel_id = ?", (channel_id,)
     )
     _db().commit()
+
+
+# ---------------------------------------------------------------------- settings
+
+
+SETTING_RAIDS_CHANNEL = "raids_channel"
+SETTING_TICKET_CATEGORY = "ticket_category"
+
+
+def set_guild_setting(guild_id: int, key: str, value: str) -> None:
+    _db().execute(
+        "INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+        (guild_id, key, value),
+    )
+    _db().commit()
+
+
+def get_guild_setting(guild_id: int, key: str) -> Optional[str]:
+    row = _db().execute(
+        "SELECT value FROM guild_settings WHERE guild_id = ? AND key = ?",
+        (guild_id, key),
+    ).fetchone()
+    return row["value"] if row else None
+
+
+def get_guild_setting_int(guild_id: int, key: str) -> Optional[int]:
+    value = get_guild_setting(guild_id, key)
+    if value and value.lstrip("-").isdigit():
+        return int(value)
+    return None
 
 
 # ----------------------------------------------------------------- helpers tests

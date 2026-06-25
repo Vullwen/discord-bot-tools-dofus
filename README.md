@@ -16,21 +16,28 @@ privé.
 | Commande | Description |
 |---|---|
 | `/raid date duree [raid] [note]` | Crée un raid + sondage pour l'heure. |
+| `/setchannel setting channel` | Définit le salon des raids / la catégorie des tickets (admin). |
+| `/showconfig` | Affiche la configuration du serveur. |
 | `/list_raids` | Liste les raids actifs. |
 | `/cancel_raid raid_id` | Annule un raid (créateur ou admin). |
 | `/force_close raid_id` | Clôture immédiatement le sondage en cours (admin). |
 | `/raid_panel` | Poste le panneau de ticket (admin). |
 
+> 💡 **Avant tout** : utilise `/setchannel setting:Salon des raids channel:#ton-salon`
+> pour que les sondages/embeds arrivent au bon endroit. Puis
+> `/setchannel setting:Catégorie des tickets channel:#ta-catégorie` pour les tickets.
+
 ### `/raid` en détail
 
-- `date` : `28/06`, `2026-06-28`, `demain`, `aujourd'hui`, `lundi`…
-- `duree` : `1h` / `12h` / `24h` (durée du sondage).
+- `date` : `ce soir`, `ce matin`, `21h`, `28/06`, `2026-06-28`, `demain`, `lundi`…
+  (« ce soir » / une heure seule = aujourd'hui ; l'heure reste choisie par le sondage).
+- `duree` : `5min` → `24h` (durée du sondage, **mini 5 min** ; l'heure est choisie par le sondage).
 - `raid` (optionnel) : `Gigalodon` / `Jardins Éternels`. **Si vide** → un sondage
   choisit le raid d'abord, puis un sondage choisit l'heure.
 - Chaque votant à l'heure est inscrit au rappel MP ; le message final propose
   aussi un bouton **Je participe 📌** pour s'inscrire sans voter.
-- Les sondages comportent un bouton **🔒 Clôturer (admin)** permettant aux
-  admins (`ADMIN_IDS`) de clôturer plus tôt en un clic (équivalent `/force_close`).
+- Les sondages comportent un bouton **🔒 Clôturer (admin)** : admins **et créateur
+  du raid** peuvent clôturer plus tôt en un clic (équivalent `/force_close`).
 
 ### Tickets
 
@@ -50,8 +57,8 @@ privé.
 | `RAID_DEFAULT_HOUR` | `21` | Heure si 0 vote |
 | `REMINDER_MINUTES` | `10` | Minutes avant le raid pour le rappel |
 | `RAID_NAMES` | `Gigalodon,Jardins Éternels` | Raids possibles |
-| `RAIDS_CHANNEL_ID` | — | Salon des sondages (vide = salon courant) |
-| `TICKET_CATEGORY_ID` | — | Catégorie des tickets (vide = catégorie courante) |
+| `RAIDS_CHANNEL_ID` | — | Salon des sondages (surchargeable par `/setchannel`, vide = salon courant) |
+| `TICKET_CATEGORY_ID` | — | Catégorie des tickets (surchargeable par `/setchannel`) |
 | `DB_PATH` | `/app/data/beb_raid.db` | Base SQLite |
 
 > ℹ️ **SERVER MEMBERS INTENT** (optionnel) : permet d'ajouter automatiquement les
@@ -87,6 +94,7 @@ beb_raid/
   cogs/
     core.py          # /ping
     admin.py         # /sync, /reload
+    settings.py      # /setchannel, /showconfig (config par serveur en DB)
     raid.py          # /raid, sondages boutons, planif, rappel MP
     ticket.py        # /raid_panel, tickets, modal de création
   utils/

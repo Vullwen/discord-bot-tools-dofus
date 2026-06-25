@@ -1,6 +1,7 @@
 """Parsing de dates et helpers temporels (Europe/Paris), sans dépendance Discord."""
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
@@ -36,6 +37,22 @@ def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
     raw = text.strip().lower().replace("’", "'")
     now = now or datetime.now(PARIS)
     today = now.date()
+
+    # Expressions signifiant "aujourd'hui" (ce soir, ce matin...) -> aujourd'hui.
+    # L'heure elle-même reste décidée par le sondage.
+    ce_jour = {
+        "ce soir", "ce midi", "ce matin", "cet aprem", "cette aprem",
+        "cet après-midi", "cette après-midi", "ce midi-soir", "ce midi soir",
+        "aujourdhui", "aujourd'hui", "today", "tonight",
+    }
+    if raw in ce_jour:
+        return today
+    for expr in ("ce soir", "ce matin", "ce midi", "cet aprem", "cette aprem", "après-midi", "aprem"):
+        if expr in raw:
+            return today
+    # Une heure seule ("21h", "21h30", "9:05") -> on comprend "aujourd'hui".
+    if re.fullmatch(r"\d{1,2}\s*[:h]\s*\d{0,2}", raw):
+        return today
 
     # Mots-clés relatifs
     relatifs = {

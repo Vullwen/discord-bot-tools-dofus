@@ -39,6 +39,7 @@ bot = commands.Bot(
 COGS = [
     "cogs.core",
     "cogs.admin",
+    "cogs.settings",
     "cogs.raid",
     "cogs.ticket",
 ]

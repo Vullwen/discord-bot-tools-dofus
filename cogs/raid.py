@@ -48,9 +48,20 @@ def _slugify(name: str) -> str:
     return ascii_only.lower().replace(" ", "_").replace("'", "")
 
 
-DUREE_SECONDS = {"1h": 3600, "12h": 43200, "24h": 86400}
 _HOUR_ORDER = [str(h) for h in RAID_HOURS]
 _RAID_SLUGS = {name: _slugify(name) for name in RAID_NAMES}
+
+# Durées de sondage proposées (en secondes). Minimum 5 minutes.
+MIN_DUREE_SECONDS = 300
+DUREE_CHOICES = [
+    app_commands.Choice(name="5 minutes", value=300),
+    app_commands.Choice(name="15 minutes", value=900),
+    app_commands.Choice(name="30 minutes", value=1800),
+    app_commands.Choice(name="1 heure", value=3600),
+    app_commands.Choice(name="3 heures", value=10800),
+    app_commands.Choice(name="12 heures", value=43200),
+    app_commands.Choice(name="24 heures", value=86400),
+]
 
 
 # --------------------------------------------------------------------------- views
@@ -170,6 +181,12 @@ class RaidCog(commands.Cog):
     # --------------------------------------------------------------- helpers
 
     def _resolve_raids_channel(self, guild: discord.Guild, fallback) -> Optional[discord.abc.GuildChannel]:
+        # 1) réglage /setchannel (DB, par guilde) ; 2) variable d'env ; 3) salon courant.
+        cid = db.get_guild_setting_int(guild.id, db.SETTING_RAIDS_CHANNEL)
+        if cid:
+            ch = guild.get_channel(cid)
+            if ch is not None:
+                return ch
         if RAIDS_CHANNEL_ID:
             ch = guild.get_channel(RAIDS_CHANNEL_ID)
             if ch is not None:
@@ -213,12 +230,12 @@ class RaidCog(commands.Cog):
         user: discord.abc.User,
         raid_name: Optional[str],
         date_text: str,
-        duree_key: str,
+        duree_seconds: int,
         note: Optional[str] = None,
     ) -> int:
         """Crée un raid (cœur métier partagé par /raid et le ticket). Lève InvalidRaidDate."""
         raid_date = dates_utils.parse_raid_date(date_text)
-        duration = timedelta(seconds=DUREE_SECONDS[duree_key])
+        duration = timedelta(seconds=max(duree_seconds, MIN_DUREE_SECONDS))
         now = now_paris()
 
         if raid_name:
@@ -333,11 +350,14 @@ class RaidCog(commands.Cog):
         )
 
     async def handle_close_poll(self, interaction: discord.Interaction, raid_id: int) -> None:
-        """Bouton admin : clôture immédiatement le sondage en cours."""
-        if interaction.user.id not in ADMIN_IDS:
-            await interaction.response.send_message("🔒 Réservé aux admins.", ephemeral=True)
-            return
+        """Bouton : clôture immédiatement le sondage (admin ou créateur du raid)."""
         raid = db.get_raid(raid_id)
+        is_creator = raid is not None and interaction.user.id == raid["created_by"]
+        if interaction.user.id not in ADMIN_IDS and not is_creator:
+            await interaction.response.send_message(
+                "🔒 Réservé aux admins et au créateur du raid.", ephemeral=True
+            )
+            return
         if not raid:
             await interaction.response.send_message("Raid introuvable.", ephemeral=True)
             return
@@ -512,24 +532,20 @@ class RaidCog(commands.Cog):
 
     @app_commands.command(name="raid", description="Crée un raid avec un sondage pour choisir l'heure")
     @app_commands.describe(
-        date="Date du raid (ex: 28/06, 2026-06-28, demain, aujourd'hui, lundi)",
-        duree="Durée du sondage",
+        date="Date du raid (ex: ce soir, 21h, 28/06, 2026-06-28, demain, lundi)",
+        duree="Durée du sondage (l'heure est choisie par le sondage)",
         raid="Nom du raid (laisser vide = sondage pour choisir le raid d'abord)",
         note="Note optionnelle affichée sur le sondage",
     )
     @app_commands.choices(
-        duree=[
-            app_commands.Choice(name="1 heure", value="1h"),
-            app_commands.Choice(name="12 heures", value="12h"),
-            app_commands.Choice(name="24 heures", value="24h"),
-        ],
+        duree=DUREE_CHOICES,
         raid=[app_commands.Choice(name=name, value=name) for name in RAID_NAMES],
     )
     async def raid(
         self,
         interaction: discord.Interaction,
         date: str,
-        duree: app_commands.Choice[str],
+        duree: app_commands.Choice[int],
         raid: Optional[app_commands.Choice[str]] = None,
         note: Optional[str] = None,
     ) -> None:
