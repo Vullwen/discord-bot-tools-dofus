@@ -43,6 +43,15 @@ def test_parse_duration_seconds():
     assert poll.parse_duration_seconds("nonsense") == 300
 
 
+def test_parse_duration_extra_formats():
+    assert poll.parse_duration_seconds("5mn") == 300
+    assert poll.parse_duration_seconds("5 minutes") == 300
+    assert poll.parse_duration_seconds("1h30") == 5400
+    assert poll.parse_duration_seconds("2h30m") == 9000
+    assert poll.parse_duration_seconds("1.5h") == 5400
+    assert poll.parse_duration_seconds("1,5h") == 5400
+
+
 def test_is_active_and_states():
     assert poll.is_active("voting_hour")
     assert poll.is_active("scheduled")

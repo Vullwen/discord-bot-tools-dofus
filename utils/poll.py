@@ -73,16 +73,29 @@ def format_counts(counts: Mapping[str, int], order: Iterable[str], suffix: str =
 def parse_duration_seconds(value, minimum: int = 300) -> int:
     """Convertit une durée saisie librement en secondes (minimum appliqué).
 
-    Accepte : '5min', '15m', '30 minutes', '1h', '2h', '90', '90min'...
-    - unité 'h'/'heure' -> heures ; sinon -> minutes ; valeur brute seule -> minutes.
+    Accepte : '5mn', '5min', '5 m', '5 minutes', '1h', '2h', '1h30', '2h30m',
+    '1.5h', '90', '90min'... Unités reconnues : h/heure(s) ; min/mn/m/minute(s).
+    Une valeur seule sans unité est interprétée en minutes.
     """
     if value is None:
         return minimum
-    s = str(value).strip().lower()
-    hours = re.fullmatch(r"(\d+)\s*(h|heure|heures?)", s)
-    if hours:
-        return max(int(hours.group(1)) * 3600, minimum)
-    minutes = re.fullmatch(r"(\d+)\s*(min|m|minutes?)?", s)
-    if minutes:
-        return max(int(minutes.group(1)) * 60, minimum)
-    return minimum
+    s = str(value).strip().lower().replace(",", ".")
+    if not s:
+        return minimum
+    # On collecte tous les couples <nombre><unité> (ex: '1h30' -> 1h + 30min).
+    matches = re.findall(
+        r"(\d+(?:\.\d+)?)\s*(heures|heure|hours|hour|minutes|minute|min|mn|m|h)?",
+        s,
+    )
+    total = 0.0
+    found = False
+    for num, unit in matches:
+        n = float(num)
+        if unit.startswith("h"):
+            total += n * 3600
+        else:
+            total += n * 60
+        found = True
+    if not found:
+        return minimum
+    return max(int(round(total)), minimum)

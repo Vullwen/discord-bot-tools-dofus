@@ -38,6 +38,7 @@ from utils.poll import (
     STATE_REMINDED,
     STATE_SCHEDULED,
     STATE_VOTING_HOUR,
+    parse_duration_seconds,
     tally,
 )
 
@@ -67,17 +68,8 @@ def _parse_when(value) -> datetime:
 _HOUR_ORDER = [str(h) for h in RAID_HOURS]
 _RAID_SLUGS = {name: _slugify(name) for name in RAID_NAMES}
 
-# Durées de sondage proposées (en secondes). Minimum 5 minutes.
+# Durée minimale d'un sondage (en secondes).
 MIN_DUREE_SECONDS = 300
-DUREE_CHOICES = [
-    app_commands.Choice(name="5 minutes", value=300),
-    app_commands.Choice(name="15 minutes", value=900),
-    app_commands.Choice(name="30 minutes", value=1800),
-    app_commands.Choice(name="1 heure", value=3600),
-    app_commands.Choice(name="3 heures", value=10800),
-    app_commands.Choice(name="12 heures", value=43200),
-    app_commands.Choice(name="24 heures", value=86400),
-]
 
 
 # --------------------------------------------------------------------------- views
@@ -280,15 +272,16 @@ class RaidCog(commands.Cog):
         le sondage de choix du raid si aucun nom n'était donné).
         """
         raid_date = dates_utils.parse_raid_date(date_text)
-        fixed_hour = dates_utils.parse_hour(date_text)
+        fixed_time = dates_utils.parse_time(date_text)
         duration = timedelta(seconds=max(duree_seconds, MIN_DUREE_SECONDS))
         now = now_paris()
+        fixed_label = f"{fixed_time:%Hh%M}" if fixed_time else None
 
         # Heure imposée ET raid connu -> planification directe, sans aucun sondage.
-        if fixed_hour is not None and raid_name:
-            scheduled_at = dates_utils.combine_date_hour(raid_date, fixed_hour)
+        if fixed_time is not None and raid_name:
+            scheduled_at = dates_utils.combine_date_time(raid_date, fixed_time)
             if scheduled_at <= now:
-                raise dates_utils.InvalidRaidDate(f"l'heure {fixed_hour}h est déjà passée")
+                raise dates_utils.InvalidRaidDate(f"l'heure {fixed_label} est déjà passée")
             raid_id = db.create_raid(
                 name=raid_name,
                 date_iso=raid_date.isoformat(),
@@ -299,9 +292,9 @@ class RaidCog(commands.Cog):
                 state=STATE_SCHEDULED,
                 scheduled_at=scheduled_at,
                 note=note,
-                fixed_hour=fixed_hour,
+                fixed_time=f"{fixed_time:%H:%M}",
             )
-            logger.info("Raid #%d créé par %s (heure fixée %sh)", raid_id, user, fixed_hour)
+            logger.info("Raid #%d créé par %s (heure fixée %s)", raid_id, user, fixed_label)
             await self._post_scheduled(raid_id)
             self._schedule_reminder(raid_id, scheduled_at)
             return raid_id
@@ -326,7 +319,7 @@ class RaidCog(commands.Cog):
             raid_poll_closes_at=raid_closes,
             hour_poll_closes_at=hour_closes,
             note=note,
-            fixed_hour=fixed_hour,
+            fixed_time=f"{fixed_time:%H:%M}" if fixed_time else None,
         )
         logger.info("Raid #%d créé par %s (state=%s)", raid_id, user, state)
 
@@ -502,17 +495,17 @@ class RaidCog(commands.Cog):
         counts = db.get_vote_counts(raid_id, "raid")
         winner = tally(counts, order=RAID_NAMES, default=RAID_NAMES[0])
 
-        fixed_hour = raid["fixed_hour"]
         # Heure imposée dès la création : on saute le sondage d'heure et on planifie.
-        if fixed_hour is not None:
+        t = dates_utils.parse_hhmm(raid["fixed_time"])
+        if t is not None:
             raid_date = date.fromisoformat(raid["date"])
-            scheduled_at = dates_utils.combine_date_hour(raid_date, int(fixed_hour))
+            scheduled_at = dates_utils.combine_date_time(raid_date, t)
             db.update_raid(raid_id, name=winner, state=STATE_SCHEDULED, scheduled_at=scheduled_at)
-            logger.info("Raid #%d : choix=%s, heure imposée %sh", raid_id, winner, fixed_hour)
+            logger.info("Raid #%d : choix=%s, heure imposée %s", raid_id, winner, t.strftime("%Hh%M"))
             await self._edit_message(
                 raid["channel_id"],
                 raid["raid_poll_message_id"],
-                embed=embeds.raid_choice_result_embed(raid, winner, counts),
+                embed=embeds.raid_choice_result_embed(raid, winner, counts, t.strftime("%Hh%M")),
                 view=None,
             )
             await self._post_scheduled(raid_id)
@@ -669,22 +662,21 @@ class RaidCog(commands.Cog):
 
     # --------------------------------------------------------------- commandes
 
-    @app_commands.command(name="raid", description="Crée un raid avec un sondage pour choisir l'heure")
+    @app_commands.command(name="raid", description="Crée un raid : fixe l'heure toi-même ou laisse un sondage")
     @app_commands.describe(
-        date="Date du raid (ex: ce soir, 21h, 28/06, 2026-06-28, demain, lundi)",
-        duree="Durée du sondage (l'heure est choisie par le sondage)",
+        date="Date et/ou heure (ex: ce soir, demain 19h30, 28/06, 21h). Une heure précise fixe l'heure sans sondage.",
+        duree="Durée du sondage (ex: 5mn, 15min, 1h, 2h30 ; mini 5min)",
         raid="Nom du raid (laisser vide = sondage pour choisir le raid d'abord)",
         note="Note optionnelle affichée sur le sondage",
     )
     @app_commands.choices(
-        duree=DUREE_CHOICES,
         raid=[app_commands.Choice(name=name, value=name) for name in RAID_NAMES],
     )
     async def raid(
         self,
         interaction: discord.Interaction,
         date: str,
-        duree: app_commands.Choice[int],
+        duree: str,
         raid: Optional[app_commands.Choice[str]] = None,
         note: Optional[str] = None,
     ) -> None:
@@ -700,7 +692,8 @@ class RaidCog(commands.Cog):
 
         try:
             raid_id = await self.create_raid(
-                interaction.guild, channel, interaction.user, raid_name, date, duree.value, note
+                interaction.guild, channel, interaction.user, raid_name, date,
+                parse_duration_seconds(duree), note,
             )
         except dates_utils.InvalidRaidDate as exc:
             await interaction.followup.send(f"❌ Date invalide : {exc}", ephemeral=True)

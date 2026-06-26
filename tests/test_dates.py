@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -100,3 +100,27 @@ def test_strip_hour():
     assert d.strip_hour("ce soir 21h") == "ce soir"
     assert d.strip_hour("15h") == ""
     assert d.strip_hour("demain") == "demain"
+
+
+def test_parse_time_with_minutes():
+    assert d.parse_time("19h30") == time(19, 30)
+    assert d.parse_time("9:05") == time(9, 5)
+    assert d.parse_time("21h") == time(21, 0)
+    assert d.parse_time("demain 15h45") == time(15, 45)
+    assert d.parse_time("demain") is None
+    assert d.parse_time("24h30") is None   # heure hors plage
+    assert d.parse_time("21h99") is None   # minutes hors plage
+
+
+def test_combine_date_time():
+    day = d.parse_raid_date("28/06/2026", NOW)
+    dt = d.combine_date_time(day, time(19, 30))
+    assert dt.hour == 19 and dt.minute == 30
+    assert dt.tzinfo is not None
+    assert "à 19h30" in d.format_dt_fr(dt)
+
+
+def test_parse_hhmm():
+    assert d.parse_hhmm("19:30") == time(19, 30)
+    assert d.parse_hhmm(None) is None
+    assert d.parse_hhmm("not a time") is None

@@ -22,16 +22,16 @@ class InvalidRaidDate(ValueError):
     """Date de raid invalide ou dans le passé."""
 
 
-# Une heure : "15h", "21h30", "9:05", "demain 15h"... (group 1 = heure).
+# Une heure : "15h", "21h30", "9:05", "demain 15h"... (group 1 = heure, group 2 = minutes).
 # Le lookbehind/ahead évite de matcher une année ou un jour de date ("2026", "28/06").
-_HOUR_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[:h]\s*\d{0,2}(?!\d)")
+_HOUR_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[:h]\s*(\d{1,2})?(?!\d)")
 
 
-def parse_hour(text: str) -> Optional[int]:
-    """Extrait une heure (0-23) d'un texte libre.
+def parse_time(text: str) -> Optional[time]:
+    """Extrait une heure (+minutes) d'un texte libre -> datetime.time, ou None.
 
-    "15h" -> 15, "21h30" -> 21, "9:05" -> 9, "demain 15h" -> 15.
-    Renvoie None si aucune heure n'est détectée (ou hors 0-23).
+    "15h" -> time(15,0), "21h30" -> time(21,30), "9:05" -> time(9,5),
+    "demain 15h" -> time(15,0). None si aucune heure détectée ou hors plage.
     """
     if not text:
         return None
@@ -40,7 +40,20 @@ def parse_hour(text: str) -> Optional[int]:
     if not m:
         return None
     h = int(m.group(1))
-    return h if 0 <= h <= 23 else None
+    minute = int(m.group(2)) if m.group(2) else 0
+    if not (0 <= h <= 23) or not (0 <= minute <= 59):
+        return None
+    return time(hour=h, minute=minute)
+
+
+def parse_hour(text: str) -> Optional[int]:
+    """Extrait l'heure (0-23) d'un texte libre (minutes ignorées).
+
+    "15h" -> 15, "21h30" -> 21, "9:05" -> 9, "demain 15h" -> 15.
+    Renvoie None si aucune heure n'est détectée (ou hors 0-23).
+    """
+    t = parse_time(text)
+    return t.hour if t else None
 
 
 def strip_hour(text: str) -> str:
@@ -138,6 +151,21 @@ def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
 def combine_date_hour(day: date, hour: int) -> datetime:
     """Combine une date et une heure en datetime aware Paris."""
     return datetime.combine(day, time(hour=hour, minute=0), tzinfo=PARIS)
+
+
+def combine_date_time(day: date, t: time) -> datetime:
+    """Combine une date et une time (heure+minutes) en datetime aware Paris."""
+    return datetime.combine(day, t, tzinfo=PARIS)
+
+
+def parse_hhmm(value) -> Optional[time]:
+    """Analyse un horaire stocké au format 'HH:MM' -> time. None si invalide/vide."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value), "%H:%M").time()
+    except ValueError:
+        return None
 
 
 def format_date_fr(day: date) -> str:

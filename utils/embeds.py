@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Mapping
+from typing import Mapping, Optional
 
 import discord
 
@@ -56,14 +56,19 @@ def raid_choice_embed(raid, counts: Mapping[str, int], creator: str) -> discord.
     return embed
 
 
-def raid_choice_result_embed(raid, winner: str, counts: Mapping[str, int]) -> discord.Embed:
+def raid_choice_result_embed(
+    raid, winner: str, counts: Mapping[str, int], fixed_time_label: Optional[str] = None
+) -> discord.Embed:
     embed = discord.Embed(
         title="🤔 Choix du raid — clôturé",
         description=f"**Raid choisi : {winner}** 🎯",
         color=GREY,
     )
     embed.add_field(name="Résultats finaux", value=format_counts(counts, RAID_NAMES), inline=False)
-    embed.set_footer(text="Le sondage de l'heure arrive.")
+    if fixed_time_label:
+        embed.set_footer(text=f"⏰ Heure fixée : {fixed_time_label} — planification…")
+    else:
+        embed.set_footer(text="Le sondage de l'heure arrive.")
     return embed
 
 

@@ -39,14 +39,14 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
         max_length=50,
     )
     date_input = discord.ui.TextInput(
-        label="Date",
-        placeholder="28/06, 2026-06-28, demain, lundi...",
+        label="Date / heure",
+        placeholder="28/06, demain 19h30, 21h… (une heure fixe l'heure)",
         required=True,
         max_length=30,
     )
     duree_input = discord.ui.TextInput(
         label="Durée du sondage",
-        placeholder="5min, 15min, 1h… (mini 5min)",
+        placeholder="5mn, 15min, 1h, 2h30… (mini 5min)",
         required=True,
         max_length=20,
     )

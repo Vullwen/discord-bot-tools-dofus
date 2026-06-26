@@ -41,6 +41,7 @@ def init(db_path: str = DB_PATH) -> None:
             hour_poll_closes_at      TEXT,
             note                     TEXT,
             fixed_hour               INTEGER,
+            fixed_time               TEXT,
             created_at               TEXT NOT NULL
         );
 
@@ -77,6 +78,12 @@ def init(db_path: str = DB_PATH) -> None:
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
     _migrate("ALTER TABLE raids ADD COLUMN fixed_hour INTEGER")
+    _migrate("ALTER TABLE raids ADD COLUMN fixed_time TEXT")
+    # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
+    _conn.execute(
+        "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
+        "WHERE fixed_hour IS NOT NULL AND fixed_time IS NULL"
+    )
     _conn.commit()
 
 
@@ -119,14 +126,14 @@ def create_raid(
     hour_poll_closes_at: Optional[datetime] = None,
     scheduled_at: Optional[datetime] = None,
     note: Optional[str] = None,
-    fixed_hour: Optional[int] = None,
+    fixed_time: Optional[str] = None,
 ) -> int:
     cur = _db().execute(
         """
         INSERT INTO raids
             (name, date, poll_duration_seconds, created_by, guild_id, channel_id,
              state, raid_poll_closes_at, hour_poll_closes_at, scheduled_at,
-             fixed_hour, note, created_at)
+             fixed_time, note, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -140,7 +147,7 @@ def create_raid(
             raid_poll_closes_at.isoformat() if raid_poll_closes_at else None,
             hour_poll_closes_at.isoformat() if hour_poll_closes_at else None,
             scheduled_at.isoformat() if scheduled_at else None,
-            fixed_hour,
+            fixed_time,
             note,
             _now_iso(),
         ),
