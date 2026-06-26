@@ -22,6 +22,34 @@ class InvalidRaidDate(ValueError):
     """Date de raid invalide ou dans le passé."""
 
 
+# Une heure : "15h", "21h30", "9:05", "demain 15h"... (group 1 = heure).
+# Le lookbehind/ahead évite de matcher une année ou un jour de date ("2026", "28/06").
+_HOUR_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[:h]\s*\d{0,2}(?!\d)")
+
+
+def parse_hour(text: str) -> Optional[int]:
+    """Extrait une heure (0-23) d'un texte libre.
+
+    "15h" -> 15, "21h30" -> 21, "9:05" -> 9, "demain 15h" -> 15.
+    Renvoie None si aucune heure n'est détectée (ou hors 0-23).
+    """
+    if not text:
+        return None
+    s = text.strip().lower().replace("’", "'")
+    m = _HOUR_RE.search(s)
+    if not m:
+        return None
+    h = int(m.group(1))
+    return h if 0 <= h <= 23 else None
+
+
+def strip_hour(text: str) -> str:
+    """Retire la partie heure d'un texte libre ("demain 15h" -> "demain")."""
+    if not text:
+        return text
+    return _HOUR_RE.sub(" ", text).strip(" -:")
+
+
 def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
     """Convertit un texte libre en date de raid (Paris).
 
@@ -30,6 +58,9 @@ def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
     de la semaine en français ('lundi' ... 'dimanche' = prochain occurence).
 
     Lève InvalidRaidDate si le format est inconnu ou si la date est passée.
+
+    Une heure éventuelle ("15h", "21h30") est ignorée ici : seule la date est
+    renvoyée. L'heure est extraite séparément via parse_hour().
     """
     if not text:
         raise InvalidRaidDate("date vide")
@@ -37,6 +68,12 @@ def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
     raw = text.strip().lower().replace("’", "'")
     now = now or datetime.now(PARIS)
     today = now.date()
+
+    # On retire une éventuelle heure ("15h", "21h30", "9:05") : seule la date compte ici.
+    raw = strip_hour(raw)
+    # Une heure seule (rien d'autre que l'heure) -> aujourd'hui.
+    if not raw:
+        return today
 
     # Expressions signifiant "aujourd'hui" (ce soir, ce matin...) -> aujourd'hui.
     # L'heure elle-même reste décidée par le sondage.
@@ -50,9 +87,6 @@ def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
     for expr in ("ce soir", "ce matin", "ce midi", "cet aprem", "cette aprem", "après-midi", "aprem"):
         if expr in raw:
             return today
-    # Une heure seule ("21h", "21h30", "9:05") -> on comprend "aujourd'hui".
-    if re.fullmatch(r"\d{1,2}\s*[:h]\s*\d{0,2}", raw):
-        return today
 
     # Mots-clés relatifs
     relatifs = {

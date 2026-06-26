@@ -155,6 +155,21 @@ def cancelled_embed(raid) -> discord.Embed:
     return embed
 
 
+def participants_embed(raid, names) -> discord.Embed:
+    """Liste les participants (noms déjà résolus) d'un raid."""
+    cap = raid_cap(raid["name"])
+    embed = discord.Embed(
+        title=f"📌 Participants — {raid['name'] or 'Raid'}",
+        color=BLUE,
+    )
+    if names:
+        embed.description = "\n".join(f"• {name}" for name in names)
+    else:
+        embed.description = "Aucun participant pour l'instant."
+    embed.set_footer(text=f"{_format_spots(len(names), cap)} • Raid #{raid['id']}")
+    return embed
+
+
 def list_embed(rows) -> discord.Embed:
     embed = discord.Embed(title="📋 Raids actifs", color=GREEN)
     if not rows:

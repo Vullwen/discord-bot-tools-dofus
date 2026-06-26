@@ -141,12 +141,34 @@ class _ClosePollButton(discord.ui.Button):
         await self.cog.handle_close_poll(interaction, self.raid_id)
 
 
+class _ParticipantsButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="👥 Participants",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"bebraid:participants:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.handle_view_participants(interaction, self.raid_id)
+
+
 class HourPollView(discord.ui.View):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(timeout=None)
+        raid = db.get_raid(raid_id)
+        now = now_paris()
+        is_today = raid is not None and date.fromisoformat(raid["date"]) == now.date()
         for hour in RAID_HOURS:
-            self.add_item(_HourVoteButton(cog, raid_id, hour))
+            btn = _HourVoteButton(cog, raid_id, hour)
+            # Un raid prévu aujourd'hui : on désactive les créneaux déjà passés.
+            if is_today and hour <= now.hour:
+                btn.disabled = True
+            self.add_item(btn)
         self.add_item(_ClosePollButton(cog, raid_id))
+        self.add_item(_ParticipantsButton(cog, raid_id))
 
 
 class RaidChoiceView(discord.ui.View):
@@ -155,12 +177,14 @@ class RaidChoiceView(discord.ui.View):
         for name in RAID_NAMES:
             self.add_item(_RaidChoiceButton(cog, raid_id, name))
         self.add_item(_ClosePollButton(cog, raid_id))
+        self.add_item(_ParticipantsButton(cog, raid_id))
 
 
 class ScheduledRaidView(discord.ui.View):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(timeout=None)
         self.add_item(_RegisterButton(cog, raid_id))
+        self.add_item(_ParticipantsButton(cog, raid_id))
 
 
 # --------------------------------------------------------------------------- cog
@@ -249,10 +273,38 @@ class RaidCog(commands.Cog):
         duree_seconds: int,
         note: Optional[str] = None,
     ) -> int:
-        """Crée un raid (cœur métier partagé par /raid et le ticket). Lève InvalidRaidDate."""
+        """Crée un raid (cœur métier partagé par /raid et le ticket). Lève InvalidRaidDate.
+
+        Si une heure est fournie dans date_text (ex: "15h", "demain 15h"), elle est
+        imposée : pas de sondage d'heure. Le raid est planifié directement (ou après
+        le sondage de choix du raid si aucun nom n'était donné).
+        """
         raid_date = dates_utils.parse_raid_date(date_text)
+        fixed_hour = dates_utils.parse_hour(date_text)
         duration = timedelta(seconds=max(duree_seconds, MIN_DUREE_SECONDS))
         now = now_paris()
+
+        # Heure imposée ET raid connu -> planification directe, sans aucun sondage.
+        if fixed_hour is not None and raid_name:
+            scheduled_at = dates_utils.combine_date_hour(raid_date, fixed_hour)
+            if scheduled_at <= now:
+                raise dates_utils.InvalidRaidDate(f"l'heure {fixed_hour}h est déjà passée")
+            raid_id = db.create_raid(
+                name=raid_name,
+                date_iso=raid_date.isoformat(),
+                poll_duration_seconds=int(duration.total_seconds()),
+                created_by=user.id,
+                guild_id=guild.id,
+                channel_id=channel.id,
+                state=STATE_SCHEDULED,
+                scheduled_at=scheduled_at,
+                note=note,
+                fixed_hour=fixed_hour,
+            )
+            logger.info("Raid #%d créé par %s (heure fixée %sh)", raid_id, user, fixed_hour)
+            await self._post_scheduled(raid_id)
+            self._schedule_reminder(raid_id, scheduled_at)
+            return raid_id
 
         if raid_name:
             state = STATE_VOTING_HOUR
@@ -274,6 +326,7 @@ class RaidCog(commands.Cog):
             raid_poll_closes_at=raid_closes,
             hour_poll_closes_at=hour_closes,
             note=note,
+            fixed_hour=fixed_hour,
         )
         logger.info("Raid #%d créé par %s (state=%s)", raid_id, user, state)
 
@@ -339,6 +392,10 @@ class RaidCog(commands.Cog):
         if not raid or raid["state"] != STATE_VOTING_HOUR:
             await interaction.response.send_message("Ce sondage est terminé.", ephemeral=True)
             return
+        # Raid prévu aujourd'hui : on refuse les créneaux déjà passés.
+        if date.fromisoformat(raid["date"]) == now_paris().date() and hour <= now_paris().hour:
+            await interaction.response.send_message("⏰ Ce créneau est déjà passé.", ephemeral=True)
+            return
         cap = raid_cap(raid["name"])
         already = db.is_participant(raid_id, interaction.user.id)
         if cap is not None and not already and db.count_participants(raid_id) >= cap:
@@ -381,6 +438,36 @@ class RaidCog(commands.Cog):
             embed=embeds.scheduled_embed(raid, participants, creator),
         )
 
+    async def _member_display_name(self, guild, uid: int) -> str:
+        """Nom affichable d'un participant (membre de guilde en priorité)."""
+        member = guild.get_member(uid) if guild is not None else None
+        if member is None and guild is not None:
+            try:
+                member = await guild.fetch_member(uid)
+            except discord.DiscordException:
+                member = None
+        if member is not None:
+            return member.display_name
+        user = self.bot.get_user(uid)
+        if user is None:
+            try:
+                user = await self.bot.fetch_user(uid)
+            except discord.DiscordException:
+                user = None
+        return user.display_name if user is not None else f"utilisateur {uid}"
+
+    async def handle_view_participants(self, interaction: discord.Interaction, raid_id: int) -> None:
+        """Bouton : affiche (en éphémère) la liste des participants."""
+        raid = db.get_raid(raid_id)
+        if not raid:
+            await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            return
+        uids = db.get_participants(raid_id)
+        names = [await self._member_display_name(interaction.guild, uid) for uid in uids]
+        await interaction.response.send_message(
+            embed=embeds.participants_embed(raid, names), ephemeral=True
+        )
+
     async def handle_close_poll(self, interaction: discord.Interaction, raid_id: int) -> None:
         """Bouton : clôture immédiatement le sondage (admin ou créateur du raid)."""
         raid = db.get_raid(raid_id)
@@ -414,6 +501,24 @@ class RaidCog(commands.Cog):
             return
         counts = db.get_vote_counts(raid_id, "raid")
         winner = tally(counts, order=RAID_NAMES, default=RAID_NAMES[0])
+
+        fixed_hour = raid["fixed_hour"]
+        # Heure imposée dès la création : on saute le sondage d'heure et on planifie.
+        if fixed_hour is not None:
+            raid_date = date.fromisoformat(raid["date"])
+            scheduled_at = dates_utils.combine_date_hour(raid_date, int(fixed_hour))
+            db.update_raid(raid_id, name=winner, state=STATE_SCHEDULED, scheduled_at=scheduled_at)
+            logger.info("Raid #%d : choix=%s, heure imposée %sh", raid_id, winner, fixed_hour)
+            await self._edit_message(
+                raid["channel_id"],
+                raid["raid_poll_message_id"],
+                embed=embeds.raid_choice_result_embed(raid, winner, counts),
+                view=None,
+            )
+            await self._post_scheduled(raid_id)
+            self._schedule_reminder(raid_id, scheduled_at)
+            return
+
         now = now_paris()
         hour_closes = now + timedelta(seconds=raid["poll_duration_seconds"])
         # Transition atomique : état + heure de clôture du sondage heure dans la même UPDATE,

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -68,3 +68,35 @@ def test_ce_soir_and_time_mean_today():
     assert d.parse_raid_date("21h", NOW) == today
     assert d.parse_raid_date("21h30", NOW) == today
     assert d.parse_raid_date("9:05", NOW) == today
+
+
+def test_parse_hour_extracts_hour():
+    assert d.parse_hour("15h") == 15
+    assert d.parse_hour("21h30") == 21
+    assert d.parse_hour("9:05") == 9
+    assert d.parse_hour("ce soir 21h") == 21
+    assert d.parse_hour("demain 15h") == 15
+    # pas d'heure détectée
+    assert d.parse_hour("demain") is None
+    assert d.parse_hour("28/06") is None
+    assert d.parse_hour("2026-06-28") is None
+    assert d.parse_hour("lundi") is None
+    assert d.parse_hour("") is None
+    # hors plage -> None
+    assert d.parse_hour("24h") is None
+
+
+def test_parse_date_with_combined_hour():
+    # "demain 15h" -> date demain, heure 15
+    assert d.parse_raid_date("demain 15h", NOW) == NOW.date() + timedelta(days=1)
+    assert d.parse_hour("demain 15h") == 15
+    # "28/06 15h30" -> date 28/06, heure 15
+    assert d.parse_raid_date("28/06 15h30", NOW).isoformat() == "2026-06-28"
+    assert d.parse_hour("28/06 15h30") == 15
+
+
+def test_strip_hour():
+    assert d.strip_hour("demain 15h") == "demain"
+    assert d.strip_hour("ce soir 21h") == "ce soir"
+    assert d.strip_hour("15h") == ""
+    assert d.strip_hour("demain") == "demain"

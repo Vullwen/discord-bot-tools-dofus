@@ -40,6 +40,7 @@ def init(db_path: str = DB_PATH) -> None:
             raid_poll_closes_at      TEXT,
             hour_poll_closes_at      TEXT,
             note                     TEXT,
+            fixed_hour               INTEGER,
             created_at               TEXT NOT NULL
         );
 
@@ -74,7 +75,17 @@ def init(db_path: str = DB_PATH) -> None:
         );
         """
     )
+    # Migrations : colonnes ajoutées a posteriori (idempotent).
+    _migrate("ALTER TABLE raids ADD COLUMN fixed_hour INTEGER")
     _conn.commit()
+
+
+def _migrate(ddl: str) -> None:
+    """Applique un DDL de migration ; ignore l'erreur si la colonne existe déjà."""
+    try:
+        _db().execute(ddl)
+    except sqlite3.OperationalError:
+        pass
 
 
 def _db() -> sqlite3.Connection:
@@ -106,14 +117,17 @@ def create_raid(
     state: str,
     raid_poll_closes_at: Optional[datetime] = None,
     hour_poll_closes_at: Optional[datetime] = None,
+    scheduled_at: Optional[datetime] = None,
     note: Optional[str] = None,
+    fixed_hour: Optional[int] = None,
 ) -> int:
     cur = _db().execute(
         """
         INSERT INTO raids
             (name, date, poll_duration_seconds, created_by, guild_id, channel_id,
-             state, raid_poll_closes_at, hour_poll_closes_at, note, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             state, raid_poll_closes_at, hour_poll_closes_at, scheduled_at,
+             fixed_hour, note, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             name,
@@ -125,6 +139,8 @@ def create_raid(
             state,
             raid_poll_closes_at.isoformat() if raid_poll_closes_at else None,
             hour_poll_closes_at.isoformat() if hour_poll_closes_at else None,
+            scheduled_at.isoformat() if scheduled_at else None,
+            fixed_hour,
             note,
             _now_iso(),
         ),
