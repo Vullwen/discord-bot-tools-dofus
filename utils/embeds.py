@@ -117,7 +117,7 @@ def scheduled_embed(raid, participants: int, creator: str) -> discord.Embed:
         description=(
             f"**Quand :** {dates_utils.format_dt_fr(dt)}\n"
             f"**Participants :** {_format_spots(participants, cap)}\n"
-            "Clique sur **Je participe 📌** pour recevoir un rappel en MP 10 min avant."
+            "Clique sur **Je participe 📌** pour le rappel MP, **❌ Me désinscrire** pour l'annuler."
         ),
         color=GOLD,
     )

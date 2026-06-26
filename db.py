@@ -274,6 +274,14 @@ def is_participant(raid_id: int, user_id: int) -> bool:
     return row is not None
 
 
+def remove_participant(raid_id: int, user_id: int) -> None:
+    _db().execute(
+        "DELETE FROM participants WHERE raid_id = ? AND user_id = ?",
+        (raid_id, user_id),
+    )
+    _db().commit()
+
+
 # --------------------------------------------------------------------------- tickets
 
 

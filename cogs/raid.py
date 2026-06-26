@@ -123,6 +123,20 @@ class _RegisterButton(discord.ui.Button):
         await self.cog.handle_register(interaction, self.raid_id)
 
 
+class _UnregisterButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="❌ Me désinscrire",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"bebraid:unreg:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.handle_unregister(interaction, self.raid_id)
+
+
 class _ClosePollButton(discord.ui.Button):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(
@@ -180,6 +194,7 @@ class ScheduledRaidView(discord.ui.View):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(timeout=None)
         self.add_item(_RegisterButton(cog, raid_id))
+        self.add_item(_UnregisterButton(cog, raid_id))
         self.add_item(_ParticipantsButton(cog, raid_id))
 
 
@@ -430,6 +445,25 @@ class RaidCog(commands.Cog):
         creator = await self._creator_display(raid["created_by"])
         await interaction.response.send_message(
             f"Inscrit pour le rappel MP ! ({participants} participant(s))", ephemeral=True
+        )
+        await self._edit_message(
+            raid["channel_id"], raid["scheduled_message_id"],
+            embed=embeds.scheduled_embed(raid, participants, creator),
+        )
+
+    async def handle_unregister(self, interaction: discord.Interaction, raid_id: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
+            await interaction.response.send_message("Désinscription impossible pour ce raid.", ephemeral=True)
+            return
+        if not db.is_participant(raid_id, interaction.user.id):
+            await interaction.response.send_message("Tu n'es pas inscrit à ce raid.", ephemeral=True)
+            return
+        db.remove_participant(raid_id, interaction.user.id)
+        participants = db.count_participants(raid_id)
+        creator = await self._creator_display(raid["created_by"])
+        await interaction.response.send_message(
+            f"Désinscrit du rappel MP. ({participants} participant(s))", ephemeral=True
         )
         await self._edit_message(
             raid["channel_id"], raid["scheduled_message_id"],
