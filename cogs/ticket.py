@@ -121,6 +121,38 @@ class _CloseTicketButton(discord.ui.Button):
         await self.cog.close_ticket(interaction)
 
 
+class _AddMemberButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="➕ Ajouter un membre",
+            style=discord.ButtonStyle.secondary,
+            custom_id="bebraid:ticket_add",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.prompt_add_member(interaction)
+
+
+class _AddMemberSelect(discord.ui.UserSelect):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            placeholder="Sélectionne un ou plusieurs membres à ajouter",
+            min_values=1,
+            max_values=10,
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.add_members(interaction, self.values)
+
+
+class AddMemberView(discord.ui.View):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(timeout=300)
+        self.add_item(_AddMemberSelect(cog))
+
+
 class TicketPanelView(discord.ui.View):
     def __init__(self, cog: "TicketCog"):
         super().__init__(timeout=None)
@@ -131,6 +163,7 @@ class TicketChannelView(discord.ui.View):
     def __init__(self, cog: "TicketCog"):
         super().__init__(timeout=None)
         self.add_item(_CreateFromTicketButton(cog))
+        self.add_item(_AddMemberButton(cog))
         self.add_item(_CloseTicketButton(cog))
 
 
@@ -231,7 +264,8 @@ class TicketCog(commands.Cog):
             description=(
                 f"Bienvenue {opener.mention} !\n\n"
                 "Discutez de l'organisation ici, puis cliquez sur **🎯 Créer ce raid** "
-                "pour lancer le sondage (posté dans le salon des raids).\n\n"
+                "pour lancer le sondage (posté dans le salon des raids).\n"
+                "Besoin d'amis dans le salon ? **➕ Ajouter un membre**.\n\n"
                 "Quand c'est fini, cliquez sur **🔒 Fermer**."
             ),
             color=0xF1C40F,
@@ -252,6 +286,60 @@ class TicketCog(commands.Cog):
             await interaction.channel.delete(reason="Ticket raid fermé")
         except discord.DiscordException as exc:
             logger.warning("Suppression du ticket %s échouée: %s", interaction.channel_id, exc)
+
+    def _is_ticket_manager(self, interaction: discord.Interaction) -> bool:
+        """Opener du ticket ou admin : peut ajouter des membres / fermer."""
+        ticket = db.get_ticket_by_channel(interaction.channel_id)
+        is_opener = ticket is not None and interaction.user.id == ticket["opener_id"]
+        return is_opener or interaction.user.id in ADMIN_IDS
+
+    async def prompt_add_member(self, interaction: discord.Interaction) -> None:
+        if not self._is_ticket_manager(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "👤 Choisis les membres à ajouter au salon :", view=AddMemberView(self), ephemeral=True
+        )
+
+    async def add_members(self, interaction: discord.Interaction, users) -> None:
+        guild = interaction.guild
+        channel = interaction.channel
+        if guild is None or not isinstance(channel, discord.abc.GuildChannel):
+            return
+        added: list[str] = []
+        skipped: list[str] = []
+        for user in users:
+            member = guild.get_member(user.id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(user.id)
+                except discord.DiscordException:
+                    member = None
+            if member is None:
+                skipped.append(f"`{user}`")
+                continue
+            try:
+                await channel.set_permissions(
+                    member,
+                    view_channel=True,
+                    send_messages=True,
+                    attach_files=True,
+                    read_message_history=True,
+                    reason=f"Ajouté au ticket par {interaction.user}",
+                )
+                added.append(member.mention)
+            except discord.DiscordException as exc:
+                logger.warning("Ajout membre %s au ticket %s échoué: %s", member, channel.id, exc)
+                skipped.append(member.mention)
+
+        parts: list[str] = []
+        if added:
+            parts.append(f"✅ Ajouté au salon : {', '.join(added)}")
+        if skipped:
+            parts.append(f"⚠️ Impossible à ajouter : {', '.join(skipped)}")
+        if not parts:
+            parts.append("Aucun membre à ajouter.")
+        await interaction.response.send_message("\n".join(parts), ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
