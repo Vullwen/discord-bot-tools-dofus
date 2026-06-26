@@ -49,6 +49,21 @@ def _slugify(name: str) -> str:
     return ascii_only.lower().replace(" ", "_").replace("'", "")
 
 
+def _parse_when(value) -> datetime:
+    """Convertit une valeur BDD (str ISO / datetime / None) en datetime aware.
+
+    Retourne 'maintenant' si la valeur est absente : la tâche associée se déclenchera
+    immédiatement (clôture du sondage), ce qui évite qu'un raid incohérent ne bloque
+    tout le bootstrap au redémarrage.
+    """
+    if value is None:
+        logger.warning("Timestamp manquant en base pour un raid actif, replanification immédiate")
+        return now_paris()
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
+
+
 _HOUR_ORDER = [str(h) for h in RAID_HOURS]
 _RAID_SLUGS = {name: _slugify(name) for name in RAID_NAMES}
 
@@ -399,7 +414,11 @@ class RaidCog(commands.Cog):
             return
         counts = db.get_vote_counts(raid_id, "raid")
         winner = tally(counts, order=RAID_NAMES, default=RAID_NAMES[0])
-        db.update_raid(raid_id, name=winner, state=STATE_VOTING_HOUR)
+        now = now_paris()
+        hour_closes = now + timedelta(seconds=raid["poll_duration_seconds"])
+        # Transition atomique : état + heure de clôture du sondage heure dans la même UPDATE,
+        # pour ne jamais laisser un raid en 'voting_hour' avec hour_poll_closes_at NULL.
+        db.update_raid(raid_id, name=winner, state=STATE_VOTING_HOUR, hour_poll_closes_at=hour_closes)
         logger.info("Raid #%d : choix=%s, lancement sondage heure", raid_id, winner)
 
         await self._edit_message(
@@ -411,10 +430,8 @@ class RaidCog(commands.Cog):
 
         channel = await self._get_channel(raid["channel_id"])
         if channel is None:
+            logger.warning("Salon introuvable pour le raid #%d : sondage heure non posté", raid_id)
             return
-        now = now_paris()
-        hour_closes = now + timedelta(seconds=raid["poll_duration_seconds"])
-        db.update_raid(raid_id, hour_poll_closes_at=hour_closes)
         await self._send_hour_poll(channel, raid_id)
         self._schedule(raid_id, "hour_close", hour_closes, self._close_hour_poll)
 
@@ -528,13 +545,13 @@ class RaidCog(commands.Cog):
 
             # Replanification des tâches.
             if state == STATE_CHOOSING_RAID:
-                when = datetime.fromisoformat(raid["raid_poll_closes_at"])
+                when = _parse_when(raid["raid_poll_closes_at"])
                 self._schedule(raid_id, "raid_close", when, self._close_raid_choice)
             elif state == STATE_VOTING_HOUR:
-                when = datetime.fromisoformat(raid["hour_poll_closes_at"])
+                when = _parse_when(raid["hour_poll_closes_at"])
                 self._schedule(raid_id, "hour_close", when, self._close_hour_poll)
             elif state in (STATE_SCHEDULED, STATE_REMINDED):
-                scheduled_at = datetime.fromisoformat(raid["scheduled_at"])
+                scheduled_at = _parse_when(raid["scheduled_at"])
                 now = now_paris()
                 if now >= scheduled_at:
                     db.set_raid_state(raid_id, STATE_DONE)
