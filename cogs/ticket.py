@@ -19,6 +19,7 @@ from discord.ext import commands
 import db
 from config import ADMIN_IDS, RAID_NAMES, TICKET_CATEGORY_ID
 from utils import dates as dates_utils
+from utils import names as names_utils
 from utils.poll import parse_duration_seconds
 
 logger = logging.getLogger("beb-raid.ticket")
@@ -63,7 +64,7 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
 
         raid_raw = (self.raid_input.value or "").strip()
         if raid_raw:
-            matched = next((n for n in RAID_NAMES if n.lower() == raid_raw.lower()), None)
+            matched = names_utils.match_raid_name(raid_raw, RAID_NAMES)
             if matched is None:
                 await interaction.response.send_message(
                     f"❌ Raid inconnu. Choix possibles : {', '.join(RAID_NAMES)}.",
