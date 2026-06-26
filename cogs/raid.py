@@ -165,6 +165,40 @@ class _ParticipantsButton(discord.ui.Button):
         await self.cog.handle_view_participants(interaction, self.raid_id)
 
 
+class _AdminRemoveButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="🧹 Retirer (admin)",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"bebraid:adminrm:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.prompt_admin_remove(interaction, self.raid_id)
+
+
+class _RemoveMemberSelect(discord.ui.UserSelect):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            placeholder="Sélectionne le(s) participant(s) à retirer",
+            min_values=1,
+            max_values=25,
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.admin_remove_members(interaction, self.raid_id, self.values)
+
+
+class RemoveMemberView(discord.ui.View):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(timeout=300)
+        self.add_item(_RemoveMemberSelect(cog, raid_id))
+
+
 class HourPollView(discord.ui.View):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(timeout=None)
@@ -196,6 +230,7 @@ class ScheduledRaidView(discord.ui.View):
         self.add_item(_RegisterButton(cog, raid_id))
         self.add_item(_UnregisterButton(cog, raid_id))
         self.add_item(_ParticipantsButton(cog, raid_id))
+        self.add_item(_AdminRemoveButton(cog, raid_id))
 
 
 # --------------------------------------------------------------------------- cog
@@ -469,6 +504,58 @@ class RaidCog(commands.Cog):
             raid["channel_id"], raid["scheduled_message_id"],
             embed=embeds.scheduled_embed(raid, participants, creator),
         )
+
+    def _is_raid_manager(self, interaction: discord.Interaction, raid) -> bool:
+        """Admin ou créateur du raid : peut gérer les participants."""
+        return interaction.user.id in ADMIN_IDS or (
+            raid is not None and interaction.user.id == raid["created_by"]
+        )
+
+    async def prompt_admin_remove(self, interaction: discord.Interaction, raid_id: int) -> None:
+        """Bouton admin : ouvre un sélecteur pour retirer des participants."""
+        raid = db.get_raid(raid_id)
+        if not self._is_raid_manager(interaction, raid):
+            await interaction.response.send_message(
+                "🔒 Réservé aux admins et au créateur du raid.", ephemeral=True
+            )
+            return
+        if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
+            await interaction.response.send_message("Aucun participant à gérer pour ce raid.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "Sélectionne le(s) participant(s) à retirer du rappel :",
+            view=RemoveMemberView(self, raid_id),
+            ephemeral=True,
+        )
+
+    async def admin_remove_members(self, interaction: discord.Interaction, raid_id: int, users) -> None:
+        raid = db.get_raid(raid_id)
+        if not self._is_raid_manager(interaction, raid):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        removed: list[str] = []
+        skipped: list[str] = []
+        for user in users:
+            if db.is_participant(raid_id, user.id):
+                db.remove_participant(raid_id, user.id)
+                removed.append(user.mention)
+            else:
+                skipped.append(user.mention)
+        participants = db.count_participants(raid_id)
+        creator = await self._creator_display(raid["created_by"]) if raid else "?"
+        if raid:
+            await self._edit_message(
+                raid["channel_id"], raid["scheduled_message_id"],
+                embed=embeds.scheduled_embed(raid, participants, creator),
+            )
+        parts: list[str] = []
+        if removed:
+            parts.append(f"✅ Retiré du rappel : {', '.join(removed)}")
+        if skipped:
+            parts.append(f"⚠️ N'était pas inscrit : {', '.join(skipped)}")
+        if not parts:
+            parts.append("Aucun changement.")
+        await interaction.response.send_message("\n".join(parts), ephemeral=True)
 
     async def _member_display_name(self, guild, uid: int) -> str:
         """Nom affichable d'un participant (membre de guilde en priorité)."""
