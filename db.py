@@ -42,6 +42,8 @@ def init(db_path: str = DB_PATH) -> None:
             note                     TEXT,
             fixed_hour               INTEGER,
             fixed_time               TEXT,
+            reminder_message_id      INTEGER,
+            reminder_sent_at         TEXT,
             created_at               TEXT NOT NULL
         );
 
@@ -79,6 +81,8 @@ def init(db_path: str = DB_PATH) -> None:
     # Migrations : colonnes ajoutées a posteriori (idempotent).
     _migrate("ALTER TABLE raids ADD COLUMN fixed_hour INTEGER")
     _migrate("ALTER TABLE raids ADD COLUMN fixed_time TEXT")
+    _migrate("ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER")
+    _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
     # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
     _conn.execute(
         "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
@@ -170,6 +174,14 @@ def list_active_raids() -> list[sqlite3.Row]:
 def list_all_raids(limit: int = 50) -> list[sqlite3.Row]:
     rows = _db().execute(
         "SELECT * FROM raids ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return list(rows)
+
+
+def list_raids_with_reminder_message() -> list[sqlite3.Row]:
+    """Raids dont le message de rappel salon est encore à supprimer (tous états confondus)."""
+    rows = _db().execute(
+        "SELECT * FROM raids WHERE reminder_message_id IS NOT NULL ORDER BY id"
     ).fetchall()
     return list(rows)
 

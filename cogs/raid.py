@@ -25,6 +25,7 @@ from config import (
     RAID_HOURS,
     RAID_NAMES,
     RAIDS_CHANNEL_ID,
+    REMINDER_DELETE_HOURS,
     REMINDER_MINUTES,
     now_paris,
     raid_cap,
@@ -70,6 +71,9 @@ _RAID_SLUGS = {name: _slugify(name) for name in RAID_NAMES}
 
 # Durée minimale d'un sondage (en secondes).
 MIN_DUREE_SECONDS = 300
+
+# Le message de rappel posté dans le salon est auto-supprimé après ce délai.
+REMINDER_DELETE_AFTER = timedelta(hours=REMINDER_DELETE_HOURS)
 
 
 # --------------------------------------------------------------------------- views
@@ -198,6 +202,7 @@ class RaidCog(commands.Cog):
         try:
             await self.bot.wait_until_ready()
             await self._reschedule_all()
+            self._reschedule_reminder_cleanup()
             logger.info("RaidCog prêt, %d raid(s) actif(s) rechargé(s)", len(db.list_active_raids()))
         except asyncio.CancelledError:
             raise
@@ -585,7 +590,16 @@ class RaidCog(commands.Cog):
         channel = await self._get_channel(raid["channel_id"])
         if channel is not None:
             try:
-                await channel.send(embed=embeds.reminder_channel_embed(raid, len(participants)))
+                msg = await channel.send(embed=embeds.reminder_channel_embed(raid, len(participants)))
+                reminder_sent_at = now_paris()
+                # On mémorise le message pour pouvoir le supprimer (à 2h) et survivre à un reboot.
+                db.update_raid(
+                    raid_id, reminder_message_id=msg.id, reminder_sent_at=reminder_sent_at
+                )
+                self._schedule(
+                    raid_id, "del_reminder",
+                    reminder_sent_at + REMINDER_DELETE_AFTER, self._delete_reminder,
+                )
             except discord.DiscordException as exc:
                 logger.warning("Rappel #%d : message salon échoué: %s", raid_id, exc)
 
@@ -599,6 +613,24 @@ class RaidCog(commands.Cog):
         if raid["state"] != STATE_CANCELLED:
             db.set_raid_state(raid_id, STATE_DONE)
         logger.info("Raid #%d terminé", raid_id)
+
+    async def _delete_reminder(self, raid_id: int) -> None:
+        """Supprime le message de rappel en salon (auto-cleanup à 2h). Idempotent."""
+        raid = db.get_raid(raid_id)
+        if not raid or not raid["reminder_message_id"]:
+            return
+        channel = await self._get_channel(raid["channel_id"])
+        if channel is not None:
+            try:
+                msg = await channel.fetch_message(raid["reminder_message_id"])
+                await msg.delete()
+                logger.info("Rappel #%d : message salon supprimé", raid_id)
+            except discord.NotFound:
+                pass  # déjà supprimé
+            except discord.DiscordException as exc:
+                logger.warning("Rappel #%d : suppression message échouée: %s", raid_id, exc)
+        # On marque comme nettoyé pour ne pas retenter (et sortir du pass de replanif).
+        db.update_raid(raid_id, reminder_message_id=None, reminder_sent_at=None)
 
     # --------------------------------------------------------------- planif
 
@@ -621,7 +653,7 @@ class RaidCog(commands.Cog):
             self._tasks.pop((raid_id, kind), None)
 
     def _cancel_tasks(self, raid_id: int) -> None:
-        for kind in ("raid_close", "hour_close", "remind", "done"):
+        for kind in ("raid_close", "hour_close", "remind", "done", "del_reminder"):
             task = self._tasks.pop((raid_id, kind), None)
             if task is not None:
                 task.cancel()
@@ -659,6 +691,19 @@ class RaidCog(commands.Cog):
                     if state == STATE_SCHEDULED:
                         self._schedule(raid_id, "remind", remind_at, self._remind)
                     self._schedule(raid_id, "done", scheduled_at, self._mark_done)
+
+    def _reschedule_reminder_cleanup(self) -> None:
+        """Replanifie la suppression (à 2h) des messages de rappel en salon, y compris
+        pour les raids déjà terminés. `_schedule` à une date passée => déclenchement
+        immédiat, donc un rappel oublié pendant un reboot est nettoyé au redémarrage.
+        """
+        for raid in db.list_raids_with_reminder_message():
+            raid_id = raid["id"]
+            sent_at = _parse_when(raid["reminder_sent_at"])
+            self._schedule(
+                raid_id, "del_reminder",
+                sent_at + REMINDER_DELETE_AFTER, self._delete_reminder,
+            )
 
     # --------------------------------------------------------------- commandes
 

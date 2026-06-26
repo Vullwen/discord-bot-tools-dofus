@@ -73,6 +73,14 @@ try:
 except ValueError:
     REMINDER_MINUTES = 10
 
+# Le message de rappel posté dans le salon est auto-supprimé après ce délai (heures).
+try:
+    REMINDER_DELETE_HOURS = int(os.getenv("REMINDER_DELETE_HOURS", "2"))
+except ValueError:
+    REMINDER_DELETE_HOURS = 2
+if REMINDER_DELETE_HOURS < 0:
+    REMINDER_DELETE_HOURS = 2
+
 # Noms de raids possibles (séparés par des virgules).
 RAID_NAMES = [
     name.strip()
