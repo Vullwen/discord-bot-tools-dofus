@@ -193,3 +193,23 @@ def countdown_fr(closes_at: datetime, now: Optional[datetime] = None) -> str:
     if rest:
         return f"dans {hours}h{rest:02d}"
     return f"dans {hours}h"
+
+
+def poll_closes_at(
+    raid_date: date,
+    close_hour: int,
+    now: Optional[datetime] = None,
+    min_lead_minutes: int = 15,
+) -> datetime:
+    """Clôture automatique d'un sondage : le jour du raid à `close_hour` (aware Paris).
+
+    Si ce moment est déjà passé (raid créé le jour même après l'heure, ou raid très
+    proche), on replie sur `now + min_lead_minutes` afin de laisser un minimum de
+    temps de vote. Plus de paramètre « durée » : la clôture découle uniquement de la
+    date du raid.
+    """
+    now = now or datetime.now(PARIS)
+    close = datetime.combine(raid_date, time(hour=close_hour, minute=0), tzinfo=PARIS)
+    if close <= now:
+        close = now + timedelta(minutes=min_lead_minutes)
+    return close

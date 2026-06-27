@@ -29,29 +29,6 @@ def test_reminder_time():
     assert poll.reminder_time(scheduled, 10) == datetime(2026, 6, 28, 20, 50, tzinfo=PARIS)
 
 
-def test_parse_duration_seconds():
-    assert poll.parse_duration_seconds("5min") == 300
-    assert poll.parse_duration_seconds("15 min") == 900
-    assert poll.parse_duration_seconds("30m") == 1800
-    assert poll.parse_duration_seconds("1h") == 3600
-    assert poll.parse_duration_seconds("2h") == 7200
-    assert poll.parse_duration_seconds("10") == 600  # nombre seul -> minutes
-    # minimum 5 min appliqué
-    assert poll.parse_duration_seconds("1min") == 300
-    assert poll.parse_duration_seconds("3") == 300
-    assert poll.parse_duration_seconds(None) == 300
-    assert poll.parse_duration_seconds("nonsense") == 300
-
-
-def test_parse_duration_extra_formats():
-    assert poll.parse_duration_seconds("5mn") == 300
-    assert poll.parse_duration_seconds("5 minutes") == 300
-    assert poll.parse_duration_seconds("1h30") == 5400
-    assert poll.parse_duration_seconds("2h30m") == 9000
-    assert poll.parse_duration_seconds("1.5h") == 5400
-    assert poll.parse_duration_seconds("1,5h") == 5400
-
-
 def test_is_active_and_states():
     assert poll.is_active("voting_hour")
     assert poll.is_active("scheduled")

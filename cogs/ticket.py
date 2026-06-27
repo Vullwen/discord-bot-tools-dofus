@@ -21,7 +21,6 @@ from config import ADMIN_IDS, RAID_NAMES, TICKET_CATEGORY_ID
 from utils import dates as dates_utils
 from utils import names as names_utils
 from utils.perms import can_manage_ticket, is_raid_organizer
-from utils.poll import parse_duration_seconds
 
 logger = logging.getLogger("beb-raid.ticket")
 
@@ -45,12 +44,6 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
         placeholder="28/06, demain 19h30, 21h… (une heure fixe l'heure)",
         required=True,
         max_length=30,
-    )
-    duree_input = discord.ui.TextInput(
-        label="Durée du sondage",
-        placeholder="5mn, 15min, 1h, 2h30… (mini 5min)",
-        required=True,
-        max_length=20,
     )
 
     def __init__(self, bot: commands.Bot):
@@ -82,7 +75,6 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
         else:
             raid_name = None
 
-        duree_seconds = parse_duration_seconds(self.duree_input.value)
         channel = raid_cog._resolve_raids_channel(interaction.guild, interaction.channel)
         if channel is None or not isinstance(channel, discord.abc.Messageable):
             await interaction.response.send_message("Aucun salon de raids configuré.", ephemeral=True)
@@ -99,7 +91,7 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
         if dates_utils.parse_time(date_value) is not None:
             try:
                 raid_id = await raid_cog.create_raid(
-                    interaction.guild, channel, interaction.user, raid_name, date_value, duree_seconds
+                    interaction.guild, channel, interaction.user, raid_name, date_value
                 )
             except dates_utils.InvalidRaidDate as exc:
                 await interaction.response.send_message(f"❌ Date invalide : {exc}", ephemeral=True)
@@ -112,7 +104,7 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
 
         await raid_cog._prompt_hour_choice(
             interaction, interaction.guild, channel, interaction.user,
-            raid_name, date_value, duree_seconds, None,
+            raid_name, date_value, None,
         )
 
 

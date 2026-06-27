@@ -122,7 +122,7 @@ def create_raid(
     *,
     name: Optional[str],
     date_iso: str,
-    poll_duration_seconds: int,
+    poll_duration_seconds: int = 0,
     created_by: int,
     guild_id: int,
     channel_id: int,

@@ -1,4 +1,4 @@
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -124,3 +124,20 @@ def test_parse_hhmm():
     assert d.parse_hhmm("19:30") == time(19, 30)
     assert d.parse_hhmm(None) is None
     assert d.parse_hhmm("not a time") is None
+
+
+def test_poll_closes_at_midnight():
+    # Raid le 28/06, clôture à minuit le jour J (toutes les heures 0-23h futures).
+    closes = d.poll_closes_at(date(2026, 6, 28), 0, now=NOW)
+    assert closes == datetime(2026, 6, 28, 0, 0, tzinfo=PARIS)
+
+
+def test_poll_closes_at_morning():
+    closes = d.poll_closes_at(date(2026, 6, 28), 9, now=NOW)
+    assert closes == datetime(2026, 6, 28, 9, 0, tzinfo=PARIS)
+
+
+def test_poll_closes_at_today_falls_back():
+    # Raid "aujourd'hui" (25/06) à minuit : déjà passé (NOW=12h) -> repli now+15min.
+    closes = d.poll_closes_at(date(2026, 6, 25), 0, now=NOW)
+    assert closes == NOW + timedelta(minutes=15)
