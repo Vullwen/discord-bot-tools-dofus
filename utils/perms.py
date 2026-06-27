@@ -1,0 +1,53 @@
+"""Permissions pour la création/gestion des raids et tickets.
+
+Un « organisateur » est soit un admin bot (ADMIN_IDS, en dur dans le .env),
+soit le détenteur du rôle configuré par guilde (db.SETTING_RAID_MANAGER_ROLE).
+Si aucun rôle n'est configuré, seuls les admins sont organisateurs.
+
+Les helpers sont synchrones : la persistance est synchrone (sqlite3) et, pour
+les interactions en guilde, Discord fournit déjà interaction.user (un Member)
+avec ses roles — pas besoin d'intent privilégié ni de fetch réseau.
+"""
+from __future__ import annotations
+
+from typing import Any, Optional
+
+import discord
+
+import db
+from config import ADMIN_IDS
+
+
+def is_raid_organizer(interaction: discord.Interaction) -> bool:
+    """Admin bot OU détenteur du rôle organisateur configuré pour cette guilde.
+
+    Peut créer/gérer n'importe quel raid ou ticket.
+    """
+    if interaction.user.id in ADMIN_IDS:
+        return True
+    guild = interaction.guild
+    if guild is None:
+        return False
+    role_id = db.get_guild_setting_int(guild.id, db.SETTING_RAID_MANAGER_ROLE)
+    if not role_id:
+        return False
+    # interaction.user est un Member en guilde (avec .roles) ; un User hors guilde
+    # n'a pas .roles -> getattr retourne None -> non organisateur.
+    roles = getattr(interaction.user, "roles", None)
+    if not roles:
+        return False
+    return any(getattr(role, "id", None) == role_id for role in roles)
+
+
+def can_manage_raid(interaction: discord.Interaction, raid: Optional[Any]) -> bool:
+    """Organisateur OU créateur du raid : peut gérer ce raid précis."""
+    return is_raid_organizer(interaction) or (
+        raid is not None and interaction.user.id == raid["created_by"]
+    )
+
+
+def can_manage_ticket(interaction: discord.Interaction, ticket: Optional[Any]) -> bool:
+    """Organisateur OU opener du ticket : peut gérer ce ticket précis."""
+    return is_raid_organizer(interaction) or (
+        ticket is not None and interaction.user.id == ticket["opener_id"]
+    )

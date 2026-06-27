@@ -15,3 +15,4 @@ def test_import_modules():
     import utils.dates  # noqa: F401
     import utils.poll  # noqa: F401
     import utils.embeds  # noqa: F401
+    import utils.perms  # noqa: F401

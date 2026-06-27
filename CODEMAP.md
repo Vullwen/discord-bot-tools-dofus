@@ -50,7 +50,8 @@ beb_raid/
 ├── utils/               # Logique pure (testable sans Discord)
 │   ├── dates.py         #   parsing de dates/heures (Paris)
 │   ├── poll.py          #   états, dépouillement, formatage
-│   └── embeds.py        #   builders d'embeds Discord
+│   ├── embeds.py        #   builders d'embeds Discord
+│   └── perms.py         #   permissions : rôle organisateur (raid/ticket)
 ├── data/                # SQLite (monté en volume, gitignoré)
 └── tests/               # pytest
 ```
@@ -237,7 +238,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `handle_hour_vote(interaction, raid_id, hour)` — vote heure ; **refuse les créneaux passés** (jour même) ; cap.
 - `handle_register(interaction, raid_id)` — inscription rappel MP ; cap.
 - `handle_view_participants(interaction, raid_id)` — embed éphémère des participants.
-- `handle_close_poll(interaction, raid_id)` — clôture manuelle (admin ou créateur).
+- `handle_close_poll(interaction, raid_id)` — clôture manuelle (organisateur ou créateur).
 - `_member_display_name(guild, uid)` — nom affichable d'un participant (membre guilde puis user global).
 
 **Clôtures automatiques**
@@ -254,16 +255,16 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_reschedule_all()` — au boot : `add_view` (routage clics) + replanif des tâches depuis la base.
 
 **Slash commands**
-- `/raid date duree raid? note?` — crée un raid (defer éphémère).
+- `/raid date duree raid? note?` — crée un raid (**organisateur** ; defer éphémère).
 - `/list_raids` — embed des raids actifs.
-- `/cancel_raid raid_id` — annule (créateur ou admin).
-- `/force_close raid_id` — clôture immédiat (admin).
+- `/cancel_raid raid_id` — annule (créateur ou organisateur).
+- `/force_close raid_id` — clôture immédiat (organisateur).
 
 ---
 
 ## 9. `cogs/ticket.py` — Tickets privés d'organisation
 
-Salon privé (opener + admins) pour discuter puis lancer `/raid`-like via modal.
+Salon privé (opener + organisateurs) pour discuter puis lancer `/raid`-like via modal.
 
 - `_channel_name(name)` — pseudo → nom de salon `raid-pseudo`.
 - `RaidCreateModal` (Modal) — champs Raid / Date / Durée → `on_submit` appelle `RaidCog.create_raid`.
@@ -279,8 +280,8 @@ Salon privé (opener + admins) pour discuter puis lancer `/raid`-like via modal.
 - `/raid_panel` (admin) — poste le panneau « Ouvrir un ticket raid ».
 - `_resolve_ticket_category(guild)` — catégorie : réglage DB → env → None.
 - `open_ticket(interaction)` — crée le salon privé (overwrites) + entrée BDD.
-- `close_ticket(interaction)` — ferme + supprime le salon.
-- `_is_ticket_manager(interaction)` — opener ou admin ?
+- `close_ticket(interaction)` — ferme + supprime le salon (organisateur ou opener).
+- `_is_ticket_manager(interaction)` — opener ou organisateur ?
 - `prompt_add_member(interaction)` / `add_members(interaction, users)` — ajoute des membres au salon.
 
 ---
@@ -297,9 +298,16 @@ Salon privé (opener + admins) pour discuter puis lancer `/raid`-like via modal.
 
 ### `cogs/settings.py` — `SettingsCog`
 - `/setchannel setting channel` — fixe salon raids **ou** catégorie tickets (admin). `setting` ∈ {raids_channel, ticket_category}.
-- `/showconfig` — embed de la config de la guilde.
+- `/setraidrole role?` — fixe le **rôle organisateur** autorisé à créer/gérer les raids et tickets (admin). Vide = admins seulement.
+- `/showconfig` — embed de la config de la guilde (salon, catégorie, rôle organisateur).
 
-> **Total : 10 slash commands** (core×1, admin×2, settings×2, raid×4, ticket×1).
+### Permissions (`utils/perms.py`)
+Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** détenteur du rôle configuré par guilde (`SETTING_RAID_MANAGER_ROLE`, via `/setraidrole`). Si aucun rôle n'est configuré, seuls les `ADMIN_IDS` sont organisateurs.
+- `is_raid_organizer(interaction)` — création de raid, `/force_close`.
+- `can_manage_raid(interaction, raid)` — organisateur **ou créateur** du raid (clôture sondage, annulation, retrait de participants).
+- `can_manage_ticket(interaction, ticket)` — organisateur **ou opener** du ticket (fermer, ajouter des membres).
+
+> **Total : 11 slash commands** (core×1, admin×2, settings×3, raid×4, ticket×1).
 
 ---
 

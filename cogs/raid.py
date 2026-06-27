@@ -19,7 +19,6 @@ from discord.ext import commands
 
 import db
 from config import (
-    ADMIN_IDS,
     PARIS,
     RAID_DEFAULT_HOUR,
     RAID_HOURS,
@@ -32,6 +31,7 @@ from config import (
 )
 from utils import embeds
 from utils import dates as dates_utils
+from utils.perms import can_manage_raid, is_raid_organizer
 from utils.poll import (
     STATE_CANCELLED,
     STATE_CHOOSING_RAID,
@@ -506,10 +506,8 @@ class RaidCog(commands.Cog):
         )
 
     def _is_raid_manager(self, interaction: discord.Interaction, raid) -> bool:
-        """Admin ou créateur du raid : peut gérer les participants."""
-        return interaction.user.id in ADMIN_IDS or (
-            raid is not None and interaction.user.id == raid["created_by"]
-        )
+        """Organisateur (admin/rôle) ou créateur du raid : peut gérer les participants."""
+        return can_manage_raid(interaction, raid)
 
     async def prompt_admin_remove(self, interaction: discord.Interaction, raid_id: int) -> None:
         """Bouton admin : ouvre un sélecteur pour retirer des participants."""
@@ -588,12 +586,11 @@ class RaidCog(commands.Cog):
         )
 
     async def handle_close_poll(self, interaction: discord.Interaction, raid_id: int) -> None:
-        """Bouton : clôture immédiatement le sondage (admin ou créateur du raid)."""
+        """Bouton : clôture immédiatement le sondage (organisateur ou créateur du raid)."""
         raid = db.get_raid(raid_id)
-        is_creator = raid is not None and interaction.user.id == raid["created_by"]
-        if interaction.user.id not in ADMIN_IDS and not is_creator:
+        if not can_manage_raid(interaction, raid):
             await interaction.response.send_message(
-                "🔒 Réservé aux admins et au créateur du raid.", ephemeral=True
+                "🔒 Réservé aux organisateurs et au créateur du raid.", ephemeral=True
             )
             return
         if not raid:
@@ -846,6 +843,12 @@ class RaidCog(commands.Cog):
         raid: Optional[app_commands.Choice[str]] = None,
         note: Optional[str] = None,
     ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message(
+                "🔒 Tu dois avoir le rôle organisateur (ou être admin) pour créer un raid.",
+                ephemeral=True,
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         if interaction.guild is None:
             await interaction.followup.send("À utiliser dans un serveur.", ephemeral=True)
@@ -884,7 +887,7 @@ class RaidCog(commands.Cog):
         if not raid:
             await interaction.followup.send("Raid introuvable.", ephemeral=True)
             return
-        if interaction.user.id != raid["created_by"] and interaction.user.id not in ADMIN_IDS:
+        if not can_manage_raid(interaction, raid):
             await interaction.followup.send("Permission refusée.", ephemeral=True)
             return
 
@@ -899,10 +902,10 @@ class RaidCog(commands.Cog):
 
         await interaction.followup.send(f"Raid **#{raid_id}** annulé.", ephemeral=True)
 
-    @app_commands.command(name="force_close", description="Clôture immédiatement le sondage d'un raid (admin)")
+    @app_commands.command(name="force_close", description="Clôture immédiatement le sondage d'un raid (organisateur)")
     @app_commands.describe(raid_id="Identifiant du raid")
     async def force_close(self, interaction: discord.Interaction, raid_id: int) -> None:
-        if interaction.user.id not in ADMIN_IDS:
+        if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)

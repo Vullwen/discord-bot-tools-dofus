@@ -20,6 +20,7 @@ import db
 from config import ADMIN_IDS, RAID_NAMES, TICKET_CATEGORY_ID
 from utils import dates as dates_utils
 from utils import names as names_utils
+from utils.perms import can_manage_ticket, is_raid_organizer
 from utils.poll import parse_duration_seconds
 
 logger = logging.getLogger("beb-raid.ticket")
@@ -57,6 +58,12 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
         self.bot = bot
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message(
+                "🔒 Tu dois avoir le rôle organisateur (ou être admin) pour créer un raid.",
+                ephemeral=True,
+            )
+            return
         raid_cog = self.bot.get_cog("RaidCog")
         if raid_cog is None:
             await interaction.response.send_message("Module de raid indisponible.", ephemeral=True)
@@ -276,8 +283,7 @@ class TicketCog(commands.Cog):
 
     async def close_ticket(self, interaction: discord.Interaction) -> None:
         ticket = db.get_ticket_by_channel(interaction.channel_id)
-        is_opener = ticket is not None and interaction.user.id == ticket["opener_id"]
-        if not is_opener and interaction.user.id not in ADMIN_IDS:
+        if not can_manage_ticket(interaction, ticket):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         if ticket is not None:
@@ -289,10 +295,9 @@ class TicketCog(commands.Cog):
             logger.warning("Suppression du ticket %s échouée: %s", interaction.channel_id, exc)
 
     def _is_ticket_manager(self, interaction: discord.Interaction) -> bool:
-        """Opener du ticket ou admin : peut ajouter des membres / fermer."""
+        """Organisateur (admin/rôle) ou opener du ticket : peut ajouter des membres / fermer."""
         ticket = db.get_ticket_by_channel(interaction.channel_id)
-        is_opener = ticket is not None and interaction.user.id == ticket["opener_id"]
-        return is_opener or interaction.user.id in ADMIN_IDS
+        return can_manage_ticket(interaction, ticket)
 
     async def prompt_add_member(self, interaction: discord.Interaction) -> None:
         if not self._is_ticket_manager(interaction):
