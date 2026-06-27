@@ -83,6 +83,7 @@ def init(db_path: str = DB_PATH) -> None:
     _migrate("ALTER TABLE raids ADD COLUMN fixed_time TEXT")
     _migrate("ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER")
     _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
+    _migrate("ALTER TABLE raids ADD COLUMN poll_hours TEXT")
     # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
     _conn.execute(
         "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
@@ -131,14 +132,15 @@ def create_raid(
     scheduled_at: Optional[datetime] = None,
     note: Optional[str] = None,
     fixed_time: Optional[str] = None,
+    poll_hours: Optional[list[int]] = None,
 ) -> int:
     cur = _db().execute(
         """
         INSERT INTO raids
             (name, date, poll_duration_seconds, created_by, guild_id, channel_id,
              state, raid_poll_closes_at, hour_poll_closes_at, scheduled_at,
-             fixed_time, note, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             fixed_time, poll_hours, note, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             name,
@@ -152,6 +154,7 @@ def create_raid(
             hour_poll_closes_at.isoformat() if hour_poll_closes_at else None,
             scheduled_at.isoformat() if scheduled_at else None,
             fixed_time,
+            ",".join(str(h) for h in poll_hours) if poll_hours else None,
             note,
             _now_iso(),
         ),
@@ -182,6 +185,24 @@ def list_raids_with_reminder_message() -> list[sqlite3.Row]:
     """Raids dont le message de rappel salon est encore à supprimer (tous états confondus)."""
     rows = _db().execute(
         "SELECT * FROM raids WHERE reminder_message_id IS NOT NULL ORDER BY id"
+    ).fetchall()
+    return list(rows)
+
+
+def list_raids_with_messages() -> list[sqlite3.Row]:
+    """Raids dont au moins un message (sondages / planifié) reste à supprimer, et dont
+    l'heure prévue est connue. Les raids annulés sont exclus (leur message « annulé »
+    reste visible). Sert au cleanup automatique 2h post-raid."""
+    rows = _db().execute(
+        """
+        SELECT * FROM raids
+        WHERE state != 'cancelled'
+          AND scheduled_at IS NOT NULL
+          AND (raid_poll_message_id IS NOT NULL
+               OR hour_poll_message_id IS NOT NULL
+               OR scheduled_message_id IS NOT NULL)
+        ORDER BY id
+        """
     ).fetchall()
     return list(rows)
 

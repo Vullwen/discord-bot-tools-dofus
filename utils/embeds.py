@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
 import discord
 
-from config import RAID_HOURS, RAID_NAMES, raid_cap
+from config import RAID_NAMES, raid_cap
 from utils import dates as dates_utils
 from utils.poll import format_counts
 
@@ -15,8 +15,6 @@ GOLD = 0xF1C40F
 BLUE = 0x3498DB
 RED = 0xE74C3C
 GREY = 0x95A5A6
-
-_HOUR_ORDER = [str(h) for h in RAID_HOURS]
 
 
 def _parse_day(raid) -> date:
@@ -72,7 +70,7 @@ def raid_choice_result_embed(
     return embed
 
 
-def hour_poll_embed(raid, counts: Mapping[str, int], creator: str, participants: int) -> discord.Embed:
+def hour_poll_embed(raid, counts: Mapping[str, int], creator: str, participants: int, hours: Iterable[int]) -> discord.Embed:
     name = raid["name"] or "à définir"
     cap = raid_cap(raid["name"])
     embed = discord.Embed(
@@ -85,7 +83,7 @@ def hour_poll_embed(raid, counts: Mapping[str, int], creator: str, participants:
     )
     embed.add_field(
         name="Créneaux",
-        value=format_counts(counts, _HOUR_ORDER, suffix="h"),
+        value=format_counts(counts, [str(h) for h in hours], suffix="h"),
         inline=False,
     )
     embed.add_field(name="Inscriptions", value=_format_spots(participants, cap), inline=False)
@@ -97,14 +95,14 @@ def hour_poll_embed(raid, counts: Mapping[str, int], creator: str, participants:
     return embed
 
 
-def hour_poll_result_embed(raid, winner_hour: str, counts: Mapping[str, int]) -> discord.Embed:
+def hour_poll_result_embed(raid, winner_hour: str, counts: Mapping[str, int], hours: Iterable[int]) -> discord.Embed:
     name = raid["name"] or "Raid"
     embed = discord.Embed(
         title="🗓️ Sondage heure — clôturé",
         description=f"**Heure choisie : {winner_hour}h** ⏰",
         color=GREY,
     )
-    embed.add_field(name="Résultats finaux", value=format_counts(counts, _HOUR_ORDER, suffix="h"), inline=False)
+    embed.add_field(name="Résultats finaux", value=format_counts(counts, [str(h) for h in hours], suffix="h"), inline=False)
     embed.set_footer(text=f"{name} — {dates_utils.format_date_fr(_parse_day(raid))}")
     return embed
 

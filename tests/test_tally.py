@@ -63,3 +63,13 @@ def test_format_counts_bold_leader():
     out = poll.format_counts({"14": 0, "20": 3, "21": 1}, ["14", "20", "21"], suffix="h")
     assert "**20h: 3**" in out
     assert "14h: 0" in out
+
+
+def test_parse_poll_hours():
+    assert poll.parse_poll_hours("19,20,21", [14, 15]) == [19, 20, 21]
+    assert poll.parse_poll_hours("19, 20,21", [14]) == [19, 20, 21]  # espaces
+    assert poll.parse_poll_hours("21,19,20", [14]) == [19, 20, 21]  # tri
+    assert poll.parse_poll_hours("8,8,20", [14]) == [8, 20]          # dédoublonnage
+    assert poll.parse_poll_hours("", [14, 15]) == [14, 15]           # vide -> fallback
+    assert poll.parse_poll_hours(None, [14]) == [14]
+    assert poll.parse_poll_hours("99,abc,-1", [14, 15]) == [14, 15]  # invalide -> fallback

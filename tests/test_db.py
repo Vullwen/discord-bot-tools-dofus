@@ -104,3 +104,34 @@ def test_list_active_excludes_terminal(tmp_path):
         created_by=1, guild_id=2, channel_id=3, state="done",
     )
     assert len(db.list_active_raids()) == 1
+
+
+def test_create_raid_stores_poll_hours(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="Gigalodon", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="voting_hour", poll_hours=[19, 20, 21],
+    )
+    assert db.get_raid(rid)["poll_hours"] == "19,20,21"
+
+
+def test_list_raids_with_messages(tmp_path):
+    _fresh(tmp_path)
+    # Scheduled avec scheduled_message_id -> inclus.
+    r1 = db.create_raid(
+        name="A", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="scheduled",
+    )
+    db.update_raid(r1, scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS), scheduled_message_id=111)
+    # Pas de scheduled_at ni message -> exclu.
+    db.create_raid(
+        name="B", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="voting_hour",
+    )
+    # Cancelled avec message -> exclu (annulé, message conservé).
+    r3 = db.create_raid(
+        name="C", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="cancelled",
+    )
+    db.update_raid(r3, scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS), scheduled_message_id=333)
+    assert [r["id"] for r in db.list_raids_with_messages()] == [r1]

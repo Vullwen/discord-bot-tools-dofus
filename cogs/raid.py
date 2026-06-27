@@ -40,6 +40,7 @@ from utils.poll import (
     STATE_SCHEDULED,
     STATE_VOTING_HOUR,
     parse_duration_seconds,
+    parse_poll_hours,
     tally,
 )
 
@@ -66,7 +67,13 @@ def _parse_when(value) -> datetime:
     return datetime.fromisoformat(value)
 
 
-_HOUR_ORDER = [str(h) for h in RAID_HOURS]
+def _raid_hours(raid) -> list[int]:
+    """Heures proposées au sondage d'un raid : choisies par le créateur (colonne
+    `poll_hours`), fallback sur `RAID_HOURS` (anciens raids migrés / défaut)."""
+    raw = raid["poll_hours"] if raid else None
+    return parse_poll_hours(raw, RAID_HOURS)
+
+
 _RAID_SLUGS = {name: _slugify(name) for name in RAID_NAMES}
 
 # Durée minimale d'un sondage (en secondes).
@@ -205,7 +212,7 @@ class HourPollView(discord.ui.View):
         raid = db.get_raid(raid_id)
         now = now_paris()
         is_today = raid is not None and date.fromisoformat(raid["date"]) == now.date()
-        for hour in RAID_HOURS:
+        for hour in _raid_hours(raid):
             btn = _HourVoteButton(cog, raid_id, hour)
             # Un raid prévu aujourd'hui : on désactive les créneaux déjà passés.
             if is_today and hour <= now.hour:
@@ -233,6 +240,81 @@ class ScheduledRaidView(discord.ui.View):
         self.add_item(_AdminRemoveButton(cog, raid_id))
 
 
+class _HourChoiceSelect(discord.ui.Select):
+    def __init__(self):
+        super().__init__(
+            placeholder="Choisis les heures à proposer au sondage",
+            min_values=2,
+            max_values=24,
+            options=[discord.SelectOption(label=f"{h}h", value=str(h)) for h in range(24)],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        self.view.selected = sorted(int(v) for v in self.values)
+        await interaction.response.defer()
+
+
+class _ConfirmHoursButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="✅ Confirmer", style=discord.ButtonStyle.success)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.view.confirm(interaction)
+
+
+class HourChoiceView(discord.ui.View):
+    """Menu éphémère : le créateur choisit les créneaux du sondage d'heure, puis
+    confirme pour créer le raid. Expiration (timeout) -> création annulée."""
+
+    def __init__(self, cog: "RaidCog", guild, channel, user, raid_name, date_text, duree_seconds, note):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.selected: list[int] = []
+        self.guild = guild
+        self.channel = channel
+        self.user = user
+        self.raid_name = raid_name
+        self.date_text = date_text
+        self.duree_seconds = duree_seconds
+        self.note = note
+        self.message: Optional[discord.Message] = None
+        self.add_item(_HourChoiceSelect())
+        self.add_item(_ConfirmHoursButton())
+
+    async def confirm(self, interaction: discord.Interaction) -> None:
+        if not self.selected:
+            await interaction.response.send_message(
+                "Sélectionne au moins 2 heures dans le menu, puis Confirmer.",
+                ephemeral=True,
+            )
+            return
+        try:
+            raid_id = await self.cog.create_raid(
+                self.guild, self.channel, self.user, self.raid_name,
+                self.date_text, self.duree_seconds, self.note, poll_hours=self.selected,
+            )
+        except dates_utils.InvalidRaidDate as exc:
+            await interaction.response.edit_message(content=f"❌ Date invalide : {exc}", view=None)
+            self.stop()
+            return
+        self.stop()
+        await interaction.response.edit_message(
+            content=f"✅ Raid **#{raid_id}** créé — sondage posté dans {self.channel.mention}.",
+            view=None,
+        )
+
+    async def on_timeout(self) -> None:
+        if self.message is not None:
+            try:
+                await self.message.edit(
+                    content="❌ Création annulée : tu n'as pas choisi les heures à temps.",
+                    view=None,
+                )
+            except discord.DiscordException:
+                pass
+        self.stop()
+
+
 # --------------------------------------------------------------------------- cog
 
 
@@ -253,6 +335,7 @@ class RaidCog(commands.Cog):
             await self.bot.wait_until_ready()
             await self._reschedule_all()
             self._reschedule_reminder_cleanup()
+            self._reschedule_raid_message_cleanup()
             logger.info("RaidCog prêt, %d raid(s) actif(s) rechargé(s)", len(db.list_active_raids()))
         except asyncio.CancelledError:
             raise
@@ -279,6 +362,27 @@ class RaidCog(commands.Cog):
             if ch is not None:
                 return ch
         return fallback
+
+    async def _prompt_hour_choice(
+        self,
+        interaction: discord.Interaction,
+        guild,
+        channel,
+        user,
+        raid_name,
+        date_text,
+        duree_seconds,
+        note,
+    ) -> None:
+        """Présente le menu de choix des heures (la création du raid est différée
+        au clic sur Confirmer dans la view)."""
+        view = HourChoiceView(self, guild, channel, user, raid_name, date_text, duree_seconds, note)
+        content = "🕐 Choisis les heures à proposer au sondage, puis clique sur **✅ Confirmer**."
+        if interaction.response.is_done():
+            view.message = await interaction.followup.send(content, view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message(content, view=view, ephemeral=True)
+            view.message = await interaction.original_response()
 
     async def _creator_display(self, user_id: int) -> str:
         user = self.bot.get_user(user_id)
@@ -319,6 +423,7 @@ class RaidCog(commands.Cog):
         date_text: str,
         duree_seconds: int,
         note: Optional[str] = None,
+        poll_hours: Optional[list[int]] = None,
     ) -> int:
         """Crée un raid (cœur métier partagé par /raid et le ticket). Lève InvalidRaidDate.
 
@@ -348,6 +453,7 @@ class RaidCog(commands.Cog):
                 scheduled_at=scheduled_at,
                 note=note,
                 fixed_time=f"{fixed_time:%H:%M}",
+                poll_hours=poll_hours,
             )
             logger.info("Raid #%d créé par %s (heure fixée %s)", raid_id, user, fixed_label)
             await self._post_scheduled(raid_id)
@@ -375,6 +481,7 @@ class RaidCog(commands.Cog):
             hour_poll_closes_at=hour_closes,
             note=note,
             fixed_time=f"{fixed_time:%H:%M}" if fixed_time else None,
+            poll_hours=poll_hours,
         )
         logger.info("Raid #%d créé par %s (state=%s)", raid_id, user, state)
 
@@ -401,7 +508,7 @@ class RaidCog(commands.Cog):
         counts = db.get_vote_counts(raid_id, "hour")
         creator = await self._creator_display(raid["created_by"])
         participants = db.count_participants(raid_id)
-        embed = embeds.hour_poll_embed(raid, counts, creator, participants)
+        embed = embeds.hour_poll_embed(raid, counts, creator, participants, _raid_hours(raid))
         view = HourPollView(self, raid_id)
         msg = await channel.send(embed=embed, view=view)
         db.update_raid(raid_id, hour_poll_message_id=msg.id)
@@ -661,7 +768,10 @@ class RaidCog(commands.Cog):
         if not raid or raid["state"] != STATE_VOTING_HOUR:
             return
         counts = db.get_vote_counts(raid_id, "hour")
-        winner_hour = tally(counts, order=_HOUR_ORDER, default=str(RAID_DEFAULT_HOUR))
+        hours = _raid_hours(raid)
+        hour_order = [str(h) for h in hours]
+        default_hour = str(RAID_DEFAULT_HOUR) if RAID_DEFAULT_HOUR in hours else (hour_order[0] if hour_order else str(RAID_DEFAULT_HOUR))
+        winner_hour = tally(counts, order=hour_order, default=default_hour)
         raid_date = date.fromisoformat(raid["date"])
         scheduled_at = dates_utils.combine_date_hour(raid_date, int(winner_hour))
         db.update_raid(raid_id, state=STATE_SCHEDULED, scheduled_at=scheduled_at)
@@ -670,7 +780,7 @@ class RaidCog(commands.Cog):
         await self._edit_message(
             raid["channel_id"],
             raid["hour_poll_message_id"],
-            embed=embeds.hour_poll_result_embed(raid, winner_hour, counts),
+            embed=embeds.hour_poll_result_embed(raid, winner_hour, counts, hours),
             view=None,
         )
 
@@ -679,6 +789,10 @@ class RaidCog(commands.Cog):
 
     def _schedule_reminder(self, raid_id: int, scheduled_at: datetime) -> None:
         now = now_paris()
+        # Suppression des messages du raid 2h après l'heure prévue (tout état confondu).
+        self._schedule(
+            raid_id, "del_raid_msgs", scheduled_at + REMINDER_DELETE_AFTER, self._delete_raid_messages
+        )
         if now >= scheduled_at:
             # Le raid est déjà passé (date aujourd'hui + sondage long) -> on termine.
             db.set_raid_state(raid_id, STATE_DONE)
@@ -750,6 +864,34 @@ class RaidCog(commands.Cog):
         # On marque comme nettoyé pour ne pas retenter (et sortir du pass de replanif).
         db.update_raid(raid_id, reminder_message_id=None, reminder_sent_at=None)
 
+    async def _delete_raid_messages(self, raid_id: int) -> None:
+        """Supprime les messages d'un raid (sondages + message planifié) 2h après
+        l'heure prévue. Les raids annulés sont exclus : leur message « annulé »
+        reste visible jusqu'à suppression manuelle. Idempotent."""
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] == STATE_CANCELLED:
+            return
+        channel = await self._get_channel(raid["channel_id"])
+        deleted = 0
+        if channel is not None:
+            for col in ("raid_poll_message_id", "hour_poll_message_id", "scheduled_message_id"):
+                mid = raid[col]
+                if not mid:
+                    continue
+                try:
+                    msg = await channel.fetch_message(mid)
+                    await msg.delete()
+                    deleted += 1
+                except discord.NotFound:
+                    pass  # déjà supprimé
+                except discord.DiscordException as exc:
+                    logger.warning("Raid #%d : suppression message %s=%s échouée: %s", raid_id, col, mid, exc)
+        # Marque comme nettoyé pour sortir du pass de replanif au boot.
+        db.update_raid(
+            raid_id, raid_poll_message_id=None, hour_poll_message_id=None, scheduled_message_id=None
+        )
+        logger.info("Raid #%d : %d message(s) supprimé(s) (cleanup 2h)", raid_id, deleted)
+
     # --------------------------------------------------------------- planif
 
     def _schedule(self, raid_id: int, kind: str, when: datetime, coro_fn) -> None:
@@ -771,7 +913,7 @@ class RaidCog(commands.Cog):
             self._tasks.pop((raid_id, kind), None)
 
     def _cancel_tasks(self, raid_id: int) -> None:
-        for kind in ("raid_close", "hour_close", "remind", "done", "del_reminder"):
+        for kind in ("raid_close", "hour_close", "remind", "done", "del_reminder", "del_raid_msgs"):
             task = self._tasks.pop((raid_id, kind), None)
             if task is not None:
                 task.cancel()
@@ -823,6 +965,20 @@ class RaidCog(commands.Cog):
                 sent_at + REMINDER_DELETE_AFTER, self._delete_reminder,
             )
 
+    def _reschedule_raid_message_cleanup(self) -> None:
+        """Replanifie la suppression (à 2h) des messages de raid (sondages + planifié)
+        pour tous les raids non annulés dont l'heure est connue et qui ont encore des
+        messages. `_schedule` à une date passée => déclenchement immédiat, donc un
+        raid oublié pendant un reboot est nettoyé au redémarrage.
+        """
+        for raid in db.list_raids_with_messages():
+            raid_id = raid["id"]
+            scheduled_at = _parse_when(raid["scheduled_at"])
+            self._schedule(
+                raid_id, "del_raid_msgs",
+                scheduled_at + REMINDER_DELETE_AFTER, self._delete_raid_messages,
+            )
+
     # --------------------------------------------------------------- commandes
 
     @app_commands.command(name="raid", description="Crée un raid : fixe l'heure toi-même ou laisse un sondage")
@@ -859,18 +1015,33 @@ class RaidCog(commands.Cog):
             await interaction.followup.send("Impossible de trouver un salon pour poster le sondage.", ephemeral=True)
             return
 
+        # Validation précoce de la date (avant de présenter le menu d'heures).
         try:
-            raid_id = await self.create_raid(
-                interaction.guild, channel, interaction.user, raid_name, date,
-                parse_duration_seconds(duree), note,
-            )
+            dates_utils.parse_raid_date(date)
         except dates_utils.InvalidRaidDate as exc:
             await interaction.followup.send(f"❌ Date invalide : {exc}", ephemeral=True)
             return
 
-        await interaction.followup.send(
-            f"✅ Raid **#{raid_id}** créé — sondage posté dans {channel.mention}.",
-            ephemeral=True,
+        # Heure fixée dans `date` (ex: "demain 21h") -> création directe, pas de sondage.
+        # Sinon -> menu de choix des créneaux (création différée au Confirm).
+        if dates_utils.parse_time(date) is not None:
+            try:
+                raid_id = await self.create_raid(
+                    interaction.guild, channel, interaction.user, raid_name, date,
+                    parse_duration_seconds(duree), note,
+                )
+            except dates_utils.InvalidRaidDate as exc:
+                await interaction.followup.send(f"❌ Date invalide : {exc}", ephemeral=True)
+                return
+            await interaction.followup.send(
+                f"✅ Raid **#{raid_id}** créé — sondage posté dans {channel.mention}.",
+                ephemeral=True,
+            )
+            return
+
+        await self._prompt_hour_choice(
+            interaction, interaction.guild, channel, interaction.user,
+            raid_name, date, parse_duration_seconds(duree), note,
         )
 
     @app_commands.command(name="list_raids", description="Liste les raids actifs")

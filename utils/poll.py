@@ -54,6 +54,24 @@ def reminder_time(scheduled_at: datetime, minutes: int) -> datetime:
     return scheduled_at - timedelta(minutes=minutes)
 
 
+def parse_poll_hours(raw, fallback: Iterable[int]) -> list[int]:
+    """CSV '19,20,21' -> [19, 20, 21] (trié, dédupliqué, 0-23).
+
+    Retourne `list(fallback)` si `raw` est vide/invalide. Utilisé pour relire les
+    créneaux choisis par le créateur d'un raid (colonne `poll_hours`).
+    """
+    if not raw:
+        return sorted(set(fallback))
+    hours: set[int] = set()
+    for chunk in str(raw).split(","):
+        chunk = chunk.strip()
+        if chunk.lstrip("-").isdigit():
+            h = int(chunk)
+            if 0 <= h <= 23:
+                hours.add(h)
+    return sorted(hours) if hours else sorted(set(fallback))
+
+
 def format_counts(counts: Mapping[str, int], order: Iterable[str], suffix: str = "") -> str:
     """Représentation texte des résultats : '14h: 2 | 15h: 0 | ...'.
 

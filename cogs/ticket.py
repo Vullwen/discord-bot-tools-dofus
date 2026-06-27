@@ -88,17 +88,31 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
             await interaction.response.send_message("Aucun salon de raids configuré.", ephemeral=True)
             return
 
+        date_value = self.date_input.value
         try:
-            raid_id = await raid_cog.create_raid(
-                interaction.guild, channel, interaction.user, raid_name, self.date_input.value, duree_seconds
-            )
+            dates_utils.parse_raid_date(date_value)  # validation précoce
         except dates_utils.InvalidRaidDate as exc:
             await interaction.response.send_message(f"❌ Date invalide : {exc}", ephemeral=True)
             return
 
-        await interaction.response.send_message(
-            f"✅ Raid **#{raid_id}** créé — sondage posté dans {channel.mention}.",
-            ephemeral=False,
+        # Heure fixée -> création directe ; sinon -> menu de choix des créneaux.
+        if dates_utils.parse_time(date_value) is not None:
+            try:
+                raid_id = await raid_cog.create_raid(
+                    interaction.guild, channel, interaction.user, raid_name, date_value, duree_seconds
+                )
+            except dates_utils.InvalidRaidDate as exc:
+                await interaction.response.send_message(f"❌ Date invalide : {exc}", ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"✅ Raid **#{raid_id}** créé — sondage posté dans {channel.mention}.",
+                ephemeral=False,
+            )
+            return
+
+        await raid_cog._prompt_hour_choice(
+            interaction, interaction.guild, channel, interaction.user,
+            raid_name, date_value, duree_seconds, None,
         )
 
 
