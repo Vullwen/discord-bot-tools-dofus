@@ -279,7 +279,7 @@ Salon privé (opener + organisateurs) pour discuter puis lancer `/raid`-like via
 - `cog_load()` — enregistre les vues persistantes (`add_view`).
 - `/raid_panel` (admin) — poste le panneau « Ouvrir un ticket raid ».
 - `_resolve_ticket_category(guild)` — catégorie : réglage DB → env → None.
-- `open_ticket(interaction)` — crée le salon privé (overwrites) + entrée BDD.
+- `open_ticket(interaction)` — crée le salon privé (overwrites) + entrée BDD (**organisateur**).
 - `close_ticket(interaction)` — ferme + supprime le salon (organisateur ou opener).
 - `_is_ticket_manager(interaction)` — opener ou organisateur ?
 - `prompt_add_member(interaction)` / `add_members(interaction, users)` — ajoute des membres au salon.

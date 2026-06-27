@@ -221,6 +221,12 @@ class TicketCog(commands.Cog):
         if guild is None:
             await interaction.response.send_message("Commande à utiliser dans un serveur.", ephemeral=True)
             return
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message(
+                "🔒 Tu dois avoir le rôle organisateur (ou être admin) pour ouvrir un ticket raid.",
+                ephemeral=True,
+            )
+            return
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
