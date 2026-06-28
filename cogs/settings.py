@@ -97,6 +97,39 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="setraidnotifyrole",
+        description="Définit le rôle mentionné à chaque nouveau raid (admin)",
+    )
+    @app_commands.describe(
+        role="Le rôle à mentionner (vide = désactive la mention)",
+    )
+    async def setraidnotifyrole(
+        self,
+        interaction: discord.Interaction,
+        role: Optional[discord.Role] = None,
+    ) -> None:
+        if interaction.user.id not in ADMIN_IDS:
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        if role is None:
+            db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_NOTIFY_ROLE, "")
+            await interaction.response.send_message(
+                "✅ Mention de raid désactivée (aucun rôle ne sera mentionné).",
+                ephemeral=True,
+            )
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_NOTIFY_ROLE, str(role.id))
+        await interaction.response.send_message(
+            f"✅ Rôle notif défini : {role.mention}. Il sera mentionné à l'annonce de chaque nouveau raid.",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="showconfig", description="Affiche la configuration des raids/tickets de ce serveur")
     async def showconfig(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None:
@@ -111,18 +144,27 @@ class SettingsCog(commands.Cog):
             ch = guild.get_channel(cid)
             return ch.mention if ch else f"*(salon {cid} introuvable)*"
 
-        def _role_mention() -> str:
-            rid = db.get_guild_setting_int(guild.id, db.SETTING_RAID_MANAGER_ROLE)
+        def _role_mention(key, fallback):
+            rid = db.get_guild_setting_int(guild.id, key)
             if not rid:
-                return "*(non défini — admins seulement)*"
+                return fallback
             role = guild.get_role(rid)
             return role.mention if role else f"*(rôle {rid} introuvable)*"
 
         embed = discord.Embed(title="⚙️ Configuration", color=0x2ECC71)
         embed.add_field(name="Salon des raids", value=_mention(db.SETTING_RAIDS_CHANNEL), inline=False)
         embed.add_field(name="Catégorie des tickets", value=_mention(db.SETTING_TICKET_CATEGORY), inline=False)
-        embed.add_field(name="Rôle organisateur", value=_role_mention(), inline=False)
-        embed.set_footer(text="Configure avec /setchannel et /setraidrole")
+        embed.add_field(
+            name="Rôle organisateur",
+            value=_role_mention(db.SETTING_RAID_MANAGER_ROLE, "*(non défini — admins seulement)*"),
+            inline=False,
+        )
+        embed.add_field(
+            name="Rôle notif raids",
+            value=_role_mention(db.SETTING_RAID_NOTIFY_ROLE, "*(non défini — pas de mention)*"),
+            inline=False,
+        )
+        embed.set_footer(text="Configure avec /setchannel, /setraidrole et /setraidnotifyrole")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

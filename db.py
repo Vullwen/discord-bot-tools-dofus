@@ -335,6 +335,8 @@ SETTING_RAIDS_CHANNEL = "raids_channel"
 SETTING_TICKET_CATEGORY = "ticket_category"
 # Rôle Discord autorisé à créer/gérer les raids (et tickets). Vide = admins seulement.
 SETTING_RAID_MANAGER_ROLE = "raid_manager_role"
+# Rôle Discord mentionné à l'annonce d'un nouveau raid (1er message). Vide = aucune mention.
+SETTING_RAID_NOTIFY_ROLE = "raid_notify_role"
 
 
 def set_guild_setting(guild_id: int, key: str, value: str) -> None:

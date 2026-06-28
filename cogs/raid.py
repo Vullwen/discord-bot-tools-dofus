@@ -429,6 +429,8 @@ class RaidCog(commands.Cog):
         fixed_time = dates_utils.parse_time(date_text)
         now = now_paris()
         fixed_label = f"{fixed_time:%Hh%M}" if fixed_time else None
+        # Rôle mentionné à l'annonce du raid (1er message seulement) — None si non configuré.
+        notify_role_id = db.get_guild_setting_int(guild.id, db.SETTING_RAID_NOTIFY_ROLE)
 
         # Heure imposée ET raid connu -> planification directe, sans aucun sondage.
         if fixed_time is not None and raid_name:
@@ -448,7 +450,7 @@ class RaidCog(commands.Cog):
                 poll_hours=poll_hours,
             )
             logger.info("Raid #%d créé par %s (heure fixée %s)", raid_id, user, fixed_label)
-            await self._post_scheduled(raid_id)
+            await self._post_scheduled(raid_id, notify_role_id=notify_role_id)
             self._schedule_reminder(raid_id, scheduled_at)
             return raid_id
 
@@ -485,34 +487,39 @@ class RaidCog(commands.Cog):
         logger.info("Raid #%d créé par %s (state=%s, clôture %s)", raid_id, user, state, closes_at.isoformat())
 
         if state == STATE_VOTING_HOUR:
-            await self._send_hour_poll(channel, raid_id)
+            await self._send_hour_poll(channel, raid_id, notify_role_id=notify_role_id)
             self._schedule(raid_id, "hour_close", hour_closes, self._close_hour_poll)
         else:
-            await self._send_raid_choice(channel, raid_id)
+            await self._send_raid_choice(channel, raid_id, notify_role_id=notify_role_id)
             self._schedule(raid_id, "raid_close", raid_closes, self._close_raid_choice)
 
         return raid_id
 
-    async def _send_raid_choice(self, channel, raid_id: int) -> None:
+    @staticmethod
+    def _announce_content(notify_role_id) -> Optional[str]:
+        """Contenu de mention pour l'annonce d'un raid (None si aucun rôle configuré)."""
+        return f"<@&{notify_role_id}>" if notify_role_id else None
+
+    async def _send_raid_choice(self, channel, raid_id: int, notify_role_id=None) -> None:
         raid = db.get_raid(raid_id)
         counts = db.get_vote_counts(raid_id, "raid")
         creator = await self._creator_display(raid["created_by"])
         embed = embeds.raid_choice_embed(raid, counts, creator)
         view = RaidChoiceView(self, raid_id)
-        msg = await channel.send(embed=embed, view=view)
+        msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
         db.update_raid(raid_id, raid_poll_message_id=msg.id)
 
-    async def _send_hour_poll(self, channel, raid_id: int) -> None:
+    async def _send_hour_poll(self, channel, raid_id: int, notify_role_id=None) -> None:
         raid = db.get_raid(raid_id)
         counts = db.get_vote_counts(raid_id, "hour")
         creator = await self._creator_display(raid["created_by"])
         participants = db.count_participants(raid_id)
         embed = embeds.hour_poll_embed(raid, counts, creator, participants, _raid_hours(raid))
         view = HourPollView(self, raid_id)
-        msg = await channel.send(embed=embed, view=view)
+        msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
         db.update_raid(raid_id, hour_poll_message_id=msg.id)
 
-    async def _post_scheduled(self, raid_id: int) -> None:
+    async def _post_scheduled(self, raid_id: int, notify_role_id=None) -> None:
         raid = db.get_raid(raid_id)
         creator = await self._creator_display(raid["created_by"])
         participants = db.count_participants(raid_id)
@@ -522,7 +529,7 @@ class RaidCog(commands.Cog):
         if channel is None:
             logger.warning("Salon introuvable pour le raid #%d", raid_id)
             return
-        msg = await channel.send(embed=embed, view=view)
+        msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
         db.update_raid(raid_id, scheduled_message_id=msg.id)
 
     # --------------------------------------------------------------- votes
