@@ -183,6 +183,20 @@ class _AdminRemoveButton(discord.ui.Button):
         await self.cog.prompt_admin_remove(interaction, self.raid_id)
 
 
+class _AdminCancelButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="❌ Annuler (admin)",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"bebraid:cancel:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.prompt_cancel_raid(interaction, self.raid_id)
+
+
 class _RemoveMemberSelect(discord.ui.UserSelect):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(
@@ -203,6 +217,29 @@ class RemoveMemberView(discord.ui.View):
         self.add_item(_RemoveMemberSelect(cog, raid_id))
 
 
+class _ConfirmCancelView(discord.ui.View):
+    """Confirmation éphémère avant d'annuler un raid (Oui / Non)."""
+
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.raid_id = raid_id
+
+    @discord.ui.button(label="✅ Oui, annuler", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        ok = await self.cog._apply_cancel(self.raid_id)
+        self.stop()
+        await interaction.response.edit_message(
+            content=(f"Raid **#{self.raid_id}** annulé." if ok else "Raid introuvable ou déjà annulé."),
+            view=None,
+        )
+
+    @discord.ui.button(label="❌ Non", style=discord.ButtonStyle.secondary)
+    async def abort(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        self.stop()
+        await interaction.response.edit_message(content="Annulation abandonnée.", view=None)
+
+
 class HourPollView(discord.ui.View):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(timeout=None)
@@ -217,6 +254,7 @@ class HourPollView(discord.ui.View):
             self.add_item(btn)
         self.add_item(_ClosePollButton(cog, raid_id))
         self.add_item(_ParticipantsButton(cog, raid_id))
+        self.add_item(_AdminCancelButton(cog, raid_id))
 
 
 class RaidChoiceView(discord.ui.View):
@@ -226,6 +264,7 @@ class RaidChoiceView(discord.ui.View):
             self.add_item(_RaidChoiceButton(cog, raid_id, name))
         self.add_item(_ClosePollButton(cog, raid_id))
         self.add_item(_ParticipantsButton(cog, raid_id))
+        self.add_item(_AdminCancelButton(cog, raid_id))
 
 
 class ScheduledRaidView(discord.ui.View):
@@ -235,6 +274,7 @@ class ScheduledRaidView(discord.ui.View):
         self.add_item(_UnregisterButton(cog, raid_id))
         self.add_item(_ParticipantsButton(cog, raid_id))
         self.add_item(_AdminRemoveButton(cog, raid_id))
+        self.add_item(_AdminCancelButton(cog, raid_id))
 
 
 class _HourChoiceSelect(discord.ui.Select):
@@ -242,7 +282,7 @@ class _HourChoiceSelect(discord.ui.Select):
         super().__init__(
             placeholder="Choisis les heures à proposer au sondage",
             min_values=2,
-            max_values=24,
+            max_values=22,  # 22 h + boutons (close/participants/annuler) = 25 composants max Discord
             options=[discord.SelectOption(label=f"{h}h", value=str(h)) for h in range(24)],
         )
 
@@ -1054,6 +1094,37 @@ class RaidCog(commands.Cog):
         rows = db.list_active_raids()
         await interaction.followup.send(embed=embeds.list_embed(rows), ephemeral=True)
 
+    async def _apply_cancel(self, raid_id: int) -> bool:
+        """Annule un raid (sans interaction) : annule les tâches planifiées, passe en
+        CANCELLED et édite les messages visibles en embed « annulé ». Retourne False si
+        le raid est introuvable ou déjà annulé. Réutilisée par /cancel_raid et le bouton.
+        """
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] == STATE_CANCELLED:
+            return False
+        self._cancel_tasks(raid_id)
+        db.set_raid_state(raid_id, STATE_CANCELLED)
+        cancelled = embeds.cancelled_embed(raid)
+        for column in ("raid_poll_message_id", "hour_poll_message_id", "scheduled_message_id"):
+            if raid[column]:
+                await self._edit_message(raid["channel_id"], raid[column], embed=cancelled, view=None)
+        return True
+
+    async def prompt_cancel_raid(self, interaction: discord.Interaction, raid_id: int) -> None:
+        """Bouton admin « Annuler » : vérifie la permission puis demande confirmation."""
+        raid = db.get_raid(raid_id)
+        if not raid:
+            await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            return
+        if not can_manage_raid(interaction, raid):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"⚠️ Confirmer l'annulation du raid **#{raid_id}** ? Cette action est irréversible.",
+            view=_ConfirmCancelView(self, raid_id),
+            ephemeral=True,
+        )
+
     @app_commands.command(name="cancel_raid", description="Annule un raid (créateur ou admin)")
     @app_commands.describe(raid_id="Identifiant du raid (visible via /list_raids)")
     async def cancel_raid(self, interaction: discord.Interaction, raid_id: int) -> None:
@@ -1065,17 +1136,11 @@ class RaidCog(commands.Cog):
         if not can_manage_raid(interaction, raid):
             await interaction.followup.send("Permission refusée.", ephemeral=True)
             return
-
-        self._cancel_tasks(raid_id)
-        db.set_raid_state(raid_id, STATE_CANCELLED)
-
-        # Marquer les messages visibles comme annulés.
-        cancelled = embeds.cancelled_embed(raid)
-        for column in ("raid_poll_message_id", "hour_poll_message_id", "scheduled_message_id"):
-            if raid[column]:
-                await self._edit_message(raid["channel_id"], raid[column], embed=cancelled, view=None)
-
-        await interaction.followup.send(f"Raid **#{raid_id}** annulé.", ephemeral=True)
+        ok = await self._apply_cancel(raid_id)
+        await interaction.followup.send(
+            f"Raid **#{raid_id}** annulé." if ok else f"Raid **#{raid_id}** introuvable ou déjà annulé.",
+            ephemeral=True,
+        )
 
     @app_commands.command(name="force_close", description="Clôture immédiatement le sondage d'un raid (organisateur)")
     @app_commands.describe(raid_id="Identifiant du raid")
