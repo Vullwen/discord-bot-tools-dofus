@@ -597,23 +597,29 @@ class RaidCog(commands.Cog):
         if date.fromisoformat(raid["date"]) == now_paris().date() and hour <= now_paris().hour:
             await interaction.response.send_message("⏰ Ce créneau est déjà passé.", ephemeral=True)
             return
-        cap = raid_cap(raid["name"])
         already = db.is_participant(raid_id, interaction.user.id)
-        if cap is not None and not already and db.count_participants(raid_id) >= cap:
-            await interaction.response.send_message(
-                f"⛔ Ce raid est complet ({cap}/{cap}). Impossible de s'inscrire.", ephemeral=True
-            )
-            return
-        db.cast_vote(raid_id, interaction.user.id, "hour", str(hour))
-        if not already:
+        will_add = str(hour) not in db.get_user_votes(raid_id, interaction.user.id, "hour")
+        # Inscription comme participant au premier créneau voté (sous réserve du cap).
+        if will_add and not already:
+            cap = raid_cap(raid["name"])
+            if cap is not None and db.count_participants(raid_id) >= cap:
+                await interaction.response.send_message(
+                    f"⛔ Ce raid est complet ({cap}/{cap}). Impossible de s'inscrire.", ephemeral=True
+                )
+                return
+        added = db.toggle_vote(raid_id, interaction.user.id, "hour", str(hour))
+        if added and not already:
             db.add_participant(raid_id, interaction.user.id)
         counts = db.get_vote_counts(raid_id, "hour")
         participants = db.count_participants(raid_id)
         creator = await self._creator_display(raid["created_by"])
-        await interaction.response.send_message(f"Vote enregistré : **{hour}h** ✅", ephemeral=True)
+        user_hours = sorted(int(h) for h in db.get_user_votes(raid_id, interaction.user.id, "hour"))
+        votes_str = ", ".join(f"{h}h" for h in user_hours) or "aucun"
+        msg = f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}."
+        await interaction.response.send_message(msg, ephemeral=True)
         await self._edit_message(
             raid["channel_id"], raid["hour_poll_message_id"],
-            embed=embeds.hour_poll_embed(raid, counts, creator, participants),
+            embed=embeds.hour_poll_embed(raid, counts, creator, participants, _raid_hours(raid)),
         )
 
     async def handle_register(self, interaction: discord.Interaction, raid_id: int) -> None:

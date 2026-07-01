@@ -135,3 +135,18 @@ def test_list_raids_with_messages(tmp_path):
     )
     db.update_raid(r3, scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS), scheduled_message_id=333)
     assert [r["id"] for r in db.list_raids_with_messages()] == [r1]
+
+
+def test_toggle_vote_multi(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="X", date_iso="2026-06-28", created_by=1, guild_id=2, channel_id=3, state="voting_hour",
+    )
+    # Multi-vote : un user peut voter plusieurs créneaux qui coexistent.
+    assert db.toggle_vote(rid, 100, "hour", "20") is True   # ajout
+    assert db.toggle_vote(rid, 100, "hour", "21") is True   # ajout (2e créneau)
+    assert db.get_user_votes(rid, 100, "hour") == ["20", "21"]
+    # Re-clic sur un créneau déjà voté -> le retire sans toucher aux autres.
+    assert db.toggle_vote(rid, 100, "hour", "20") is False
+    assert db.get_user_votes(rid, 100, "hour") == ["21"]
+    assert db.get_vote_counts(rid, "hour") == {"21": 1}

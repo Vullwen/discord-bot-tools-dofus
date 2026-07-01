@@ -246,6 +246,39 @@ def cast_vote(raid_id: int, user_id: int, kind: str, choice: str) -> None:
     conn.commit()
 
 
+def toggle_vote(raid_id: int, user_id: int, kind: str, choice: str) -> bool:
+    """Vote multi-choix : bascule un choix pour (raid, user, kind) sans toucher aux
+    autres choix déjà votés. Retourne True si le vote a été ajouté, False s'il a été
+    retiré. Conçu pour le sondage d'heure (plusieurs créneaux possibles)."""
+    conn = _db()
+    existing = conn.execute(
+        "SELECT 1 FROM votes WHERE raid_id = ? AND user_id = ? AND kind = ? AND choice = ?",
+        (raid_id, user_id, kind, choice),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "DELETE FROM votes WHERE raid_id = ? AND user_id = ? AND kind = ? AND choice = ?",
+            (raid_id, user_id, kind, choice),
+        )
+        conn.commit()
+        return False
+    conn.execute(
+        "INSERT OR IGNORE INTO votes (raid_id, user_id, kind, choice) VALUES (?, ?, ?, ?)",
+        (raid_id, user_id, kind, choice),
+    )
+    conn.commit()
+    return True
+
+
+def get_user_votes(raid_id: int, user_id: int, kind: str) -> list[str]:
+    """Liste les choix votés par un utilisateur pour un type donné."""
+    rows = _db().execute(
+        "SELECT choice FROM votes WHERE raid_id = ? AND user_id = ? AND kind = ?",
+        (raid_id, user_id, kind),
+    ).fetchall()
+    return [row["choice"] for row in rows]
+
+
 def get_vote_counts(raid_id: int, kind: str) -> dict[str, int]:
     rows = _db().execute(
         "SELECT choice, COUNT(*) AS n FROM votes WHERE raid_id = ? AND kind = ? GROUP BY choice",
