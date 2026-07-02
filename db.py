@@ -84,11 +84,15 @@ def init(db_path: str = DB_PATH) -> None:
     _migrate("ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER")
     _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
     _migrate("ALTER TABLE raids ADD COLUMN poll_hours TEXT")
+    _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
+    _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
     # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
     _conn.execute(
         "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
         "WHERE fixed_hour IS NOT NULL AND fixed_time IS NULL"
     )
+    # Backfill : joined_at des anciens participants (ordre FIFO arbitraire entre eux).
+    _conn.execute("UPDATE participants SET joined_at = ? WHERE joined_at IS NULL", (_now_iso(),))
     _conn.commit()
 
 
@@ -298,19 +302,32 @@ def get_voters(raid_id: int, kind: str, choice: str) -> list[int]:
 # --------------------------------------------------------------------- participants
 
 
-def add_participant(raid_id: int, user_id: int) -> None:
+def add_participant(raid_id: int, user_id: int, status: str = "confirmed") -> None:
     _db().execute(
-        "INSERT OR IGNORE INTO participants (raid_id, user_id) VALUES (?, ?)",
-        (raid_id, user_id),
+        "INSERT OR IGNORE INTO participants (raid_id, user_id, status, joined_at) "
+        "VALUES (?, ?, ?, ?)",
+        (raid_id, user_id, status, _now_iso()),
     )
     _db().commit()
 
 
-def get_participants(raid_id: int) -> list[int]:
+def get_participants(raid_id: int) -> list[tuple[int, str]]:
+    """Liste (user_id, status) : confirmés d'abord (ordre d'arrivée), puis liste
+    d'attente (ordre d'arrivée)."""
     rows = _db().execute(
-        "SELECT user_id FROM participants WHERE raid_id = ?", (raid_id,)
+        "SELECT user_id, status FROM participants WHERE raid_id = ? "
+        "ORDER BY (status = 'confirmed') DESC, joined_at ASC",
+        (raid_id,),
     ).fetchall()
-    return [row["user_id"] for row in rows]
+    return [(row["user_id"], row["status"]) for row in rows]
+
+
+def get_participant_status(raid_id: int, user_id: int) -> Optional[str]:
+    row = _db().execute(
+        "SELECT status FROM participants WHERE raid_id = ? AND user_id = ?",
+        (raid_id, user_id),
+    ).fetchone()
+    return row["status"] if row else None
 
 
 def count_participants(raid_id: int) -> int:
@@ -318,6 +335,36 @@ def count_participants(raid_id: int) -> int:
         "SELECT COUNT(*) AS n FROM participants WHERE raid_id = ?", (raid_id,)
     ).fetchone()
     return row["n"] if row else 0
+
+
+def count_confirmed(raid_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM participants WHERE raid_id = ? AND status = 'confirmed'",
+        (raid_id,),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def count_waitlist(raid_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM participants WHERE raid_id = ? AND status = 'waitlist'",
+        (raid_id,),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def waitlist_position(raid_id: int, user_id: int) -> Optional[int]:
+    """Position 1-based d'un utilisateur dans la liste d'attente, ou None s'il n'y
+    est pas."""
+    rows = _db().execute(
+        "SELECT user_id FROM participants WHERE raid_id = ? AND status = 'waitlist' "
+        "ORDER BY joined_at ASC",
+        (raid_id,),
+    ).fetchall()
+    for i, row in enumerate(rows, start=1):
+        if row["user_id"] == user_id:
+            return i
+    return None
 
 
 def is_participant(raid_id: int, user_id: int) -> bool:
@@ -328,12 +375,38 @@ def is_participant(raid_id: int, user_id: int) -> bool:
     return row is not None
 
 
-def remove_participant(raid_id: int, user_id: int) -> None:
-    _db().execute(
+def remove_participant(raid_id: int, user_id: int) -> Optional[int]:
+    """Retire un participant. S'il était confirmé et qu'une file d'attente existe,
+    promeut le plus ancien en attente et retourne son user_id ; sinon None."""
+    conn = _db()
+    row = conn.execute(
+        "SELECT status FROM participants WHERE raid_id = ? AND user_id = ?",
+        (raid_id, user_id),
+    ).fetchone()
+    if not row:
+        conn.commit()
+        return None
+    was_confirmed = row["status"] == "confirmed"
+    conn.execute(
         "DELETE FROM participants WHERE raid_id = ? AND user_id = ?",
         (raid_id, user_id),
     )
-    _db().commit()
+    promoted: Optional[int] = None
+    if was_confirmed:
+        nxt = conn.execute(
+            "SELECT user_id FROM participants WHERE raid_id = ? AND status = 'waitlist' "
+            "ORDER BY joined_at ASC LIMIT 1",
+            (raid_id,),
+        ).fetchone()
+        if nxt:
+            conn.execute(
+                "UPDATE participants SET status = 'confirmed' "
+                "WHERE raid_id = ? AND user_id = ?",
+                (raid_id, nxt["user_id"]),
+            )
+            promoted = nxt["user_id"]
+    conn.commit()
+    return promoted
 
 
 # --------------------------------------------------------------------------- tickets

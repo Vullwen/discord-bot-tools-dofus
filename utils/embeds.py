@@ -21,12 +21,13 @@ def _parse_day(raid) -> date:
     return date.fromisoformat(raid["date"])
 
 
-def _format_spots(participants: int, cap) -> str:
-    """Affichage 'X/cap' avec marqueur COMPLET."""
+def _format_spots(confirmed: int, waitlist: int, cap) -> str:
+    """Affichage 'X/cap' (+N en attente) avec marqueur COMPLET."""
+    wait = f" (+{waitlist} en attente)" if waitlist else ""
     if cap:
-        full = " 🟥 COMPLET" if participants >= cap else ""
-        return f"{participants}/{cap}{full}"
-    return str(participants)
+        full = " 🟥 COMPLET" if confirmed >= cap else ""
+        return f"{confirmed}/{cap}{full}{wait}"
+    return f"{confirmed} participant(s){wait}"
 
 
 def _scheduled_dt(raid) -> datetime | None:
@@ -70,7 +71,7 @@ def raid_choice_result_embed(
     return embed
 
 
-def hour_poll_embed(raid, counts: Mapping[str, int], creator: str, participants: int, hours: Iterable[int]) -> discord.Embed:
+def hour_poll_embed(raid, counts, creator: str, confirmed: int, waitlist: int, hours) -> discord.Embed:
     name = raid["name"] or "à définir"
     cap = raid_cap(raid["name"])
     embed = discord.Embed(
@@ -86,7 +87,7 @@ def hour_poll_embed(raid, counts: Mapping[str, int], creator: str, participants:
         value=format_counts(counts, [str(h) for h in hours], suffix="h"),
         inline=False,
     )
-    embed.add_field(name="Inscriptions", value=_format_spots(participants, cap), inline=False)
+    embed.add_field(name="Inscriptions", value=_format_spots(confirmed, waitlist, cap), inline=False)
     if raid["note"]:
         embed.add_field(name="Note", value=raid["note"], inline=False)
     closes = raid["hour_poll_closes_at"]
@@ -107,14 +108,14 @@ def hour_poll_result_embed(raid, winner_hour: str, counts: Mapping[str, int], ho
     return embed
 
 
-def scheduled_embed(raid, participants: int, creator: str) -> discord.Embed:
+def scheduled_embed(raid, confirmed: int, waitlist: int, creator: str) -> discord.Embed:
     dt = _scheduled_dt(raid)
     cap = raid_cap(raid["name"])
     embed = discord.Embed(
         title=f"🎯 Raid planifié : {raid['name']}",
         description=(
             f"**Quand :** {dates_utils.format_dt_fr(dt)}\n"
-            f"**Participants :** {_format_spots(participants, cap)}\n"
+            f"**Participants :** {_format_spots(confirmed, waitlist, cap)}\n"
             "Clique sur **Je participe 📌** pour le rappel MP, **❌ Me désinscrire** pour l'annuler."
         ),
         color=GOLD,
@@ -136,13 +137,13 @@ def reminder_dm_embed(raid) -> discord.Embed:
     return embed
 
 
-def reminder_channel_embed(raid, participants: int) -> discord.Embed:
+def reminder_channel_embed(raid, confirmed: int, waitlist: int) -> discord.Embed:
     dt = _scheduled_dt(raid)
     embed = discord.Embed(
         title=f"⚡ Rappel — raid {raid['name']} bientôt",
         description=(
             f"**Début prévu : {dates_utils.format_dt_fr(dt)}**\n"
-            f"Inscriptions : {_format_spots(participants, raid_cap(raid['name']))}."
+            f"Inscriptions : {_format_spots(confirmed, waitlist, raid_cap(raid['name']))}."
         ),
         color=BLUE,
     )
@@ -158,18 +159,38 @@ def cancelled_embed(raid) -> discord.Embed:
     return embed
 
 
-def participants_embed(raid, names) -> discord.Embed:
-    """Liste les participants (noms déjà résolus) d'un raid."""
+def participants_embed(raid, confirmed_names, waitlist_names) -> discord.Embed:
+    """Liste les participants confirmés puis la liste d'attente (noms déjà résolus)."""
     cap = raid_cap(raid["name"])
     embed = discord.Embed(
         title=f"📌 Participants — {raid['name'] or 'Raid'}",
         color=BLUE,
     )
-    if names:
-        embed.description = "\n".join(f"• {name}" for name in names)
-    else:
-        embed.description = "Aucun participant pour l'instant."
-    embed.set_footer(text=f"{_format_spots(len(names), cap)} • Raid #{raid['id']}")
+    parts: list[str] = []
+    if confirmed_names:
+        parts.append("**Confirmés :**\n" + "\n".join(
+            f"{i}. {n}" for i, n in enumerate(confirmed_names, 1)
+        ))
+    if waitlist_names:
+        parts.append("**Liste d'attente :**\n" + "\n".join(
+            f"{i}. {n}" for i, n in enumerate(waitlist_names, 1)
+        ))
+    embed.description = "\n\n".join(parts) if parts else "Aucun participant pour l'instant."
+    embed.set_footer(text=f"{_format_spots(len(confirmed_names), len(waitlist_names), cap)} • Raid #{raid['id']}")
+    return embed
+
+
+def waitlist_promoted_embed(raid) -> discord.Embed:
+    """DM envoyé à un joueur promu de la liste d'attente."""
+    dt = _scheduled_dt(raid)
+    embed = discord.Embed(
+        title=f"✅ Place libérée — {raid['name']}",
+        description=(
+            "Une place s'est libérée et tu es maintenant **inscrit** pour ce raid :\n"
+            f"**Début prévu : {dates_utils.format_dt_fr(dt)}**"
+        ),
+        color=GREEN,
+    )
     return embed
 
 

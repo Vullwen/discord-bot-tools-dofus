@@ -53,7 +53,7 @@ def test_participants(tmp_path):
     db.add_participant(rid, 10)  # doublon ignoré
     db.add_participant(rid, 20)
     assert db.count_participants(rid) == 2
-    assert set(db.get_participants(rid)) == {10, 20}
+    assert {u for u, _ in db.get_participants(rid)} == {10, 20}
 
 
 def test_is_participant(tmp_path):
@@ -150,3 +150,32 @@ def test_toggle_vote_multi(tmp_path):
     assert db.toggle_vote(rid, 100, "hour", "20") is False
     assert db.get_user_votes(rid, 100, "hour") == ["21"]
     assert db.get_vote_counts(rid, "hour") == {"21": 1}
+
+
+def test_waitlist_promotion(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="X", date_iso="2026-06-28", created_by=1, guild_id=2, channel_id=3, state="scheduled",
+    )
+    db.add_participant(rid, 1, "confirmed")
+    db.add_participant(rid, 2, "confirmed")
+    db.add_participant(rid, 3, "waitlist")
+    db.add_participant(rid, 4, "waitlist")
+    assert db.count_confirmed(rid) == 2
+    assert db.count_waitlist(rid) == 2
+    # Ordre FIFO de la file d'attente.
+    assert db.waitlist_position(rid, 3) == 1
+    assert db.waitlist_position(rid, 4) == 2
+    # Retirer un confirmé -> promeut le 1er de la file (user 3).
+    assert db.remove_participant(rid, 1) == 3
+    assert db.get_participant_status(rid, 3) == "confirmed"
+    assert db.count_confirmed(rid) == 2
+    assert db.count_waitlist(rid) == 1
+    # Retirer un waitlist -> aucune promotion.
+    assert db.remove_participant(rid, 4) is None
+    assert db.count_waitlist(rid) == 0
+    # get_participants ordonne confirmés puis liste d'attente.
+    db.add_participant(rid, 5, "waitlist")
+    parts = db.get_participants(rid)
+    assert {u for u, _ in parts} == {2, 3, 5}
+    assert [u for u, s in parts if s == "waitlist"] == [5]

@@ -428,6 +428,29 @@ class RaidCog(commands.Cog):
                 return f"<@{user_id}>"
         return getattr(user, "display_name", f"<@{user_id}>")
 
+    def _counts(self, raid_id: int) -> tuple[int, int]:
+        """(confirmés, liste d'attente) pour alimenter les embeds."""
+        return db.count_confirmed(raid_id), db.count_waitlist(raid_id)
+
+    def _register_user(self, raid_id: int, user_id: int, name) -> str:
+        """Inscrit un user s'il ne l'est pas. Retourne son statut ('confirmed' ou
+        'waitlist'). Un raid sans cap (nom inconnu) => toujours 'confirmed'."""
+        existing = db.get_participant_status(raid_id, user_id)
+        if existing:
+            return existing
+        cap = raid_cap(name)
+        status = "confirmed" if (cap is None or db.count_confirmed(raid_id) < cap) else "waitlist"
+        db.add_participant(raid_id, user_id, status)
+        return status
+
+    async def _dm_user(self, user_id: int, embed) -> None:
+        """Envoie un DM (best-effort : ignore si les DM sont fermés)."""
+        try:
+            user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+            await user.send(embed=embed)
+        except discord.DiscordException as exc:
+            logger.warning("DM à %s échoué: %s", user_id, exc)
+
     async def _get_channel(self, channel_id: int):
         ch = self.bot.get_channel(channel_id)
         if ch is None:
@@ -553,8 +576,8 @@ class RaidCog(commands.Cog):
         raid = db.get_raid(raid_id)
         counts = db.get_vote_counts(raid_id, "hour")
         creator = await self._creator_display(raid["created_by"])
-        participants = db.count_participants(raid_id)
-        embed = embeds.hour_poll_embed(raid, counts, creator, participants, _raid_hours(raid))
+        confirmed, waitlist = self._counts(raid_id)
+        embed = embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid))
         view = HourPollView(self, raid_id)
         msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
         db.update_raid(raid_id, hour_poll_message_id=msg.id)
@@ -562,8 +585,8 @@ class RaidCog(commands.Cog):
     async def _post_scheduled(self, raid_id: int, notify_role_id=None) -> None:
         raid = db.get_raid(raid_id)
         creator = await self._creator_display(raid["created_by"])
-        participants = db.count_participants(raid_id)
-        embed = embeds.scheduled_embed(raid, participants, creator)
+        confirmed, waitlist = self._counts(raid_id)
+        embed = embeds.scheduled_embed(raid, confirmed, waitlist, creator)
         view = ScheduledRaidView(self, raid_id)
         channel = await self._get_channel(raid["channel_id"])
         if channel is None:
@@ -597,29 +620,24 @@ class RaidCog(commands.Cog):
         if date.fromisoformat(raid["date"]) == now_paris().date() and hour <= now_paris().hour:
             await interaction.response.send_message("⏰ Ce créneau est déjà passé.", ephemeral=True)
             return
-        already = db.is_participant(raid_id, interaction.user.id)
-        will_add = str(hour) not in db.get_user_votes(raid_id, interaction.user.id, "hour")
-        # Inscription comme participant au premier créneau voté (sous réserve du cap).
-        if will_add and not already:
-            cap = raid_cap(raid["name"])
-            if cap is not None and db.count_participants(raid_id) >= cap:
-                await interaction.response.send_message(
-                    f"⛔ Ce raid est complet ({cap}/{cap}). Impossible de s'inscrire.", ephemeral=True
-                )
-                return
         added = db.toggle_vote(raid_id, interaction.user.id, "hour", str(hour))
-        if added and not already:
-            db.add_participant(raid_id, interaction.user.id)
+        status_note = ""
+        if added:
+            # Inscription au premier créneau voté (confirmé, ou liste d'attente si complet).
+            status = self._register_user(raid_id, interaction.user.id, raid["name"])
+            if status == "waitlist":
+                pos = db.waitlist_position(raid_id, interaction.user.id)
+                status_note = f" ⏳ Raid complet : liste d'attente (position {pos})."
         counts = db.get_vote_counts(raid_id, "hour")
-        participants = db.count_participants(raid_id)
         creator = await self._creator_display(raid["created_by"])
+        confirmed, waitlist = self._counts(raid_id)
         user_hours = sorted(int(h) for h in db.get_user_votes(raid_id, interaction.user.id, "hour"))
         votes_str = ", ".join(f"{h}h" for h in user_hours) or "aucun"
-        msg = f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}."
+        msg = f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}.{status_note}"
         await interaction.response.send_message(msg, ephemeral=True)
         await self._edit_message(
             raid["channel_id"], raid["hour_poll_message_id"],
-            embed=embeds.hour_poll_embed(raid, counts, creator, participants, _raid_hours(raid)),
+            embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),
         )
 
     async def handle_register(self, interaction: discord.Interaction, raid_id: int) -> None:
@@ -627,22 +645,23 @@ class RaidCog(commands.Cog):
         if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
             await interaction.response.send_message("Inscription impossible pour ce raid.", ephemeral=True)
             return
-        cap = raid_cap(raid["name"])
-        already = db.is_participant(raid_id, interaction.user.id)
-        if cap is not None and not already and db.count_participants(raid_id) >= cap:
-            await interaction.response.send_message(
-                f"⛔ Ce raid est complet ({cap}/{cap}). Impossible de s'inscrire.", ephemeral=True
-            )
-            return
-        db.add_participant(raid_id, interaction.user.id)
-        participants = db.count_participants(raid_id)
+        status = self._register_user(raid_id, interaction.user.id, raid["name"])
         creator = await self._creator_display(raid["created_by"])
-        await interaction.response.send_message(
-            f"Inscrit pour le rappel MP ! ({participants} participant(s))", ephemeral=True
-        )
+        confirmed, waitlist = self._counts(raid_id)
+        if status == "waitlist":
+            pos = db.waitlist_position(raid_id, interaction.user.id)
+            await interaction.response.send_message(
+                f"⏳ Raid complet : tu es en liste d'attente (position {pos}). "
+                f"Tu seras inscrit automatiquement si une place se libère.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                "Inscrit pour le rappel MP ! Tu seras prévenu avant le raid.", ephemeral=True
+            )
         await self._edit_message(
             raid["channel_id"], raid["scheduled_message_id"],
-            embed=embeds.scheduled_embed(raid, participants, creator),
+            embed=embeds.scheduled_embed(raid, confirmed, waitlist, creator),
         )
 
     async def handle_unregister(self, interaction: discord.Interaction, raid_id: int) -> None:
@@ -653,16 +672,21 @@ class RaidCog(commands.Cog):
         if not db.is_participant(raid_id, interaction.user.id):
             await interaction.response.send_message("Tu n'es pas inscrit à ce raid.", ephemeral=True)
             return
-        db.remove_participant(raid_id, interaction.user.id)
-        participants = db.count_participants(raid_id)
+        promoted = db.remove_participant(raid_id, interaction.user.id)
         creator = await self._creator_display(raid["created_by"])
-        await interaction.response.send_message(
-            f"Désinscrit du rappel MP. ({participants} participant(s))", ephemeral=True
-        )
+        confirmed, waitlist = self._counts(raid_id)
+        await interaction.response.send_message("Désinscrit du rappel MP.", ephemeral=True)
         await self._edit_message(
             raid["channel_id"], raid["scheduled_message_id"],
-            embed=embeds.scheduled_embed(raid, participants, creator),
+            embed=embeds.scheduled_embed(raid, confirmed, waitlist, creator),
         )
+        if promoted:
+            await self._notify_promoted(raid, promoted)
+
+    async def _notify_promoted(self, raid, user_id: int) -> None:
+        """DM au joueur promu de la liste d'attente (place libérée)."""
+        await self._dm_user(user_id, embeds.waitlist_promoted_embed(raid))
+        logger.info("Raid #%d : utilisateur %s promu de la liste d'attente", raid["id"], user_id)
 
     def _is_raid_manager(self, interaction: discord.Interaction, raid) -> bool:
         """Organisateur (admin/rôle) ou créateur du raid : peut gérer les participants."""
@@ -692,18 +716,21 @@ class RaidCog(commands.Cog):
             return
         removed: list[str] = []
         skipped: list[str] = []
+        promoted: list[int] = []
         for user in users:
             if db.is_participant(raid_id, user.id):
-                db.remove_participant(raid_id, user.id)
+                p = db.remove_participant(raid_id, user.id)
+                if p:
+                    promoted.append(p)
                 removed.append(user.mention)
             else:
                 skipped.append(user.mention)
-        participants = db.count_participants(raid_id)
-        creator = await self._creator_display(raid["created_by"]) if raid else "?"
         if raid:
+            creator = await self._creator_display(raid["created_by"])
+            confirmed, waitlist = self._counts(raid_id)
             await self._edit_message(
                 raid["channel_id"], raid["scheduled_message_id"],
-                embed=embeds.scheduled_embed(raid, participants, creator),
+                embed=embeds.scheduled_embed(raid, confirmed, waitlist, creator),
             )
         parts: list[str] = []
         if removed:
@@ -713,6 +740,8 @@ class RaidCog(commands.Cog):
         if not parts:
             parts.append("Aucun changement.")
         await interaction.response.send_message("\n".join(parts), ephemeral=True)
+        for uid in promoted:
+            await self._notify_promoted(raid, uid)
 
     async def _member_display_name(self, guild, uid: int) -> str:
         """Nom affichable d'un participant (membre de guilde en priorité)."""
@@ -738,10 +767,13 @@ class RaidCog(commands.Cog):
         if not raid:
             await interaction.response.send_message("Raid introuvable.", ephemeral=True)
             return
-        uids = db.get_participants(raid_id)
-        names = [await self._member_display_name(interaction.guild, uid) for uid in uids]
+        confirmed_names: list[str] = []
+        waitlist_names: list[str] = []
+        for uid, status in db.get_participants(raid_id):
+            name = await self._member_display_name(interaction.guild, uid)
+            (waitlist_names if status == "waitlist" else confirmed_names).append(name)
         await interaction.response.send_message(
-            embed=embeds.participants_embed(raid, names), ephemeral=True
+            embed=embeds.participants_embed(raid, confirmed_names, waitlist_names), ephemeral=True
         )
 
     async def handle_close_poll(self, interaction: discord.Interaction, raid_id: int) -> None:
@@ -860,10 +892,10 @@ class RaidCog(commands.Cog):
         raid = db.get_raid(raid_id)
         if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
             return
-        participants = db.get_participants(raid_id)
+        confirmed_uids = [uid for uid, status in db.get_participants(raid_id) if status != "waitlist"]
         dm_embed = embeds.reminder_dm_embed(raid)
         sent = 0
-        for uid in participants:
+        for uid in confirmed_uids:
             try:
                 user = self.bot.get_user(uid) or await self.bot.fetch_user(uid)
                 await user.send(embed=dm_embed)
@@ -876,7 +908,8 @@ class RaidCog(commands.Cog):
         channel = await self._get_channel(raid["channel_id"])
         if channel is not None:
             try:
-                msg = await channel.send(embed=embeds.reminder_channel_embed(raid, len(participants)))
+                confirmed, waitlist = self._counts(raid_id)
+                msg = await channel.send(embed=embeds.reminder_channel_embed(raid, confirmed, waitlist))
                 reminder_sent_at = now_paris()
                 # On mémorise le message pour pouvoir le supprimer (à 2h) et survivre à un reboot.
                 db.update_raid(
