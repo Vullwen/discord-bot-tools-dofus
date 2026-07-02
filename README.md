@@ -1,118 +1,98 @@
-# B&B Raids — Bot Dofus (Gigalodon / Jardins Éternels)
+# B&B Raids
 
-Bot Discord pour organiser des raids Dofus : on crée un raid, un **sondage à
-boutons** décide de l'heure (et du raid si non précisé), puis un **rappel MP**
-part 10 min avant. Un **système de ticket** permet d'organiser un raid en salon
-privé.
+Bot Discord pour organiser des raids Dofus (Gigalodon, Jardins Éternels). On crée
+un raid pour une date, les votants choisissent l'heure (et le raid si besoin), un
+rappel part avant, puis le salon se nettoie tout seul une fois le raid passé.
 
-## Stack
+Python 3.12, discord.py 2.x, SQLite, Docker.
 
-- Python 3.12 · discord.py 2.x · SQLite (synchrone) · Docker
+## Cycle d'un raid
+
+Tout dépend de ce que tu donnes à la création :
+
+- `/raid` avec **une heure** (ex. `vendredi 21h`) : le raid est planifié directement,
+  pas de sondage.
+- `/raid` avec **le raid mais pas d'heure** : un menu te laisse choisir les créneaux
+  à proposer, puis un sondage est lancé. Chacun vote pour les heures qui lui
+  conviennent (plusieurs choix possibles).
+- `/raid` **sans le raid** : un sondage choisit d'abord le raid, puis l'heure.
+
+Ensuite :
+
+- Les sondages se ferment tout seuls le jour du raid (à minuit par défaut).
+- Les participants s'inscrivent via les boutons sous le message. Voter pour une heure
+  inscrit aussi au rappel.
+- Un rappel part en MP quelques minutes avant l'heure prévue.
+- Deux heures après le raid, les messages le concernant sont supprimés.
+
+Le nombre de places par raid est limité (`RAID_CAPS`). Une fois complet, les
+nouvelles inscriptions sont bloquées.
 
 ## Commandes
 
-### Raids
+Raids :
 
-| Commande | Description |
-|---|---|
-| `/raid date duree [raid] [note]` | Crée un raid + sondage pour l'heure. |
-| `/setchannel setting channel` | Définit le salon des raids / la catégorie des tickets (admin). |
-| `/showconfig` | Affiche la configuration du serveur. |
-| `/list_raids` | Liste les raids actifs. |
-| `/cancel_raid raid_id` | Annule un raid (créateur ou admin). |
-| `/force_close raid_id` | Clôture immédiatement le sondage en cours (admin). |
-| `/raid_panel` | Poste le panneau de ticket (admin). |
+- `/raid date [raid] [note]` — crée un raid.
+- `/list_raids` — raids actifs.
+- `/cancel_raid raid_id` — annule un raid (créateur ou organisateur).
+- `/force_close raid_id` — clôture tout de suite le sondage en cours.
 
-> 💡 **Avant tout** : utilise `/setchannel setting:Salon des raids channel:#ton-salon`
-> pour que les sondages/embeds arrivent au bon endroit. Puis
-> `/setchannel setting:Catégorie des tickets channel:#ta-catégorie` pour les tickets.
+Sur chaque message de raid, un bouton **Annuler (admin)** permet d'annuler à
+n'importe quelle étape, avec demande de confirmation.
 
-### `/raid` en détail
+Tickets :
 
-- `date` : `ce soir`, `ce matin`, `21h`, `28/06`, `2026-06-28`, `demain`, `lundi`…
-  (« ce soir » / une heure seule = aujourd'hui ; l'heure reste choisie par le sondage).
-- `duree` : `5min` → `24h` (durée du sondage, **mini 5 min** ; l'heure est choisie par le sondage).
-- `raid` (optionnel) : `Gigalodon` / `Jardins Éternels`. **Si vide** → un sondage
-  choisit le raid d'abord, puis un sondage choisit l'heure.
-- Chaque votant à l'heure est inscrit au rappel MP ; le message final propose
-  aussi un bouton **Je participe 📌** pour s'inscrire sans voter.
-- **Capacité limitée** par raid (`RAID_CAPS` : Gigalodon 12, Jardins Éternels 16).
-  Au-delà, nouvelles inscriptions bloquées (« 🟥 COMPLET »). Les inscrits peuvent
-  toujours changer d'heure.
-- Les sondages comportent un bouton **🔒 Clôturer (admin)** : admins **et créateur
-  du raid** peuvent clôturer plus tôt en un clic (équivalent `/force_close`).
+- `/raid_panel` — poste le panneau d'ouverture de ticket (admin). Un clic ouvre un
+  salon privé pour préparer un raid.
 
-### Tickets
+Configuration (admin) :
 
-1. Un admin poste le panneau via `/raid_panel`.
-2. Un membre clique **🎟️ Ouvrir un ticket raid** → salon privé (membre + admins).
-3. Dans le ticket : **🎯 Créer ce raid** (formulaire date/raid/durée) → le sondage
-   est posté dans le salon des raids. **🔒 Fermer** supprime le salon.
+- `/setchannel` — salon des raids, ou catégorie des tickets.
+- `/setraidrole` — rôle autorisé à créer et gérer les raids (vide = admins seulement).
+- `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid (vide = pas de mention).
+- `/showconfig` — affiche la config du serveur.
+
+## Rôles
+
+- **Organisateur** (défini par `/setraidrole`) : crée et gère les raids et tickets,
+  clôture les sondages, annule.
+- **Notif raids** (défini par `/setraidnotifyrole`) : mentionné quand un raid est
+  annoncé. L'attribution aux membres est manuelle (côté Discord).
 
 ## Variables d'environnement (`.env`)
 
-| Var | Défaut | Rôle |
-|---|---|---|
-| `DISCORD_TOKEN` | — | Token du bot (requis) |
-| `DISCORD_GUILD_ID` | — | Sync instantanée sur cette guilde (vide = global) |
-| `ADMIN_IDS` | — | IDs Discord admins (séparés par `,`) |
-| `RAID_HOURS` | `14,15,…,23` | Créneaux du sondage heure |
-| `RAID_DEFAULT_HOUR` | `21` | Heure si 0 vote |
-| `REMINDER_MINUTES` | `10` | Minutes avant le raid pour le rappel |
-| `RAID_NAMES` | `Gigalodon,Jardins Éternels` | Raids possibles |
-| `RAID_CAPS` | `Gigalodon:12,Jardins Éternels:16` | Participants max par raid (`Nom:nombre`) |
-| `RAIDS_CHANNEL_ID` | — | Salon des sondages (surchargeable par `/setchannel`, vide = salon courant) |
-| `TICKET_CATEGORY_ID` | — | Catégorie des tickets (surchargeable par `/setchannel`) |
-| `DB_PATH` | `/app/data/beb_raid.db` | Base SQLite |
+Voir `.env.example` pour la liste complète. Les principales :
 
-> ℹ️ **SERVER MEMBERS INTENT** (optionnel) : permet d'ajouter automatiquement les
-> admins aux tickets depuis le cache. Sans lui, le bot utilise `fetch_member` en
-> fallback. Le bot démarre dans tous les cas.
+- `DISCORD_TOKEN` — token du bot (requis).
+- `DISCORD_GUILD_ID` — guilde pour la sync instantanée des commandes (vide = global).
+- `ADMIN_IDS` — IDs des admins, séparés par des virgules.
+- `RAID_NAMES` — raids possibles.
+- `RAID_CAPS` — places max par raid (ex. `Gigalodon:12`).
+- `RAID_POLL_CLOSE_HOUR` — heure de clôture auto des sondages, le jour du raid
+  (0 = minuit).
+- `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
+- `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/setchannel`).
+- `TICKET_CATEGORY_ID` — catégorie des tickets.
 
 ## Lancement
 
-### Docker (depuis `server/bot`)
+Docker, depuis le dossier parent `server/bot` :
+
 ```bash
 docker compose up -d --build beb-raid
 docker compose logs --tail=100 beb-raid
 ```
 
-### Local
+Local :
+
 ```bash
 cp .env.example .env   # renseigner DISCORD_TOKEN + ADMIN_IDS
 pip install -r requirements.txt
 python main.py
 ```
 
-## Tests
+Tests :
+
 ```bash
 pytest -q
 ```
-
-## Structure
-```text
-beb_raid/
-  main.py            # entry point, cogs, sync des commandes
-  config.py          # variables d'env + helpers (Paris, parsing)
-  db.py              # SQLite synchrone (raids, votes, participants, tickets)
-  cogs/
-    core.py          # /ping
-    admin.py         # /sync, /reload
-    settings.py      # /setchannel, /showconfig (config par serveur en DB)
-    raid.py          # /raid, sondages boutons, planif, rappel MP
-    ticket.py        # /raid_panel, tickets, modal de création
-  utils/
-    dates.py         # parsing de date flexible (Paris)
-    poll.py          # dépouillement, états, rappels (pure)
-    embeds.py        # builders d'embeds
-  tests/             # dates, tally, db, imports
-```
-
-## Notes d'implémentation
-
-- **Robustesse redémarrage** : sondages et rappels sont planifiés par `asyncio`
-  et **replanifiés au démarrage** depuis SQLite (`cog_load` → `_reschedule_all`).
-  Un `docker compose restart` n'annule aucun rappel.
-- **Vues persistantes** : les boutons encodent `raid_id` + choix dans leur
-  `custom_id` ; les vues sont réenregistrées au démarrage pour router les clics.
-- **Fuseau** : tout est géré en `Europe/Paris` (stockage ISO aware).
