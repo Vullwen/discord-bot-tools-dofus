@@ -1,7 +1,7 @@
 """Configuration en Discord du salon des raids et de la catégorie des tickets.
 
 - /setchannel : définit le salon où arrivent les sondages/embeds des raids
-                (ou la catégorie des tickets). Admin uniquement.
+                (ou la catégorie des tickets). Organisateur uniquement.
 - /showconfig : affiche la configuration courante de la guilde.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
-from config import ADMIN_IDS
+from utils.perms import is_raid_organizer
 
 _CHANNEL_LABEL = {
     db.SETTING_RAIDS_CHANNEL: "Salon des raids",
@@ -25,7 +25,7 @@ class SettingsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="setchannel", description="Définit le salon des raids ou la catégorie des tickets (admin)")
+    @app_commands.command(name="setchannel", description="Définit le salon des raids ou la catégorie des tickets")
     @app_commands.describe(
         setting="Ce que tu veux configurer",
         channel="Le salon (raid) ou la catégorie (tickets)",
@@ -42,7 +42,7 @@ class SettingsCog(commands.Cog):
         setting: app_commands.Choice[str],
         channel: discord.abc.GuildChannel,
     ) -> None:
-        if interaction.user.id not in ADMIN_IDS:
+        if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         if interaction.guild is None:
@@ -65,17 +65,17 @@ class SettingsCog(commands.Cog):
 
     @app_commands.command(
         name="setraidrole",
-        description="Définit le rôle autorisé à créer/gérer les raids et tickets (admin)",
+        description="Définit le rôle autorisé à créer/gérer les raids et tickets",
     )
     @app_commands.describe(
-        role="Le rôle organisateur (vide = seuls les admins peuvent créer/gérer)",
+        role="Le rôle organisateur (vide = permission Administrateur Discord)",
     )
     async def setraidrole(
         self,
         interaction: discord.Interaction,
         role: Optional[discord.Role] = None,
     ) -> None:
-        if interaction.user.id not in ADMIN_IDS:
+        if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         if interaction.guild is None:
@@ -85,7 +85,7 @@ class SettingsCog(commands.Cog):
         if role is None:
             db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_MANAGER_ROLE, "")
             await interaction.response.send_message(
-                "✅ Rôle organisateur retiré. Seuls les admins peuvent créer/gérer les raids.",
+                "✅ Rôle organisateur retiré. Les membres avec la permission Administrateur peuvent créer/gérer les raids.",
                 ephemeral=True,
             )
             return
@@ -99,7 +99,7 @@ class SettingsCog(commands.Cog):
 
     @app_commands.command(
         name="setraidnotifyrole",
-        description="Définit le rôle mentionné à chaque nouveau raid (admin)",
+        description="Définit le rôle mentionné à chaque nouveau raid",
     )
     @app_commands.describe(
         role="Le rôle à mentionner (vide = désactive la mention)",
@@ -109,7 +109,7 @@ class SettingsCog(commands.Cog):
         interaction: discord.Interaction,
         role: Optional[discord.Role] = None,
     ) -> None:
-        if interaction.user.id not in ADMIN_IDS:
+        if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         if interaction.guild is None:
@@ -156,7 +156,7 @@ class SettingsCog(commands.Cog):
         embed.add_field(name="Catégorie des tickets", value=_mention(db.SETTING_TICKET_CATEGORY), inline=False)
         embed.add_field(
             name="Rôle organisateur",
-            value=_role_mention(db.SETTING_RAID_MANAGER_ROLE, "*(non défini — admins seulement)*"),
+            value=_role_mention(db.SETTING_RAID_MANAGER_ROLE, "*(non défini — permission Administrateur)*"),
             inline=False,
         )
         embed.add_field(

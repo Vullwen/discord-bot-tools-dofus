@@ -42,20 +42,22 @@ n'importe quelle étape, avec demande de confirmation.
 
 Tickets :
 
-- `/raid_panel` — poste le panneau d'ouverture de ticket (admin). Un clic ouvre un
+- `/raid_panel` — poste le panneau d'ouverture de ticket (organisateur). Un clic ouvre un
   salon privé pour préparer un raid.
 
-Configuration (admin) :
+Configuration (organisateur) :
 
 - `/setchannel` — salon des raids, ou catégorie des tickets.
-- `/setraidrole` — rôle autorisé à créer et gérer les raids (vide = admins seulement).
+- `/setraidrole` — rôle autorisé à créer et gérer les raids (vide = permission
+  Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid (vide = pas de mention).
 - `/showconfig` — affiche la config du serveur.
 
 ## Rôles
 
 - **Organisateur** (défini par `/setraidrole`) : crée et gère les raids et tickets,
-  clôture les sondages, annule.
+  configure le bot, clôture les sondages, annule. Si aucun rôle n'est défini, les
+  membres avec la permission Administrateur Discord sont organisateurs.
 - **Notif raids** (défini par `/setraidnotifyrole`) : mentionné quand un raid est
   annoncé. L'attribution aux membres est manuelle (côté Discord).
 
