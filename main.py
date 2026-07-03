@@ -54,10 +54,17 @@ async def on_ready():
         guild = discord.Object(id=DISCORD_GUILD_ID)
         bot.tree.copy_global_to(guild=guild)
         synced = await bot.tree.sync(guild=guild)
+        logger.info(f"Synced {len(synced)} slash command(s) to guild {DISCORD_GUILD_ID}")
     else:
         synced = await bot.tree.sync()
-
-    logger.info(f"Synced {len(synced)} slash command(s)")
+        logger.info(f"Synced {len(synced)} global slash command(s)")
+        guild_total = 0
+        for current_guild in bot.guilds:
+            guild = discord.Object(id=current_guild.id)
+            bot.tree.copy_global_to(guild=guild)
+            guild_synced = await bot.tree.sync(guild=guild)
+            guild_total += len(guild_synced)
+        logger.info(f"Synced {guild_total} guild slash command(s) across {len(bot.guilds)} guild(s)")
 
     await bot.change_presence(
         activity=discord.Activity(
