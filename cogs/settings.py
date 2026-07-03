@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 import discord
@@ -19,6 +20,21 @@ _CHANNEL_LABEL = {
     db.SETTING_RAIDS_CHANNEL: "Salon des raids",
     db.SETTING_TICKET_CATEGORY: "Catégorie des tickets",
 }
+
+
+def _resolve_role(guild: discord.Guild, role_ref: str) -> Optional[discord.Role]:
+    raw = (role_ref or "").strip()
+    if not raw:
+        return None
+
+    match = re.fullmatch(r"<@&(\d+)>|(\d+)", raw)
+    if match:
+        role_id = int(match.group(1) or match.group(2))
+        return guild.get_role(role_id)
+
+    normalized = raw.lstrip("@").casefold()
+    matches = [role for role in guild.roles if role.name.casefold() == normalized]
+    return matches[0] if len(matches) == 1 else None
 
 
 class SettingsCog(commands.Cog):
@@ -68,12 +84,12 @@ class SettingsCog(commands.Cog):
         description="Définit le rôle autorisé à créer/gérer les raids et tickets",
     )
     @app_commands.describe(
-        role="Le rôle organisateur (vide = permission Administrateur Discord)",
+        role="ID, mention ou nom exact du rôle (vide = permission Administrateur Discord)",
     )
     async def setraidrole(
         self,
         interaction: discord.Interaction,
-        role: Optional[discord.Role] = None,
+        role: Optional[str] = None,
     ) -> None:
         if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
@@ -90,9 +106,17 @@ class SettingsCog(commands.Cog):
             )
             return
 
-        db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_MANAGER_ROLE, str(role.id))
+        resolved = _resolve_role(interaction.guild, role)
+        if resolved is None:
+            await interaction.response.send_message(
+                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
+                ephemeral=True,
+            )
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_MANAGER_ROLE, str(resolved.id))
         await interaction.response.send_message(
-            f"✅ Rôle organisateur défini : {role.mention}. Ses détenteurs peuvent "
+            f"✅ Rôle organisateur défini : {resolved.mention}. Ses détenteurs peuvent "
             f"créer/gérer les raids et tickets.",
             ephemeral=True,
         )
@@ -102,12 +126,12 @@ class SettingsCog(commands.Cog):
         description="Définit le rôle mentionné à chaque nouveau raid",
     )
     @app_commands.describe(
-        role="Le rôle à mentionner (vide = désactive la mention)",
+        role="ID, mention ou nom exact du rôle (vide = désactive la mention)",
     )
     async def setraidnotifyrole(
         self,
         interaction: discord.Interaction,
-        role: Optional[discord.Role] = None,
+        role: Optional[str] = None,
     ) -> None:
         if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
@@ -124,9 +148,17 @@ class SettingsCog(commands.Cog):
             )
             return
 
-        db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_NOTIFY_ROLE, str(role.id))
+        resolved = _resolve_role(interaction.guild, role)
+        if resolved is None:
+            await interaction.response.send_message(
+                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
+                ephemeral=True,
+            )
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_NOTIFY_ROLE, str(resolved.id))
         await interaction.response.send_message(
-            f"✅ Rôle notif défini : {role.mention}. Il sera mentionné à l'annonce de chaque nouveau raid.",
+            f"✅ Rôle notif défini : {resolved.mention}. Il sera mentionné à l'annonce de chaque nouveau raid.",
             ephemeral=True,
         )
 

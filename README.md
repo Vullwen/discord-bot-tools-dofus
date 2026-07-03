@@ -48,9 +48,10 @@ Tickets :
 Configuration (organisateur) :
 
 - `/setchannel` — salon des raids, ou catégorie des tickets.
-- `/setraidrole` — rôle autorisé à créer et gérer les raids (vide = permission
-  Administrateur Discord).
-- `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid (vide = pas de mention).
+- `/setraidrole` — rôle autorisé à créer et gérer les raids : ID, mention copiée
+  ou nom exact (vide = permission Administrateur Discord).
+- `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
+  ou nom exact (vide = pas de mention).
 - `/showconfig` — affiche la config du serveur.
 
 ## Rôles
