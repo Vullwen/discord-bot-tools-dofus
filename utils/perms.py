@@ -2,7 +2,8 @@
 
 Un « organisateur » est soit un admin bot (ADMIN_IDS, en dur dans le .env),
 soit le détenteur du rôle configuré par guilde (db.SETTING_RAID_MANAGER_ROLE).
-Si aucun rôle n'est configuré, seuls les admins sont organisateurs.
+Si aucun rôle n'est configuré, les membres ayant la permission Discord
+Administrateur sont aussi organisateurs.
 
 Les helpers sont synchrones : la persistance est synchrone (sqlite3) et, pour
 les interactions en guilde, Discord fournit déjà interaction.user (un Member)
@@ -18,10 +19,16 @@ import db
 from config import ADMIN_IDS
 
 
-def is_raid_organizer(interaction: discord.Interaction) -> bool:
-    """Admin bot OU détenteur du rôle organisateur configuré pour cette guilde.
+def _has_administrator_permission(interaction: discord.Interaction) -> bool:
+    permissions = getattr(interaction.user, "guild_permissions", None)
+    return bool(getattr(permissions, "administrator", False))
 
-    Peut créer/gérer n'importe quel raid ou ticket.
+
+def is_raid_organizer(interaction: discord.Interaction) -> bool:
+    """Admin bot OU détenteur du rôle configuré pour cette guilde.
+
+    Si aucun rôle n'est configuré, la permission Discord Administrateur donne
+    aussi l'accès. Peut créer/gérer n'importe quel raid ou ticket.
     """
     if interaction.user.id in ADMIN_IDS:
         return True
@@ -30,7 +37,7 @@ def is_raid_organizer(interaction: discord.Interaction) -> bool:
         return False
     role_id = db.get_guild_setting_int(guild.id, db.SETTING_RAID_MANAGER_ROLE)
     if not role_id:
-        return False
+        return _has_administrator_permission(interaction)
     # interaction.user est un Member en guilde (avec .roles) ; un User hors guilde
     # n'a pas .roles -> getattr retourne None -> non organisateur.
     roles = getattr(interaction.user, "roles", None)

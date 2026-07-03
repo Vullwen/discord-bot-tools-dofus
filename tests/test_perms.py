@@ -10,10 +10,11 @@ import db
 import utils.perms as perms
 
 
-def _interaction(user_id, guild_id=None, role_ids=()):
+def _interaction(user_id, guild_id=None, role_ids=(), administrator=False):
     user = SimpleNamespace(
         id=user_id,
         roles=[SimpleNamespace(id=rid) for rid in role_ids],
+        guild_permissions=SimpleNamespace(administrator=administrator),
     )
     return SimpleNamespace(
         user=user,
@@ -45,15 +46,20 @@ def test_not_organizer_outside_guild(tmp_path, monkeypatch):
     assert perms.is_raid_organizer(_interaction(42, guild_id=None, role_ids=(100,))) is False
 
 
-def test_no_role_configured_denies_non_admin(tmp_path, monkeypatch):
+def test_no_role_configured_denies_member_without_admin_perm(tmp_path, monkeypatch):
     _fresh(tmp_path, monkeypatch)
     assert perms.is_raid_organizer(_interaction(42, guild_id=1, role_ids=(100,))) is False
 
 
-def test_empty_role_setting_means_unset(tmp_path, monkeypatch):
+def test_no_role_configured_allows_member_with_admin_perm(tmp_path, monkeypatch):
+    _fresh(tmp_path, monkeypatch)
+    assert perms.is_raid_organizer(_interaction(42, guild_id=1, administrator=True)) is True
+
+
+def test_empty_role_setting_allows_member_with_admin_perm(tmp_path, monkeypatch):
     _fresh(tmp_path, monkeypatch)
     db.set_guild_setting(1, db.SETTING_RAID_MANAGER_ROLE, "")
-    assert perms.is_raid_organizer(_interaction(42, guild_id=1, role_ids=(100,))) is False
+    assert perms.is_raid_organizer(_interaction(42, guild_id=1, administrator=True)) is True
 
 
 def test_member_with_configured_role_is_organizer(tmp_path, monkeypatch):

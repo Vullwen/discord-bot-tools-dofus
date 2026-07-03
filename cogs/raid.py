@@ -470,6 +470,40 @@ class RaidCog(commands.Cog):
         except discord.DiscordException as exc:
             logger.warning("edit_message %s/%s échoué: %s", channel_id, message_id, exc)
 
+    async def _delete_poll_messages(self, raid_id: int) -> None:
+        """Supprime les sondages une fois le raid planifié.
+
+        Le message planifié reste visible pour les inscriptions. Les IDs des sondages
+        sont nettoyés seulement si Discord confirme la suppression ou si le message
+        n'existe déjà plus, afin de permettre une nouvelle tentative au cleanup.
+        """
+        raid = db.get_raid(raid_id)
+        if not raid:
+            return
+        channel = await self._get_channel(raid["channel_id"])
+        if channel is None:
+            return
+
+        cleared: dict[str, None] = {}
+        deleted = 0
+        for col in ("raid_poll_message_id", "hour_poll_message_id"):
+            mid = raid[col]
+            if not mid:
+                continue
+            try:
+                msg = await channel.fetch_message(mid)
+                await msg.delete()
+                cleared[col] = None
+                deleted += 1
+            except discord.NotFound:
+                cleared[col] = None
+            except discord.DiscordException as exc:
+                logger.warning("Raid #%d : suppression sondage %s=%s échouée: %s", raid_id, col, mid, exc)
+
+        if cleared:
+            db.update_raid(raid_id, **cleared)
+            logger.info("Raid #%d : %d message(s) de sondage supprimé(s)", raid_id, deleted)
+
     # --------------------------------------------------------------- création
 
     async def create_raid(
@@ -823,6 +857,7 @@ class RaidCog(commands.Cog):
                 view=None,
             )
             await self._post_scheduled(raid_id)
+            await self._delete_poll_messages(raid_id)
             self._schedule_reminder(raid_id, scheduled_at)
             return
 
@@ -871,6 +906,7 @@ class RaidCog(commands.Cog):
         )
 
         await self._post_scheduled(raid_id)
+        await self._delete_poll_messages(raid_id)
         self._schedule_reminder(raid_id, scheduled_at)
 
     def _schedule_reminder(self, raid_id: int, scheduled_at: datetime) -> None:

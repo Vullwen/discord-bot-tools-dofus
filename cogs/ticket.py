@@ -191,9 +191,9 @@ class TicketCog(commands.Cog):
         self.bot.add_view(TicketChannelView(self))
         logger.info("TicketCog prêt")
 
-    @app_commands.command(name="raid_panel", description="Poste le panneau de ticket pour organiser un raid (admin)")
+    @app_commands.command(name="raid_panel", description="Poste le panneau de ticket pour organiser un raid")
     async def raid_panel(self, interaction: discord.Interaction) -> None:
-        if interaction.user.id not in ADMIN_IDS:
+        if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         embed = discord.Embed(
