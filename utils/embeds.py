@@ -51,7 +51,8 @@ def raid_choice_embed(raid, counts: Mapping[str, int], creator: str) -> discord.
     )
     if raid["note"]:
         embed.add_field(name="Note", value=raid["note"], inline=False)
-    embed.set_footer(text=f"Créé par {creator} • Clôture {dates_utils.countdown_fr(datetime.fromisoformat(raid['raid_poll_closes_at']))}")
+    closes_at = datetime.fromisoformat(raid["raid_poll_closes_at"])
+    embed.set_footer(text=f"Créé par {creator} • Clôture {dates_utils.format_dt_fr(closes_at)}")
     return embed
 
 
@@ -91,7 +92,7 @@ def hour_poll_embed(raid, counts, creator: str, confirmed: int, waitlist: int, h
     if raid["note"]:
         embed.add_field(name="Note", value=raid["note"], inline=False)
     closes = raid["hour_poll_closes_at"]
-    footer_time = dates_utils.countdown_fr(datetime.fromisoformat(closes)) if closes else "—"
+    footer_time = dates_utils.format_dt_fr(datetime.fromisoformat(closes)) if closes else "—"
     embed.set_footer(text=f"Créé par {creator} • Clôture {footer_time}")
     return embed
 
@@ -216,7 +217,7 @@ def list_embed(rows) -> discord.Embed:
         if dt:
             detail += f" • {dates_utils.format_dt_fr(dt)}"
         elif raid["state"] == "voting_hour" and raid["hour_poll_closes_at"]:
-            detail += f" • clôture {dates_utils.countdown_fr(datetime.fromisoformat(raid['hour_poll_closes_at']))}"
+            detail += f" • clôture {dates_utils.format_dt_fr(datetime.fromisoformat(raid['hour_poll_closes_at']))}"
         lines.append(f"{label}\n{detail}")
     embed.description = "\n\n".join(lines)
     return embed

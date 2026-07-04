@@ -83,6 +83,7 @@ Constantes globales : `DISCORD_TOKEN`, `DISCORD_GUILD_ID`, `BOT_NAME`, `LOG_LEVE
 - `_parse_hours(raw)` — "14,15,16" → `[14,15,16]` (filtre 0-23).
 - `RAID_HOURS` — créneaux du sondage heure (défaut `14..23`).
 - `RAID_DEFAULT_HOUR` — heure si 0 vote (défaut 21).
+- `RAID_POLL_CLOSE_HOUR` — heure de clôture auto des sondages le jour du raid (défaut 12).
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel MP (défaut 10).
 - `RAID_NAMES` — noms possibles (défaut `Gigalodon, Jardins Éternels`).
 - `_parse_caps(raw)` — "Gigalodon:12" → dict.
@@ -199,7 +200,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_slugify(name)` — nom → slug ASCII (pour les `custom_id`).
 - `_parse_when(value)` — valeur BDD (ISO/datetime/None) → datetime aware (fallback `now` si None).
 - `_HOUR_ORDER`, `_RAID_SLUGS` — lookups précalculés.
-- `MIN_DUREE_SECONDS = 300`, `DUREE_CHOICES` — durées proposées au slash.
+- `POLL_DURATION_CHOICES` — durées proposées au slash (`auto`, 1h, 3h, 6h, 12h, 24h, 48h).
 
 ### Boutons (custom_id entre parenthèses)
 - `_HourVoteButton` (`bebraid:hour:{raid_id}:{hour}`) → `handle_hour_vote`.
@@ -227,7 +228,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_edit_message(channel_id, message_id, *, embed, view)` — édite un message stocké.
 
 **Création**
-- `create_raid(guild, channel, user, raid_name, date_text, duree_seconds, note=None)` — **cœur partagé** (/raid + ticket).
+- `create_raid(guild, channel, user, raid_name, date_text, note=None, poll_hours=None, poll_duration_seconds=0)` — **cœur partagé** (/raid + ticket).
   - Heure dans `date_text` + raid connu → **planification directe** (sans sondage).
   - Raid connu, pas d'heure → sondage heure (`voting_hour`).
   - Pas de raid → sondage choix (`choosing_raid`), puis heure (ou direct si `fixed_hour`).
@@ -255,7 +256,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_reschedule_all()` — au boot : `add_view` (routage clics) + replanif des tâches depuis la base.
 
 **Slash commands**
-- `/raid date duree raid? note?` — crée un raid (**organisateur** ; defer éphémère).
+- `/raid date raid? cloture? note?` — crée un raid (**organisateur** ; defer éphémère).
 - `/list_raids` — embed des raids actifs.
 - `/cancel_raid raid_id` — annule (créateur ou organisateur).
 - `/force_close raid_id` — clôture immédiat (organisateur).

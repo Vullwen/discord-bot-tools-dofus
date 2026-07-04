@@ -205,8 +205,8 @@ def poll_closes_at(
 
     Si ce moment est déjà passé (raid créé le jour même après l'heure, ou raid très
     proche), on replie sur `now + min_lead_minutes` afin de laisser un minimum de
-    temps de vote. Plus de paramètre « durée » : la clôture découle uniquement de la
-    date du raid.
+    temps de vote en mode auto. Les durées choisies par slash sont calculées côté
+    cog, puis plafonnées avant le raid.
     """
     now = now or datetime.now(PARIS)
     close = datetime.combine(raid_date, time(hour=close_hour, minute=0), tzinfo=PARIS)
