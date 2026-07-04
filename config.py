@@ -67,15 +67,16 @@ except ValueError:
 if not (0 <= RAID_DEFAULT_HOUR <= 23):
     RAID_DEFAULT_HOUR = 21
 
-# Heure de clôture automatique des sondages, le jour du raid (0 = minuit qui
-# débute le jour J : toutes les heures du menu 0-23h sont alors encore futures).
-# Un raid créé le jour même (clôture déjà passée) replie sur un court délai.
+# Heure de clôture automatique des sondages, le jour du raid.
+# Midi laisse la soirée précédente + la matinée pour voter avec les créneaux par
+# défaut (14h-23h). Un raid créé le jour même après la clôture replie sur un
+# court délai.
 try:
-    RAID_POLL_CLOSE_HOUR = int(os.getenv("RAID_POLL_CLOSE_HOUR", "0"))
+    RAID_POLL_CLOSE_HOUR = int(os.getenv("RAID_POLL_CLOSE_HOUR", "12"))
 except ValueError:
-    RAID_POLL_CLOSE_HOUR = 0
+    RAID_POLL_CLOSE_HOUR = 12
 if not (0 <= RAID_POLL_CLOSE_HOUR <= 23):
-    RAID_POLL_CLOSE_HOUR = 0
+    RAID_POLL_CLOSE_HOUR = 12
 
 # Minutes avant le raid pour envoyer le rappel MP.
 try:

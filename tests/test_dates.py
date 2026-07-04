@@ -126,10 +126,10 @@ def test_parse_hhmm():
     assert d.parse_hhmm("not a time") is None
 
 
-def test_poll_closes_at_midnight():
-    # Raid le 28/06, clôture à minuit le jour J (toutes les heures 0-23h futures).
-    closes = d.poll_closes_at(date(2026, 6, 28), 0, now=NOW)
-    assert closes == datetime(2026, 6, 28, 0, 0, tzinfo=PARIS)
+def test_poll_closes_at_noon():
+    # Raid le 28/06, clôture à midi le jour J par défaut.
+    closes = d.poll_closes_at(date(2026, 6, 28), 12, now=NOW)
+    assert closes == datetime(2026, 6, 28, 12, 0, tzinfo=PARIS)
 
 
 def test_poll_closes_at_morning():

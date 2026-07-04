@@ -19,7 +19,7 @@ Tout dépend de ce que tu donnes à la création :
 
 Ensuite :
 
-- Les sondages se ferment tout seuls le jour du raid (à minuit par défaut).
+- Les sondages se ferment tout seuls le jour du raid (à midi par défaut).
 - Les participants s'inscrivent via les boutons sous le message. Voter pour une heure
   inscrit aussi au rappel.
 - Un rappel part en MP quelques minutes avant l'heure prévue.
@@ -72,7 +72,7 @@ Voir `.env.example` pour la liste complète. Les principales :
 - `RAID_NAMES` — raids possibles.
 - `RAID_CAPS` — places max par raid (ex. `Gigalodon:12`).
 - `RAID_POLL_CLOSE_HOUR` — heure de clôture auto des sondages, le jour du raid
-  (0 = minuit).
+  (12 = midi par défaut).
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
 - `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/setchannel`).
 - `TICKET_CATEGORY_ID` — catégorie des tickets.

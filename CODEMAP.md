@@ -322,6 +322,7 @@ Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** d
 | `ADMIN_IDS` | — | IDs séparés par virgule |
 | `RAID_HOURS` | `14..23` | Créneaux du sondage heure |
 | `RAID_DEFAULT_HOUR` | `21` | Heure si 0 vote |
+| `RAID_POLL_CLOSE_HOUR` | `12` | Heure de clôture auto des sondages le jour du raid |
 | `REMINDER_MINUTES` | `10` | Rappel MP X min avant |
 | `RAID_NAMES` | `Gigalodon,Jardins Éternels` | Raids possibles |
 | `RAID_CAPS` | `Gigalodon:12,Jardins Éternels:16` | Caps par raid |
