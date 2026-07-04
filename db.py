@@ -280,6 +280,20 @@ def toggle_vote(raid_id: int, user_id: int, kind: str, choice: str) -> bool:
     return True
 
 
+def replace_votes(raid_id: int, user_id: int, kind: str, choices: list[str]) -> None:
+    """Remplace tous les votes d'un user pour un type donné par `choices`."""
+    conn = _db()
+    conn.execute(
+        "DELETE FROM votes WHERE raid_id = ? AND user_id = ? AND kind = ?",
+        (raid_id, user_id, kind),
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO votes (raid_id, user_id, kind, choice) VALUES (?, ?, ?, ?)",
+        [(raid_id, user_id, kind, choice) for choice in choices],
+    )
+    conn.commit()
+
+
 def get_user_votes(raid_id: int, user_id: int, kind: str) -> list[str]:
     """Liste les choix votés par un utilisateur pour un type donné."""
     rows = _db().execute(

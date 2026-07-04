@@ -165,6 +165,18 @@ def test_toggle_vote_multi(tmp_path):
     assert db.get_vote_counts(rid, "hour") == {"21": 1}
 
 
+def test_replace_votes(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="X", date_iso="2026-06-28", created_by=1, guild_id=2, channel_id=3, state="voting_hour",
+    )
+    db.toggle_vote(rid, 100, "hour", "20")
+    db.toggle_vote(rid, 100, "hour", "21")
+    db.replace_votes(rid, 100, "hour", ["14", "15", "16"])
+    assert db.get_user_votes(rid, 100, "hour") == ["14", "15", "16"]
+    assert db.get_vote_counts(rid, "hour") == {"14": 1, "15": 1, "16": 1}
+
+
 def test_waitlist_promotion(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(

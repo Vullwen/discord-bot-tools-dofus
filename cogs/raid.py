@@ -76,6 +76,16 @@ def _raid_hours(raid) -> list[int]:
     return parse_poll_hours(raw, RAID_HOURS)
 
 
+def _votable_hours(raid) -> list[int]:
+    hours = _raid_hours(raid)
+    if not raid:
+        return hours
+    now = now_paris()
+    if date.fromisoformat(raid["date"]) != now.date():
+        return hours
+    return [hour for hour in hours if hour > now.hour]
+
+
 _RAID_SLUGS = {name: _slugify(name) for name in RAID_NAMES}
 
 # Le message de rappel posté dans le salon est auto-supprimé après ce délai.
@@ -110,6 +120,20 @@ class _HourVoteButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await self.cog.handle_hour_vote(interaction, self.raid_id, self.hour)
+
+
+class _AllHoursButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="Dispo toutes les heures",
+            style=discord.ButtonStyle.success,
+            custom_id=f"bebraid:allhours:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.handle_all_hour_votes(interaction, self.raid_id)
 
 
 class _RaidChoiceButton(discord.ui.Button):
@@ -281,8 +305,8 @@ class HourPollView(discord.ui.View):
             if is_today and hour <= now.hour:
                 btn.disabled = True
             self.add_item(btn)
+        self.add_item(_AllHoursButton(cog, raid_id))
         self.add_item(_ClosePollButton(cog, raid_id))
-        self.add_item(_ParticipantsButton(cog, raid_id))
         self.add_item(_AdminCancelButton(cog, raid_id))
 
 
@@ -318,7 +342,7 @@ class _HourChoiceSelect(discord.ui.Select):
         super().__init__(
             placeholder="Choisis les heures à proposer au sondage",
             min_values=2,
-            max_values=22,  # 22 h + boutons (close/participants/annuler) = 25 composants max Discord
+            max_values=22,  # 22 h + boutons (toutes/close/annuler) = 25 composants max Discord
             options=[discord.SelectOption(label=f"{h}h", value=str(h)) for h in range(24)],
         )
 
@@ -794,6 +818,30 @@ class RaidCog(commands.Cog):
         auto_note = " Si ce créneau gagne, tu seras inscrit automatiquement." if added else ""
         msg = f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}.{auto_note}"
         await interaction.response.send_message(msg, ephemeral=True)
+        await self._edit_message(
+            raid["channel_id"], raid["hour_poll_message_id"],
+            embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),
+        )
+
+    async def handle_all_hour_votes(self, interaction: discord.Interaction, raid_id: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] != STATE_VOTING_HOUR:
+            await interaction.response.send_message("Ce sondage est terminé.", ephemeral=True)
+            return
+        hours = _votable_hours(raid)
+        if not hours:
+            await interaction.response.send_message("Aucun créneau encore votable.", ephemeral=True)
+            return
+        db.replace_votes(raid_id, interaction.user.id, "hour", [str(hour) for hour in hours])
+        counts = db.get_vote_counts(raid_id, "hour")
+        creator = await self._creator_display(raid["created_by"])
+        confirmed, waitlist = self._counts(raid_id)
+        votes_str = ", ".join(f"{hour}h" for hour in hours)
+        await interaction.response.send_message(
+            f"✅ Tu es indiqué dispo pour tous les créneaux proposés : {votes_str}. "
+            "Si l'un d'eux gagne, tu seras inscrit automatiquement.",
+            ephemeral=True,
+        )
         await self._edit_message(
             raid["channel_id"], raid["hour_poll_message_id"],
             embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),

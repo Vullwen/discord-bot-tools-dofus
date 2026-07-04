@@ -21,7 +21,8 @@ Ensuite :
 
 - Les sondages se ferment tout seuls le jour du raid (à midi par défaut).
 - Les participants s'inscrivent via les boutons sous le message. Dans un sondage
-  d'heure, les votants du créneau gagnant sont inscrits automatiquement.
+  d'heure, les votants du créneau gagnant sont inscrits automatiquement. Le bouton
+  **Dispo toutes les heures** permet de voter tous les créneaux proposés d'un coup.
 - En cas d'égalité sur l'heure, le créateur reçoit un MP pour départager.
 - Un rappel part en MP quelques minutes avant l'heure prévue.
 - Deux heures après le raid, les messages le concernant sont supprimés.
