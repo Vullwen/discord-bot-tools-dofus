@@ -32,8 +32,8 @@ nouvelles inscriptions sont bloquées.
 
 Raids :
 
-- `/raid date [raid] [cloture] [note]` — crée un raid. `cloture` permet de
-  choisir la durée du vote (auto, 1h, 3h, 6h, 12h, 24h, 48h).
+- `/raid date [raid] [cloture] [note]` — crée un raid. `cloture` choisit
+  l'heure de fermeture le jour du raid (ex. `12h` = midi le jour du raid).
 - `/list_raids` — raids actifs.
 - `/cancel_raid raid_id` — annule un raid (créateur ou organisateur).
 - `/force_close raid_id` — clôture tout de suite le sondage en cours.

@@ -29,6 +29,7 @@ def init(db_path: str = DB_PATH) -> None:
             name                     TEXT,
             date                     TEXT NOT NULL,
             poll_duration_seconds    INTEGER NOT NULL,
+            poll_close_hour          INTEGER,
             created_by               INTEGER NOT NULL,
             guild_id                 INTEGER NOT NULL,
             channel_id               INTEGER NOT NULL,
@@ -84,6 +85,7 @@ def init(db_path: str = DB_PATH) -> None:
     _migrate("ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER")
     _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
     _migrate("ALTER TABLE raids ADD COLUMN poll_hours TEXT")
+    _migrate("ALTER TABLE raids ADD COLUMN poll_close_hour INTEGER")
     _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
     _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
     # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
@@ -127,6 +129,7 @@ def create_raid(
     name: Optional[str],
     date_iso: str,
     poll_duration_seconds: int = 0,
+    poll_close_hour: Optional[int] = None,
     created_by: int,
     guild_id: int,
     channel_id: int,
@@ -141,15 +144,16 @@ def create_raid(
     cur = _db().execute(
         """
         INSERT INTO raids
-            (name, date, poll_duration_seconds, created_by, guild_id, channel_id,
+            (name, date, poll_duration_seconds, poll_close_hour, created_by, guild_id, channel_id,
              state, raid_poll_closes_at, hour_poll_closes_at, scheduled_at,
              fixed_time, poll_hours, note, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             name,
             date_iso,
             poll_duration_seconds,
+            poll_close_hour,
             created_by,
             guild_id,
             channel_id,

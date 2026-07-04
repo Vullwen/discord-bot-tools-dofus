@@ -101,7 +101,7 @@ Datetimes stockés en **ISO aware**, dates en `YYYY-MM-DD`.
 
 **Tables :** `raids`, `votes`, `participants`, `tickets`, `guild_settings`.
 
-> Schéma `raids` : `id, name, date, poll_duration_seconds, created_by, guild_id,
+> Schéma `raids` : `id, name, date, poll_duration_seconds, poll_close_hour, created_by, guild_id,
 > channel_id, state, raid_poll_message_id, hour_poll_message_id,
 > scheduled_message_id, scheduled_at, raid_poll_closes_at, hour_poll_closes_at,
 > note, fixed_hour, created_at`.
@@ -113,7 +113,7 @@ Datetimes stockés en **ISO aware**, dates en `YYYY-MM-DD`.
 - `_now_iso()` / `_dt(value)` — helpers ISO ↔ datetime.
 
 ### Raids
-- `create_raid(*, name, date_iso, poll_duration_seconds, created_by, guild_id, channel_id, state, raid_poll_closes_at=None, hour_poll_closes_at=None, scheduled_at=None, note=None, fixed_hour=None)` — INSERT, renvoie `raid_id`.
+- `create_raid(*, name, date_iso, poll_duration_seconds=0, poll_close_hour=None, created_by, guild_id, channel_id, state, raid_poll_closes_at=None, hour_poll_closes_at=None, scheduled_at=None, note=None, fixed_time=None, poll_hours=None)` — INSERT, renvoie `raid_id`.
 - `get_raid(raid_id)` — une ligne.
 - `list_active_raids()` — états non terminaux, tri par id.
 - `list_all_raids(limit=50)` — tous, récents d'abord.
@@ -170,7 +170,6 @@ Datetimes stockés en **ISO aware**, dates en `YYYY-MM-DD`.
 - `tally(counts, order, default)` — **gagnant** : majorité simple, puis 1er de `order` en cas d'égalité, puis `default` si aucun vote.
 - `reminder_time(scheduled_at, minutes)` — `scheduled_at - minutes`.
 - `format_counts(counts, order, suffix="")` — rendu texte des résultats (`"14h: 2 | 15h: 0"`), gras les leaders.
-- `parse_duration_seconds(value, minimum=300)` — `"5min"`, `"1h"`, `"90"` → secondes (mini appliqué).
 
 ---
 
@@ -201,7 +200,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_slugify(name)` — nom → slug ASCII (pour les `custom_id`).
 - `_parse_when(value)` — valeur BDD (ISO/datetime/None) → datetime aware (fallback `now` si None).
 - `_HOUR_ORDER`, `_RAID_SLUGS` — lookups précalculés.
-- `POLL_DURATION_CHOICES` — durées proposées au slash (`auto`, 1h, 3h, 6h, 12h, 24h, 48h).
+- `POLL_CLOSE_HOUR_CHOICES` — heures de clôture proposées au slash (`auto`, 00h..23h).
 
 ### Boutons (custom_id entre parenthèses)
 - `_HourVoteButton` (`bebraid:hour:{raid_id}:{hour}`) → `handle_hour_vote`.
@@ -229,7 +228,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_edit_message(channel_id, message_id, *, embed, view)` — édite un message stocké.
 
 **Création**
-- `create_raid(guild, channel, user, raid_name, date_text, note=None, poll_hours=None, poll_duration_seconds=0)` — **cœur partagé** (/raid + ticket).
+- `create_raid(guild, channel, user, raid_name, date_text, note=None, poll_hours=None, poll_close_hour=None)` — **cœur partagé** (/raid + ticket).
   - Heure dans `date_text` + raid connu → **planification directe** (sans sondage).
   - Raid connu, pas d'heure → sondage heure (`voting_hour`).
   - Pas de raid → sondage choix (`choosing_raid`), puis heure (ou direct si `fixed_hour`).
@@ -257,7 +256,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_reschedule_all()` — au boot : `add_view` (routage clics) + replanif des tâches depuis la base.
 
 **Slash commands**
-- `/raid date raid? cloture? note?` — crée un raid (**organisateur** ; defer éphémère).
+- `/raid date raid? cloture? note?` — crée un raid ; `cloture` = heure le jour du raid (**organisateur** ; defer éphémère).
 - `/list_raids` — embed des raids actifs.
 - `/cancel_raid raid_id` — annule (créateur ou organisateur).
 - `/force_close raid_id` — clôture immédiat (organisateur).
@@ -269,7 +268,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 Salon privé (opener + organisateurs) pour discuter puis lancer `/raid`-like via modal.
 
 - `_channel_name(name)` — pseudo → nom de salon `raid-pseudo`.
-- `RaidCreateModal` (Modal) — champs Raid / Date / Durée → `on_submit` appelle `RaidCog.create_raid`.
+- `RaidCreateModal` (Modal) — champs Raid / Date → `on_submit` appelle `RaidCog.create_raid` en clôture auto.
 - `_OpenTicketButton` (`bebraid:ticket_open`) → `open_ticket`.
 - `_CreateFromTicketButton` (`bebraid:ticket_create`) → ouvre le modal.
 - `_CloseTicketButton` (`bebraid:ticket_close`) → `close_ticket`.
@@ -346,7 +345,8 @@ Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** d
 ### Tests (`pytest`)
 - `tests/test_dates.py` — parsing dates/heures (`parse_hour`, `strip_hour`, `parse_raid_date`…).
 - `tests/test_db.py` — CRUD raids/votes/participants/tickets, (dé)sérialisation datetime.
-- `tests/test_tally.py` — `tally`, `format_counts`, `parse_duration_seconds`, états.
+- `tests/test_tally.py` — `tally`, `format_counts`, états.
+- `tests/test_raid_duration.py` — calcul de l'heure de clôture des sondages.
 - `tests/test_config.py` — caps par défaut / `raid_cap`.
 - `tests/test_imports.py` — import de tous les modules (nécessite `discord` installé).
 

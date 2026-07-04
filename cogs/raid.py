@@ -79,14 +79,16 @@ _RAID_SLUGS = {name: _slugify(name) for name in RAID_NAMES}
 # Le message de rappel posté dans le salon est auto-supprimé après ce délai.
 REMINDER_DELETE_AFTER = timedelta(hours=REMINDER_DELETE_HOURS)
 
-POLL_DURATION_CHOICES = [
-    app_commands.Choice(name="Auto (midi le jour du raid)", value=0),
-    app_commands.Choice(name="1 heure", value=60 * 60),
-    app_commands.Choice(name="3 heures", value=3 * 60 * 60),
-    app_commands.Choice(name="6 heures", value=6 * 60 * 60),
-    app_commands.Choice(name="12 heures", value=12 * 60 * 60),
-    app_commands.Choice(name="24 heures", value=24 * 60 * 60),
-    app_commands.Choice(name="48 heures", value=48 * 60 * 60),
+AUTO_CLOSE_CHOICE = 24
+POLL_CLOSE_HOUR_CHOICES = [
+    app_commands.Choice(name="Auto (12h par défaut)", value=AUTO_CLOSE_CHOICE),
+    *[
+        app_commands.Choice(
+            name=f"{hour:02d}h" + (" (minuit)" if hour == 0 else " (midi)" if hour == 12 else ""),
+            value=hour,
+        )
+        for hour in range(24)
+    ],
 ]
 
 
@@ -322,7 +324,7 @@ class HourChoiceView(discord.ui.View):
         raid_name,
         date_text,
         note,
-        poll_duration_seconds: int = 0,
+        poll_close_hour: Optional[int] = None,
     ):
         super().__init__(timeout=300)
         self.cog = cog
@@ -333,7 +335,7 @@ class HourChoiceView(discord.ui.View):
         self.raid_name = raid_name
         self.date_text = date_text
         self.note = note
-        self.poll_duration_seconds = poll_duration_seconds
+        self.poll_close_hour = poll_close_hour
         self.message: Optional[discord.Message] = None
         self.add_item(_HourChoiceSelect())
         self.add_item(_ConfirmHoursButton())
@@ -349,7 +351,7 @@ class HourChoiceView(discord.ui.View):
             raid_id = await self.cog.create_raid(
                 self.guild, self.channel, self.user, self.raid_name,
                 self.date_text, self.note, poll_hours=self.selected,
-                poll_duration_seconds=self.poll_duration_seconds,
+                poll_close_hour=self.poll_close_hour,
             )
         except dates_utils.InvalidRaidDate as exc:
             await interaction.response.edit_message(content=f"❌ Date invalide : {exc}", view=None)
@@ -430,12 +432,12 @@ class RaidCog(commands.Cog):
         raid_name,
         date_text,
         note,
-        poll_duration_seconds: int = 0,
+        poll_close_hour: Optional[int] = None,
     ) -> None:
         """Présente le menu de choix des heures (la création du raid est différée
         au clic sur Confirmer dans la view)."""
         view = HourChoiceView(
-            self, guild, channel, user, raid_name, date_text, note, poll_duration_seconds
+            self, guild, channel, user, raid_name, date_text, note, poll_close_hour
         )
         content = "🕐 Choisis les heures à proposer au sondage, puis clique sur **✅ Confirmer**."
         if interaction.response.is_done():
@@ -483,14 +485,12 @@ class RaidCog(commands.Cog):
         self,
         raid_date: date,
         now: datetime,
-        poll_duration_seconds: int = 0,
+        poll_close_hour: Optional[int] = None,
         fixed_time=None,
         poll_hours: Optional[list[int]] = None,
     ) -> datetime:
-        if poll_duration_seconds > 0:
-            close = now + timedelta(seconds=poll_duration_seconds)
-        else:
-            close = dates_utils.poll_closes_at(raid_date, RAID_POLL_CLOSE_HOUR, now)
+        close_hour = RAID_POLL_CLOSE_HOUR if poll_close_hour is None else poll_close_hour
+        close = dates_utils.poll_closes_at(raid_date, close_hour, now)
 
         latest = self._latest_poll_close(raid_date, fixed_time, poll_hours)
         if latest is not None and close > latest:
@@ -571,7 +571,7 @@ class RaidCog(commands.Cog):
         date_text: str,
         note: Optional[str] = None,
         poll_hours: Optional[list[int]] = None,
-        poll_duration_seconds: int = 0,
+        poll_close_hour: Optional[int] = None,
     ) -> int:
         """Crée un raid (cœur métier partagé par /raid et le ticket). Lève InvalidRaidDate.
 
@@ -610,12 +610,12 @@ class RaidCog(commands.Cog):
             self._schedule_reminder(raid_id, scheduled_at)
             return raid_id
 
-        # Clôture des sondages : durée choisie au slash, ou mode auto à l'heure
-        # configurée le jour du raid. On plafonne avant la première heure proposée.
+        # Clôture des sondages : heure choisie au slash le jour du raid, ou mode
+        # auto à l'heure configurée. On plafonne avant la première heure proposée.
         closes_at = self._poll_closes_at(
             raid_date,
             now,
-            poll_duration_seconds=poll_duration_seconds,
+            poll_close_hour=poll_close_hour,
             fixed_time=fixed_time,
             poll_hours=poll_hours,
         )
@@ -640,7 +640,7 @@ class RaidCog(commands.Cog):
             guild_id=guild.id,
             channel_id=channel.id,
             state=state,
-            poll_duration_seconds=poll_duration_seconds,
+            poll_close_hour=poll_close_hour,
             raid_poll_closes_at=raid_closes,
             hour_poll_closes_at=hour_closes,
             note=note,
@@ -936,7 +936,7 @@ class RaidCog(commands.Cog):
             hour_closes = self._poll_closes_at(
                 date.fromisoformat(raid["date"]),
                 now,
-                poll_duration_seconds=raid["poll_duration_seconds"] or 0,
+                poll_close_hour=raid["poll_close_hour"],
                 poll_hours=_raid_hours(raid),
             )
         # Transition atomique : état + heure de clôture du sondage heure dans la même UPDATE,
@@ -1182,12 +1182,12 @@ class RaidCog(commands.Cog):
     @app_commands.describe(
         date="Date et/ou heure (ex: ce soir, demain 19h30, 28/06, 21h). Une heure précise fixe l'heure sans sondage.",
         raid="Nom du raid (laisser vide = sondage pour choisir le raid d'abord)",
-        cloture="Durée du vote avant clôture (auto = midi le jour du raid)",
+        cloture="Heure de clôture le jour du raid (ex: 12h = le jour du raid à midi)",
         note="Note optionnelle affichée sur le sondage",
     )
     @app_commands.choices(
         raid=[app_commands.Choice(name=name, value=name) for name in RAID_NAMES],
-        cloture=POLL_DURATION_CHOICES,
+        cloture=POLL_CLOSE_HOUR_CHOICES,
     )
     async def raid(
         self,
@@ -1208,6 +1208,7 @@ class RaidCog(commands.Cog):
             await interaction.followup.send("À utiliser dans un serveur.", ephemeral=True)
             return
         raid_name = raid.value if raid else None
+        poll_close_hour = None if cloture is None or cloture.value == AUTO_CLOSE_CHOICE else cloture.value
         channel = self._resolve_raids_channel(interaction.guild, interaction.channel)
         if channel is None or not isinstance(channel, discord.abc.Messageable):
             await interaction.followup.send("Impossible de trouver un salon pour poster le sondage.", ephemeral=True)
@@ -1226,7 +1227,7 @@ class RaidCog(commands.Cog):
             try:
                 raid_id = await self.create_raid(
                     interaction.guild, channel, interaction.user, raid_name, date, note,
-                    poll_duration_seconds=cloture.value if cloture else 0,
+                    poll_close_hour=poll_close_hour,
                 )
             except dates_utils.InvalidRaidDate as exc:
                 await interaction.followup.send(f"❌ Date invalide : {exc}", ephemeral=True)
@@ -1239,7 +1240,7 @@ class RaidCog(commands.Cog):
 
         await self._prompt_hour_choice(
             interaction, interaction.guild, channel, interaction.user, raid_name, date, note,
-            poll_duration_seconds=cloture.value if cloture else 0,
+            poll_close_hour=poll_close_hour,
         )
 
     @app_commands.command(name="list_raids", description="Liste les raids actifs")

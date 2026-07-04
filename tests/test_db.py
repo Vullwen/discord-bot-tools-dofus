@@ -115,6 +115,15 @@ def test_create_raid_stores_poll_hours(tmp_path):
     assert db.get_raid(rid)["poll_hours"] == "19,20,21"
 
 
+def test_create_raid_stores_poll_close_hour(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="Gigalodon", date_iso="2026-06-28", poll_close_hour=12,
+        created_by=1, guild_id=2, channel_id=3, state="voting_hour",
+    )
+    assert db.get_raid(rid)["poll_close_hour"] == 12
+
+
 def test_list_raids_with_messages(tmp_path):
     _fresh(tmp_path)
     # Scheduled avec scheduled_message_id -> inclus.
