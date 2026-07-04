@@ -20,8 +20,8 @@ Tout dépend de ce que tu donnes à la création :
 Ensuite :
 
 - Les sondages se ferment tout seuls le jour du raid (à midi par défaut).
-- Les participants s'inscrivent via les boutons sous le message. Voter pour une heure
-  inscrit aussi au rappel.
+- Les participants s'inscrivent via les boutons sous le message. Dans un sondage
+  d'heure, les votants du créneau gagnant sont inscrits automatiquement.
 - Un rappel part en MP quelques minutes avant l'heure prévue.
 - Deux heures après le raid, les messages le concernant sont supprimés.
 

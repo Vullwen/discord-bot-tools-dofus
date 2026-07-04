@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta
 
+import db
 from config import PARIS
 from cogs.raid import RaidCog
 
@@ -61,3 +62,26 @@ def test_today_past_close_hour_falls_back_to_short_delay():
         poll_hours=[21, 22],
     )
     assert closes == now + timedelta(minutes=15)
+
+
+def test_winning_hour_voters_are_registered(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="voting_hour",
+    )
+    raid = db.get_raid(raid_id)
+
+    db.toggle_vote(raid_id, 100, "hour", "15")
+    db.toggle_vote(raid_id, 200, "hour", "16")
+    db.toggle_vote(raid_id, 300, "hour", "15")
+    db.toggle_vote(raid_id, 300, "hour", "15")  # vote retiré
+
+    assert _cog()._register_winning_hour_voters(raid_id, raid, "15") == (1, 0)
+    assert db.is_participant(raid_id, 100)
+    assert not db.is_participant(raid_id, 200)
+    assert not db.is_participant(raid_id, 300)

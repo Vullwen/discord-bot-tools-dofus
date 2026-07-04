@@ -79,7 +79,8 @@ def hour_poll_embed(raid, counts, creator: str, confirmed: int, waitlist: int, h
         title=f"🗓️ Sondage — heure du raid {name}",
         description=(
             f"**Date :** {dates_utils.format_date_fr(_parse_day(raid))}\n"
-            "Clique sur ton créneau préféré. Tu peux changer d'avis."
+            "Clique sur les créneaux qui te conviennent. Si un de tes créneaux gagne, "
+            "tu seras inscrit automatiquement."
         ),
         color=GREEN,
     )

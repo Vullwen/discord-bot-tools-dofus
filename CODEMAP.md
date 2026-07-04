@@ -15,7 +15,7 @@ Bot Discord (discord.py, slash commands, cogs) pour organiser des **raids Dofus*
 
 1. `/raid` (ou ticket) → crée un raid.
 2. **Sondage choix du raid** (si nom non fourni) → boutons.
-3. **Sondage de l'heure** → boutons (chaque vote = inscription).
+3. **Sondage de l'heure** → boutons (les votants du créneau gagnant sont inscrits).
 4. **Heure décidée** → message de planification + bouton « Je participe ».
 5. **Rappel MP** X min avant → puis raid marqué **terminé**.
 
@@ -236,7 +236,8 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 
 **Handlers de boutons**
 - `handle_raid_vote(interaction, raid_id, name)` — vote choix raid.
-- `handle_hour_vote(interaction, raid_id, hour)` — vote heure ; **refuse les créneaux passés** (jour même) ; cap.
+- `handle_hour_vote(interaction, raid_id, hour)` — vote heure ; **refuse les créneaux passés** (jour même).
+- `_register_winning_hour_voters(raid_id, raid, winner_hour)` — inscrit les votants du créneau gagnant.
 - `handle_register(interaction, raid_id)` — inscription rappel MP ; cap.
 - `handle_view_participants(interaction, raid_id)` — embed éphémère des participants.
 - `handle_close_poll(interaction, raid_id)` — clôture manuelle (organisateur ou créateur).

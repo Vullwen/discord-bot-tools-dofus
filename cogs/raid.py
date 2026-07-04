@@ -470,6 +470,18 @@ class RaidCog(commands.Cog):
         db.add_participant(raid_id, user_id, status)
         return status
 
+    def _register_winning_hour_voters(self, raid_id: int, raid, winner_hour: str) -> tuple[int, int]:
+        """Inscrit les votants du créneau gagnant. Retourne (confirmés, attente)."""
+        confirmed = 0
+        waitlist = 0
+        for user_id in db.get_voters(raid_id, "hour", winner_hour):
+            status = self._register_user(raid_id, user_id, raid["name"])
+            if status == "waitlist":
+                waitlist += 1
+            else:
+                confirmed += 1
+        return confirmed, waitlist
+
     def _latest_poll_close(
         self,
         raid_date: date,
@@ -721,19 +733,13 @@ class RaidCog(commands.Cog):
             await interaction.response.send_message("⏰ Ce créneau est déjà passé.", ephemeral=True)
             return
         added = db.toggle_vote(raid_id, interaction.user.id, "hour", str(hour))
-        status_note = ""
-        if added:
-            # Inscription au premier créneau voté (confirmé, ou liste d'attente si complet).
-            status = self._register_user(raid_id, interaction.user.id, raid["name"])
-            if status == "waitlist":
-                pos = db.waitlist_position(raid_id, interaction.user.id)
-                status_note = f" ⏳ Raid complet : liste d'attente (position {pos})."
         counts = db.get_vote_counts(raid_id, "hour")
         creator = await self._creator_display(raid["created_by"])
         confirmed, waitlist = self._counts(raid_id)
         user_hours = sorted(int(h) for h in db.get_user_votes(raid_id, interaction.user.id, "hour"))
         votes_str = ", ".join(f"{h}h" for h in user_hours) or "aucun"
-        msg = f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}.{status_note}"
+        auto_note = " Si ce créneau gagne, tu seras inscrit automatiquement." if added else ""
+        msg = f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}.{auto_note}"
         await interaction.response.send_message(msg, ephemeral=True)
         await self._edit_message(
             raid["channel_id"], raid["hour_poll_message_id"],
@@ -970,7 +976,15 @@ class RaidCog(commands.Cog):
         raid_date = date.fromisoformat(raid["date"])
         scheduled_at = dates_utils.combine_date_hour(raid_date, int(winner_hour))
         db.update_raid(raid_id, state=STATE_SCHEDULED, scheduled_at=scheduled_at)
+        confirmed_from_votes, waitlist_from_votes = self._register_winning_hour_voters(
+            raid_id, raid, winner_hour
+        )
         logger.info("Raid #%d : heure=%sh, planifié à %s", raid_id, winner_hour, scheduled_at.isoformat())
+        if confirmed_from_votes or waitlist_from_votes:
+            logger.info(
+                "Raid #%d : %d votant(s) inscrit(s), %d en attente",
+                raid_id, confirmed_from_votes, waitlist_from_votes,
+            )
 
         await self._edit_message(
             raid["channel_id"],
