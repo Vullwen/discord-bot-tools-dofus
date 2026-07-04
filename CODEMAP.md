@@ -207,13 +207,14 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 ### Boutons (custom_id entre parenthèses)
 - `_HourVoteButton` (`bebraid:hour:{raid_id}:{hour}`) → `handle_hour_vote`.
 - `_AllHoursButton` (`bebraid:allhours:{raid_id}`) → `handle_all_hour_votes`.
+- `_ClearHourVotesButton` (`bebraid:clearhours:{raid_id}`) → `handle_clear_hour_votes`.
 - `_RaidChoiceButton` (`bebraid:raid:{raid_id}:{slug}`) → `handle_raid_vote`.
 - `_RegisterButton` (`bebraid:reg:{raid_id}`) → `handle_register`.
 - `_ClosePollButton` (`bebraid:close:{raid_id}`) → `handle_close_poll`.
 - `_ParticipantsButton` (`bebraid:participants:{raid_id}`) → `handle_view_participants`.
 
 ### Vues (regroupent les boutons ; `timeout=None` = persistantes)
-- `HourPollView` — boutons heures (ceux **passés sont désactivés** si raid aujourd'hui) + Dispo toutes les heures + Clôturer + Annuler.
+- `HourPollView` — boutons heures (ceux **passés sont désactivés** si raid aujourd'hui) + Dispo toutes les heures + Annuler mes heures + Clôturer si place + Annuler.
 - `RaidChoiceView` — boutons raids + Clôturer + Participants.
 - `ScheduledRaidView` — Je participe + Participants.
 
@@ -241,6 +242,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `handle_raid_vote(interaction, raid_id, name)` — vote choix raid.
 - `handle_hour_vote(interaction, raid_id, hour)` — vote heure ; **refuse les créneaux passés** (jour même).
 - `handle_all_hour_votes(interaction, raid_id)` — vote tous les créneaux proposés encore valides.
+- `handle_clear_hour_votes(interaction, raid_id)` — retire tous les votes d'heure de l'utilisateur.
 - `_register_winning_hour_voters(raid_id, raid, winner_hour)` — inscrit les votants du créneau gagnant.
 - `handle_hour_tie_break(interaction, raid_id, hour)` — bouton MP : le créateur départage une égalité.
 - `handle_register(interaction, raid_id)` — inscription rappel MP ; cap.

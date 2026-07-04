@@ -80,7 +80,7 @@ def hour_poll_embed(raid, counts, creator: str, confirmed: int, waitlist: int, h
         description=(
             f"**Date :** {dates_utils.format_date_fr(_parse_day(raid))}\n"
             "Clique sur les créneaux qui te conviennent. Si un de tes créneaux gagne, "
-            "tu seras inscrit automatiquement. Le bouton **Dispo toutes les heures** coche tout."
+            "tu seras inscrit automatiquement. Tu peux aussi tout cocher ou tout annuler."
         ),
         color=GREEN,
     )

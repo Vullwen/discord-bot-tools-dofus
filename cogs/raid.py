@@ -136,6 +136,20 @@ class _AllHoursButton(discord.ui.Button):
         await self.cog.handle_all_hour_votes(interaction, self.raid_id)
 
 
+class _ClearHourVotesButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="Annuler mes heures",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"bebraid:clearhours:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.handle_clear_hour_votes(interaction, self.raid_id)
+
+
 class _RaidChoiceButton(discord.ui.Button):
     def __init__(self, cog: "RaidCog", raid_id: int, name: str):
         super().__init__(
@@ -299,14 +313,17 @@ class HourPollView(discord.ui.View):
         raid = db.get_raid(raid_id)
         now = now_paris()
         is_today = raid is not None and date.fromisoformat(raid["date"]) == now.date()
-        for hour in _raid_hours(raid):
+        hours = _raid_hours(raid)
+        for hour in hours:
             btn = _HourVoteButton(cog, raid_id, hour)
             # Un raid prévu aujourd'hui : on désactive les créneaux déjà passés.
             if is_today and hour <= now.hour:
                 btn.disabled = True
             self.add_item(btn)
         self.add_item(_AllHoursButton(cog, raid_id))
-        self.add_item(_ClosePollButton(cog, raid_id))
+        self.add_item(_ClearHourVotesButton(cog, raid_id))
+        if len(hours) <= 21:
+            self.add_item(_ClosePollButton(cog, raid_id))
         self.add_item(_AdminCancelButton(cog, raid_id))
 
 
@@ -342,7 +359,7 @@ class _HourChoiceSelect(discord.ui.Select):
         super().__init__(
             placeholder="Choisis les heures à proposer au sondage",
             min_values=2,
-            max_values=22,  # 22 h + boutons (toutes/close/annuler) = 25 composants max Discord
+            max_values=21,  # 21 h + boutons (toutes/clear/close/annuler) = 25 composants max Discord
             options=[discord.SelectOption(label=f"{h}h", value=str(h)) for h in range(24)],
         )
 
@@ -842,6 +859,21 @@ class RaidCog(commands.Cog):
             "Si l'un d'eux gagne, tu seras inscrit automatiquement.",
             ephemeral=True,
         )
+        await self._edit_message(
+            raid["channel_id"], raid["hour_poll_message_id"],
+            embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),
+        )
+
+    async def handle_clear_hour_votes(self, interaction: discord.Interaction, raid_id: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] != STATE_VOTING_HOUR:
+            await interaction.response.send_message("Ce sondage est terminé.", ephemeral=True)
+            return
+        db.replace_votes(raid_id, interaction.user.id, "hour", [])
+        counts = db.get_vote_counts(raid_id, "hour")
+        creator = await self._creator_display(raid["created_by"])
+        confirmed, waitlist = self._counts(raid_id)
+        await interaction.response.send_message("🚫 Tous tes votes d'heure ont été retirés.", ephemeral=True)
         await self._edit_message(
             raid["channel_id"], raid["hour_poll_message_id"],
             embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),

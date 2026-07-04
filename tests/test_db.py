@@ -175,6 +175,9 @@ def test_replace_votes(tmp_path):
     db.replace_votes(rid, 100, "hour", ["14", "15", "16"])
     assert db.get_user_votes(rid, 100, "hour") == ["14", "15", "16"]
     assert db.get_vote_counts(rid, "hour") == {"14": 1, "15": 1, "16": 1}
+    db.replace_votes(rid, 100, "hour", [])
+    assert db.get_user_votes(rid, 100, "hour") == []
+    assert db.get_vote_counts(rid, "hour") == {}
 
 
 def test_waitlist_promotion(tmp_path):
