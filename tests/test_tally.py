@@ -16,6 +16,16 @@ def test_tally_tie_earliest_in_order():
     assert poll.tally(counts, ["14", "20", "21"], "21") == "20"
 
 
+def test_tied_leaders_positive_votes_only():
+    counts = {"20": 2, "21": 2, "22": 1}
+    assert poll.tied_leaders(counts, ["14", "20", "21", "22"]) == ["20", "21"]
+
+
+def test_tied_leaders_no_votes():
+    assert poll.tied_leaders({}, ["20", "21"]) == []
+    assert poll.tied_leaders({"20": 0, "21": 0}, ["20", "21"]) == []
+
+
 def test_tally_no_votes():
     assert poll.tally({}, ["14", "15"], "21") == "21"
 
@@ -31,6 +41,7 @@ def test_reminder_time():
 
 def test_is_active_and_states():
     assert poll.is_active("voting_hour")
+    assert poll.is_active("breaking_hour_tie")
     assert poll.is_active("scheduled")
     assert not poll.is_active("done")
     assert not poll.is_active("cancelled")

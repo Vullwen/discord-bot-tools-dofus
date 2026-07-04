@@ -27,6 +27,7 @@ Tout est persisté en **SQLite** (`data/beb_raid.db`) et replanifié au redémar
 |------|-----------|------|
 | `choosing_raid` | `STATE_CHOOSING_RAID` | Sondage « quel raid » en cours |
 | `voting_hour` | `STATE_VOTING_HOUR` | Sondage de l'heure en cours |
+| `breaking_hour_tie` | `STATE_BREAKING_HOUR_TIE` | Égalité sur l'heure, attente du créateur |
 | `scheduled` | `STATE_SCHEDULED` | Heure fixée, en attente du rappel |
 | `reminded` | `STATE_REMINDED` | Rappel envoyé, en attente de fin |
 | `done` | `STATE_DONE` | Raid passé (terminal) |
@@ -168,6 +169,7 @@ Datetimes stockés en **ISO aware**, dates en `YYYY-MM-DD`.
 - Constantes d'état : `STATE_*` (voir tableau §1), `ACTIVE_STATES`, `TERMINAL_STATES`.
 - `is_active(state)` — booléen.
 - `tally(counts, order, default)` — **gagnant** : majorité simple, puis 1er de `order` en cas d'égalité, puis `default` si aucun vote.
+- `tied_leaders(counts, order)` — choix ex-aequo en tête, vide si aucun vote positif.
 - `reminder_time(scheduled_at, minutes)` — `scheduled_at - minutes`.
 - `format_counts(counts, order, suffix="")` — rendu texte des résultats (`"14h: 2 | 15h: 0"`), gras les leaders.
 
@@ -238,6 +240,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `handle_raid_vote(interaction, raid_id, name)` — vote choix raid.
 - `handle_hour_vote(interaction, raid_id, hour)` — vote heure ; **refuse les créneaux passés** (jour même).
 - `_register_winning_hour_voters(raid_id, raid, winner_hour)` — inscrit les votants du créneau gagnant.
+- `handle_hour_tie_break(interaction, raid_id, hour)` — bouton MP : le créateur départage une égalité.
 - `handle_register(interaction, raid_id)` — inscription rappel MP ; cap.
 - `handle_view_participants(interaction, raid_id)` — embed éphémère des participants.
 - `handle_close_poll(interaction, raid_id)` — clôture manuelle (organisateur ou créateur).
@@ -245,7 +248,8 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 
 **Clôtures automatiques**
 - `_close_raid_choice(raid_id)` — dépouille, fixe le raid. Si `fixed_hour` → planifie direct, sinon sondage heure.
-- `_close_hour_poll(raid_id)` — dépouille l'heure, planifie, poste scheduled, planifie rappel+fin.
+- `_close_hour_poll(raid_id)` — dépouille l'heure ; en cas d'égalité, MP au créateur pour départage.
+- `_finalize_hour_poll(raid_id, winner_hour, ...)` — planifie, poste scheduled, inscrit les votants gagnants, planifie rappel+fin.
 - `_schedule_reminder(raid_id, scheduled_at)` — planifie `remind` + `done` (ou marque `done` si déjà passé).
 - `_remind(raid_id)` — MP chaque participant + message salon → état `reminded`.
 - `_mark_done(raid_id)` — état `done` (sauf si annulé).

@@ -110,6 +110,38 @@ def hour_poll_result_embed(raid, winner_hour: str, counts: Mapping[str, int], ho
     return embed
 
 
+def hour_poll_tie_embed(raid, tied_hours: Iterable[int], counts: Mapping[str, int], hours: Iterable[int]) -> discord.Embed:
+    tied = ", ".join(f"{hour}h" for hour in tied_hours)
+    embed = discord.Embed(
+        title="🗓️ Sondage heure — égalité",
+        description=(
+            f"Égalité entre **{tied}**.\n"
+            "Le créateur du raid doit départager."
+        ),
+        color=GOLD,
+    )
+    embed.add_field(name="Résultats", value=format_counts(counts, [str(h) for h in hours], suffix="h"), inline=False)
+    embed.set_footer(text=f"Raid #{raid['id']} — en attente du départage")
+    return embed
+
+
+def hour_tie_break_dm_embed(raid, tied_hours: Iterable[int], counts: Mapping[str, int]) -> discord.Embed:
+    tied = ", ".join(f"{hour}h" for hour in tied_hours)
+    name = raid["name"] or "Raid"
+    embed = discord.Embed(
+        title=f"⚖️ Départage du raid #{raid['id']}",
+        description=(
+            f"Le sondage d'heure pour **{name}** est à égalité entre **{tied}**.\n"
+            "Choisis l'heure finale avec les boutons ci-dessous."
+        ),
+        color=GOLD,
+    )
+    for hour in tied_hours:
+        embed.add_field(name=f"{hour}h", value=f"{counts.get(str(hour), 0)} vote(s)", inline=True)
+    embed.set_footer(text=dates_utils.format_date_fr(_parse_day(raid)))
+    return embed
+
+
 def scheduled_embed(raid, confirmed: int, waitlist: int, creator: str) -> discord.Embed:
     dt = _scheduled_dt(raid)
     cap = raid_cap(raid["name"])
@@ -205,6 +237,7 @@ def list_embed(rows) -> discord.Embed:
     state_label = {
         "choosing_raid": "🔊 Choix du raid",
         "voting_hour": "🗓️ Sondage heure",
+        "breaking_hour_tie": "⚖️ Départage créateur",
         "scheduled": "🎯 Planifié",
         "reminded": "⏰ Rappel envoyé",
     }

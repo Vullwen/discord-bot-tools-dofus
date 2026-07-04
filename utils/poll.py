@@ -10,13 +10,20 @@ from typing import Iterable, Mapping, Optional
 # États possibles du cycle de vie d'un raid.
 STATE_CHOOSING_RAID = "choosing_raid"  # sondage choix du raid en cours
 STATE_VOTING_HOUR = "voting_hour"      # sondage de l'heure en cours
+STATE_BREAKING_HOUR_TIE = "breaking_hour_tie"  # attente du créateur pour départager
 STATE_SCHEDULED = "scheduled"          # heure décidée, en attente du rappel
 STATE_REMINDED = "reminded"            # rappel envoyé, en attente de fin
 STATE_DONE = "done"                    # raid passé
 STATE_CANCELLED = "cancelled"          # annulé
 
 ACTIVE_STATES = frozenset(
-    {STATE_CHOOSING_RAID, STATE_VOTING_HOUR, STATE_SCHEDULED, STATE_REMINDED}
+    {
+        STATE_CHOOSING_RAID,
+        STATE_VOTING_HOUR,
+        STATE_BREAKING_HOUR_TIE,
+        STATE_SCHEDULED,
+        STATE_REMINDED,
+    }
 )
 TERMINAL_STATES = frozenset({STATE_DONE, STATE_CANCELLED})
 
@@ -46,6 +53,16 @@ def tally(counts: Mapping[str, int], order: Iterable[str], default: str) -> str:
         if value == best:
             return choice
     return default
+
+
+def tied_leaders(counts: Mapping[str, int], order: Iterable[str]) -> list[str]:
+    """Choix ex-aequo en tête, dans l'ordre demandé. Vide si aucun vote positif."""
+    best = max(counts.values()) if counts else 0
+    if best <= 0:
+        return []
+    ordered = [choice for choice in order if counts.get(choice, 0) == best]
+    extras = [choice for choice, value in counts.items() if value == best and choice not in ordered]
+    return ordered + extras
 
 
 def reminder_time(scheduled_at: datetime, minutes: int) -> datetime:

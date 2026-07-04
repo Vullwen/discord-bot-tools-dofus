@@ -103,7 +103,11 @@ def test_list_active_excludes_terminal(tmp_path):
         name="B", date_iso="2026-06-28", poll_duration_seconds=3600,
         created_by=1, guild_id=2, channel_id=3, state="done",
     )
-    assert len(db.list_active_raids()) == 1
+    db.create_raid(
+        name="C", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="breaking_hour_tie",
+    )
+    assert len(db.list_active_raids()) == 2
 
 
 def test_create_raid_stores_poll_hours(tmp_path):

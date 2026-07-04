@@ -85,3 +85,21 @@ def test_winning_hour_voters_are_registered(tmp_path):
     assert db.is_participant(raid_id, 100)
     assert not db.is_participant(raid_id, 200)
     assert not db.is_participant(raid_id, 300)
+
+
+def test_tied_hour_choices_only_returns_positive_ties(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="voting_hour",
+    )
+    db.toggle_vote(raid_id, 100, "hour", "15")
+    db.toggle_vote(raid_id, 200, "hour", "16")
+    assert _cog()._tied_hour_choices(raid_id, [14, 15, 16]) == [15, 16]
+
+    db.toggle_vote(raid_id, 300, "hour", "15")
+    assert _cog()._tied_hour_choices(raid_id, [14, 15, 16]) == []

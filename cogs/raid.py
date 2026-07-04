@@ -34,6 +34,7 @@ from utils import embeds
 from utils import dates as dates_utils
 from utils.perms import can_manage_raid, is_raid_organizer
 from utils.poll import (
+    STATE_BREAKING_HOUR_TIE,
     STATE_CANCELLED,
     STATE_CHOOSING_RAID,
     STATE_DONE,
@@ -42,6 +43,7 @@ from utils.poll import (
     STATE_VOTING_HOUR,
     parse_poll_hours,
     tally,
+    tied_leaders,
 )
 
 logger = logging.getLogger("beb-raid.raid")
@@ -167,6 +169,21 @@ class _ClosePollButton(discord.ui.Button):
         await self.cog.handle_close_poll(interaction, self.raid_id)
 
 
+class _HourTieBreakButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int, hour: int):
+        super().__init__(
+            label=f"{hour}h",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"bebraid:tiebreak:{raid_id}:{hour}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+        self.hour = hour
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.handle_hour_tie_break(interaction, self.raid_id, self.hour)
+
+
 class _ParticipantsButton(discord.ui.Button):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(
@@ -287,6 +304,13 @@ class ScheduledRaidView(discord.ui.View):
         self.add_item(_ParticipantsButton(cog, raid_id))
         self.add_item(_AdminRemoveButton(cog, raid_id))
         self.add_item(_AdminCancelButton(cog, raid_id))
+
+
+class HourTieBreakView(discord.ui.View):
+    def __init__(self, cog: "RaidCog", raid_id: int, tied_hours: list[int]):
+        super().__init__(timeout=None)
+        for hour in tied_hours[:22]:
+            self.add_item(_HourTieBreakButton(cog, raid_id, hour))
 
 
 class _HourChoiceSelect(discord.ui.Select):
@@ -481,6 +505,35 @@ class RaidCog(commands.Cog):
             else:
                 confirmed += 1
         return confirmed, waitlist
+
+    def _tied_hour_choices(self, raid_id: int, hours: list[int]) -> list[int]:
+        counts = db.get_vote_counts(raid_id, "hour")
+        tied = tied_leaders(counts, [str(h) for h in hours])
+        return [int(choice) for choice in tied] if len(tied) > 1 else []
+
+    async def _send_hour_tie_break_dm(self, raid, tied_hours: list[int], counts) -> bool:
+        view = HourTieBreakView(self, raid["id"], tied_hours)
+        embed = embeds.hour_tie_break_dm_embed(raid, tied_hours, counts)
+        try:
+            user = self.bot.get_user(raid["created_by"]) or await self.bot.fetch_user(raid["created_by"])
+            await user.send(embed=embed, view=view)
+            return True
+        except discord.DiscordException as exc:
+            logger.warning("Raid #%d : MP départage au créateur échoué: %s", raid["id"], exc)
+            return False
+
+    async def _send_hour_tie_break_fallback(self, raid, tied_hours: list[int], counts) -> None:
+        channel = await self._get_channel(raid["channel_id"])
+        if channel is None:
+            return
+        try:
+            await channel.send(
+                content=f"<@{raid['created_by']}> je n'arrive pas à t'envoyer un MP : départage ici.",
+                embed=embeds.hour_tie_break_dm_embed(raid, tied_hours, counts),
+                view=HourTieBreakView(self, raid["id"], tied_hours),
+            )
+        except discord.DiscordException as exc:
+            logger.warning("Raid #%d : fallback départage en salon échoué: %s", raid["id"], exc)
 
     def _latest_poll_close(
         self,
@@ -903,6 +956,8 @@ class RaidCog(commands.Cog):
             self._cancel_tasks(raid_id)
             await interaction.response.send_message("Sondage heure clôturé…", ephemeral=True)
             await self._close_hour_poll(raid_id)
+        elif state == STATE_BREAKING_HOUR_TIE:
+            await interaction.response.send_message("Ce sondage attend déjà le départage du créateur.", ephemeral=True)
         else:
             await interaction.response.send_message("Ce sondage est déjà terminé.", ephemeral=True)
 
@@ -972,7 +1027,30 @@ class RaidCog(commands.Cog):
         hours = _raid_hours(raid)
         hour_order = [str(h) for h in hours]
         default_hour = str(RAID_DEFAULT_HOUR) if RAID_DEFAULT_HOUR in hours else (hour_order[0] if hour_order else str(RAID_DEFAULT_HOUR))
+        tied_hours = self._tied_hour_choices(raid_id, hours)
+        if tied_hours:
+            db.update_raid(raid_id, state=STATE_BREAKING_HOUR_TIE)
+            await self._edit_message(
+                raid["channel_id"],
+                raid["hour_poll_message_id"],
+                embed=embeds.hour_poll_tie_embed(raid, tied_hours, counts, hours),
+                view=None,
+            )
+            sent = await self._send_hour_tie_break_dm(raid, tied_hours, counts)
+            if not sent:
+                await self._send_hour_tie_break_fallback(raid, tied_hours, counts)
+            logger.info("Raid #%d : égalité heure, attente départage créateur (%s)", raid_id, tied_hours)
+            return
+
         winner_hour = tally(counts, order=hour_order, default=default_hour)
+        await self._finalize_hour_poll(raid_id, winner_hour, counts, hours)
+
+    async def _finalize_hour_poll(self, raid_id: int, winner_hour: str, counts=None, hours=None) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] not in (STATE_VOTING_HOUR, STATE_BREAKING_HOUR_TIE):
+            return
+        counts = counts if counts is not None else db.get_vote_counts(raid_id, "hour")
+        hours = hours if hours is not None else _raid_hours(raid)
         raid_date = date.fromisoformat(raid["date"])
         scheduled_at = dates_utils.combine_date_hour(raid_date, int(winner_hour))
         db.update_raid(raid_id, state=STATE_SCHEDULED, scheduled_at=scheduled_at)
@@ -996,6 +1074,21 @@ class RaidCog(commands.Cog):
         await self._post_scheduled(raid_id)
         await self._delete_poll_messages(raid_id)
         self._schedule_reminder(raid_id, scheduled_at)
+
+    async def handle_hour_tie_break(self, interaction: discord.Interaction, raid_id: int, hour: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] != STATE_BREAKING_HOUR_TIE:
+            await interaction.response.send_message("Ce départage est déjà terminé.", ephemeral=True)
+            return
+        if interaction.user.id != raid["created_by"]:
+            await interaction.response.send_message("Seul le créateur du raid peut départager.", ephemeral=True)
+            return
+        tied_hours = self._tied_hour_choices(raid_id, _raid_hours(raid))
+        if hour not in tied_hours:
+            await interaction.response.send_message("Ce créneau n'est plus en égalité.", ephemeral=True)
+            return
+        await interaction.response.edit_message(content=f"Heure choisie : **{hour}h** ✅", embed=None, view=None)
+        await self._finalize_hour_poll(raid_id, str(hour))
 
     def _schedule_reminder(self, raid_id: int, scheduled_at: datetime) -> None:
         now = now_paris()
@@ -1139,6 +1232,10 @@ class RaidCog(commands.Cog):
                     self.bot.add_view(RaidChoiceView(self, raid_id), message_id=raid["raid_poll_message_id"])
                 elif state == STATE_VOTING_HOUR and raid["hour_poll_message_id"]:
                     self.bot.add_view(HourPollView(self, raid_id), message_id=raid["hour_poll_message_id"])
+                elif state == STATE_BREAKING_HOUR_TIE:
+                    tied_hours = self._tied_hour_choices(raid_id, _raid_hours(raid))
+                    if tied_hours:
+                        self.bot.add_view(HourTieBreakView(self, raid_id, tied_hours))
                 elif state in (STATE_SCHEDULED, STATE_REMINDED) and raid["scheduled_message_id"]:
                     self.bot.add_view(ScheduledRaidView(self, raid_id), message_id=raid["scheduled_message_id"])
             except discord.DiscordException as exc:
@@ -1151,6 +1248,8 @@ class RaidCog(commands.Cog):
             elif state == STATE_VOTING_HOUR:
                 when = _parse_when(raid["hour_poll_closes_at"])
                 self._schedule(raid_id, "hour_close", when, self._close_hour_poll)
+            elif state == STATE_BREAKING_HOUR_TIE:
+                logger.info("Raid #%d en attente de départage créateur", raid_id)
             elif state in (STATE_SCHEDULED, STATE_REMINDED):
                 scheduled_at = _parse_when(raid["scheduled_at"])
                 now = now_paris()
@@ -1330,6 +1429,15 @@ class RaidCog(commands.Cog):
         elif raid["state"] == STATE_VOTING_HOUR:
             await self._close_hour_poll(raid_id)
             await interaction.followup.send(f"Sondage heure **#{raid_id}** clôturé.", ephemeral=True)
+        elif raid["state"] == STATE_BREAKING_HOUR_TIE:
+            tied_hours = self._tied_hour_choices(raid_id, _raid_hours(raid))
+            if tied_hours:
+                sent = await self._send_hour_tie_break_dm(raid, tied_hours, db.get_vote_counts(raid_id, "hour"))
+                if not sent:
+                    await self._send_hour_tie_break_fallback(raid, tied_hours, db.get_vote_counts(raid_id, "hour"))
+                await interaction.followup.send(f"Départage relancé pour le raid **#{raid_id}**.", ephemeral=True)
+            else:
+                await interaction.followup.send(f"Aucune égalité active pour le raid **#{raid_id}**.", ephemeral=True)
         else:
             await interaction.followup.send(f"Rien à clôturer pour le raid **#{raid_id}** (état: {raid['state']}).", ephemeral=True)
 

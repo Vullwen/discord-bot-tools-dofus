@@ -177,7 +177,9 @@ def get_raid(raid_id: int) -> Optional[sqlite3.Row]:
 
 def list_active_raids() -> list[sqlite3.Row]:
     rows = _db().execute(
-        "SELECT * FROM raids WHERE state IN ('choosing_raid','voting_hour','scheduled','reminded') ORDER BY id"
+        "SELECT * FROM raids WHERE state IN "
+        "('choosing_raid','voting_hour','breaking_hour_tie','scheduled','reminded') "
+        "ORDER BY id"
     ).fetchall()
     return list(rows)
 
