@@ -28,8 +28,12 @@ class AdminCog(commands.Cog):
             return
 
         synced = await self.bot.tree.sync()
+        for current_guild in self.bot.guilds:
+            guild = discord.Object(id=current_guild.id)
+            self.bot.tree.clear_commands(guild=guild)
+            await self.bot.tree.sync(guild=guild)
         await interaction.response.send_message(
-            f"Sync globale terminee: {len(synced)} commande(s).",
+            f"Sync globale terminee: {len(synced)} commande(s), copies de guilde nettoyees.",
             ephemeral=True,
         )
 

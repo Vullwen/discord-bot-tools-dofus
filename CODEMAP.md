@@ -64,7 +64,8 @@ Configure logging (horodaté Europe/Paris), crée le `Bot` (intents défaut, pas
 préfixe), charge les cogs, sync les slash commands.
 
 - `_no_prefix(_bot, _message)` — préfixe vide (bot 100% slash commands).
-- `on_ready()` — log + `tree.sync()` (guille si `DISCORD_GUILD_ID`, sinon global) + activité « watching les raids ».
+- `sync_commands()` — sync slash commands : guilde ciblée si `DISCORD_GUILD_ID`, sinon global + nettoyage des copies de guilde.
+- `on_ready()` — log + `sync_commands()` + activité « watching les raids ».
 - `on_app_command_error(interaction, error)` — handler centralisé : log + message user-friendly éphémère.
 - `main()` — vérifie `DISCORD_TOKEN`, charge `COGS = [core, admin, settings, raid, ticket]`, démarre.
 - Liste **`COGS`** = ordre de chargement des cogs.
@@ -294,7 +295,7 @@ Salon privé (opener + organisateurs) pour discuter puis lancer `/raid`-like via
 
 ### `cogs/admin.py` — `AdminCog`
 - `_is_admin(user_id)` — dans `ADMIN_IDS` ?
-- `/sync` — resync slash commands (guilde ou global).
+- `/sync` — resync slash commands (guilde ou global + nettoyage des copies de guilde).
 - `/reload cog` — recharge un cog à chaud.
 
 ### `cogs/settings.py` — `SettingsCog`

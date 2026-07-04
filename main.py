@@ -45,26 +45,35 @@ COGS = [
 ]
 
 
-@bot.event
-async def on_ready():
-    logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    logger.info(f"Connected to {len(bot.guilds)} guild(s)")
+async def sync_commands() -> None:
+    """Publie les slash commands sans garder de doublons guild/global.
 
+    En mode global (DISCORD_GUILD_ID vide), on supprime les anciennes copies de
+    guilde qui peuvent rester d'une sync instantanée précédente.
+    """
     if DISCORD_GUILD_ID:
         guild = discord.Object(id=DISCORD_GUILD_ID)
         bot.tree.copy_global_to(guild=guild)
         synced = await bot.tree.sync(guild=guild)
         logger.info(f"Synced {len(synced)} slash command(s) to guild {DISCORD_GUILD_ID}")
-    else:
-        synced = await bot.tree.sync()
-        logger.info(f"Synced {len(synced)} global slash command(s)")
-        guild_total = 0
-        for current_guild in bot.guilds:
-            guild = discord.Object(id=current_guild.id)
-            bot.tree.copy_global_to(guild=guild)
-            guild_synced = await bot.tree.sync(guild=guild)
-            guild_total += len(guild_synced)
-        logger.info(f"Synced {guild_total} guild slash command(s) across {len(bot.guilds)} guild(s)")
+        return
+
+    synced = await bot.tree.sync()
+    logger.info(f"Synced {len(synced)} global slash command(s)")
+    for current_guild in bot.guilds:
+        guild = discord.Object(id=current_guild.id)
+        bot.tree.clear_commands(guild=guild)
+        await bot.tree.sync(guild=guild)
+    if bot.guilds:
+        logger.info(f"Cleared guild slash command copies across {len(bot.guilds)} guild(s)")
+
+
+@bot.event
+async def on_ready():
+    logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    logger.info(f"Connected to {len(bot.guilds)} guild(s)")
+
+    await sync_commands()
 
     await bot.change_presence(
         activity=discord.Activity(

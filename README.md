@@ -68,7 +68,8 @@ Configuration (organisateur) :
 Voir `.env.example` pour la liste complète. Les principales :
 
 - `DISCORD_TOKEN` — token du bot (requis).
-- `DISCORD_GUILD_ID` — guilde pour la sync instantanée des commandes (vide = global).
+- `DISCORD_GUILD_ID` — guilde pour la sync instantanée des commandes (vide =
+  global ; les anciennes copies de guilde sont nettoyées pour éviter les doublons).
 - `ADMIN_IDS` — IDs des admins, séparés par des virgules.
 - `RAID_NAMES` — raids possibles.
 - `RAID_CAPS` — places max par raid (ex. `Gigalodon:12`).
