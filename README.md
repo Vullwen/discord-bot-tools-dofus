@@ -1,4 +1,4 @@
-# B&B Raids
+# Discord bot Raids Dofus
 
 Bot Discord pour organiser des raids Dofus (Gigalodon, Jardins Éternels). On crée
 un raid pour une date, les votants choisissent l'heure (et le raid si besoin), un
