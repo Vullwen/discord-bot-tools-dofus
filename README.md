@@ -44,14 +44,9 @@ Raids :
 Sur chaque message de raid, un bouton **Annuler (admin)** permet d'annuler à
 n'importe quelle étape, avec demande de confirmation.
 
-Tickets :
-
-- `/raid_panel` — poste le panneau d'ouverture de ticket (organisateur). Un clic ouvre un
-  salon privé pour préparer un raid.
-
 Configuration (organisateur) :
 
-- `/setchannel` — salon des raids, ou catégorie des tickets.
+- `/setchannel` — salon des raids.
 - `/setraidrole` — rôle autorisé à créer et gérer les raids : ID, mention copiée
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
@@ -60,7 +55,7 @@ Configuration (organisateur) :
 
 ## Rôles
 
-- **Organisateur** (défini par `/setraidrole`) : crée et gère les raids et tickets,
+- **Organisateur** (défini par `/setraidrole`) : crée et gère les raids,
   configure le bot, clôture les sondages, annule. Si aucun rôle n'est défini, les
   membres avec la permission Administrateur Discord sont organisateurs.
 - **Notif raids** (défini par `/setraidnotifyrole`) : mentionné quand un raid est
@@ -80,7 +75,6 @@ Voir `.env.example` pour la liste complète. Les principales :
   (12 = midi par défaut).
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
 - `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/setchannel`).
-- `TICKET_CATEGORY_ID` — catégorie des tickets.
 
 ## Lancement
 

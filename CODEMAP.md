@@ -13,7 +13,7 @@
 Bot Discord (discord.py, slash commands, cogs) pour organiser des **raids Dofus**
 (Gigalodon, Jardins Éternels). Flux type :
 
-1. `/raid` (ou ticket) → crée un raid.
+1. `/raid` → crée un raid.
 2. **Sondage choix du raid** (si nom non fourni) → boutons.
 3. **Sondage de l'heure** → boutons (les votants du créneau gagnant sont inscrits).
 4. **Heure décidée** → message de planification + bouton « Je participe ».
@@ -47,7 +47,7 @@ beb_raid/
 │   ├── admin.py         #   /sync /reload
 │   ├── settings.py      #   /setchannel /showconfig
 │   ├── raid.py          #   ★ cœur métier : sondages, planif, rappels
-│   └── ticket.py        #   tickets privés pour organiser un raid
+│   └── ticket.py        #   boutons des tickets privés existants
 ├── utils/               # Logique pure (testable sans Discord)
 │   ├── dates.py         #   parsing de dates/heures (Paris)
 │   ├── poll.py          #   états, dépouillement, formatage
@@ -79,7 +79,7 @@ Charge `.env` (python-dotenv). **Toutes les constantes tunables sont ici.**
 
 Constantes globales : `DISCORD_TOKEN`, `DISCORD_GUILD_ID`, `BOT_NAME`, `LOG_LEVEL`,
 `ADMIN_IDS` (set d'IDs), `PARIS` (ZoneInfo Europe/Paris), `DB_PATH`,
-`RAIDS_CHANNEL_ID`, `TICKET_CATEGORY_ID`.
+`RAIDS_CHANNEL_ID`.
 
 - `_parse_channel_id(raw)` — str → int (0 si invalide).
 - `_parse_hours(raw)` — "14,15,16" → `[14,15,16]` (filtre 0-23).
@@ -138,7 +138,7 @@ Datetimes stockés en **ISO aware**, dates en `YYYY-MM-DD`.
 - `close_ticket(channel_id)` — marque `closed=1`.
 
 ### Settings (par guilde)
-- Constantes clés : `SETTING_RAIDS_CHANNEL = "raids_channel"`, `SETTING_TICKET_CATEGORY = "ticket_category"`.
+- Constantes clés : `SETTING_RAIDS_CHANNEL = "raids_channel"`.
 - `set_guild_setting(guild_id, key, value)` — INSERT OR REPLACE.
 - `get_guild_setting(guild_id, key)` — valeur str ou None.
 - `get_guild_setting_int(guild_id, key)` — valeur int ou None.
@@ -232,7 +232,7 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_edit_message(channel_id, message_id, *, embed, view)` — édite un message stocké.
 
 **Création**
-- `create_raid(guild, channel, user, raid_name, date_text, note=None, poll_hours=None, poll_close_hour=None)` — **cœur partagé** (/raid + ticket).
+- `create_raid(guild, channel, user, raid_name, date_text, note=None, poll_hours=None, poll_close_hour=None)` — cœur de création d'un raid.
   - Heure dans `date_text` + raid connu → **planification directe** (sans sondage).
   - Raid connu, pas d'heure → sondage heure (`voting_hour`).
   - Pas de raid → sondage choix (`choosing_raid`), puis heure (ou direct si `fixed_hour`).
@@ -272,24 +272,19 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 
 ---
 
-## 9. `cogs/ticket.py` — Tickets privés d'organisation
+## 9. `cogs/ticket.py` — Tickets privés existants
 
-Salon privé (opener + organisateurs) pour discuter puis lancer `/raid`-like via modal.
+Support des boutons déjà présents dans les salons privés de ticket.
 
-- `_channel_name(name)` — pseudo → nom de salon `raid-pseudo`.
 - `RaidCreateModal` (Modal) — champs Raid / Date → `on_submit` appelle `RaidCog.create_raid` en clôture auto.
-- `_OpenTicketButton` (`bebraid:ticket_open`) → `open_ticket`.
 - `_CreateFromTicketButton` (`bebraid:ticket_create`) → ouvre le modal.
 - `_CloseTicketButton` (`bebraid:ticket_close`) → `close_ticket`.
 - `_AddMemberButton` (`bebraid:ticket_add`) → `prompt_add_member`.
 - `_AddMemberSelect` (UserSelect) → `add_members`.
-- `AddMemberView` (timeout 300s), `TicketPanelView`, `TicketChannelView` — regroupent les composants.
+- `AddMemberView` (timeout 300s), `TicketChannelView` — regroupent les composants.
 
 ### Classe `TicketCog`
 - `cog_load()` — enregistre les vues persistantes (`add_view`).
-- `/raid_panel` (admin) — poste le panneau « Ouvrir un ticket raid ».
-- `_resolve_ticket_category(guild)` — catégorie : réglage DB → env → None.
-- `open_ticket(interaction)` — crée le salon privé (overwrites) + entrée BDD (**organisateur**).
 - `close_ticket(interaction)` — ferme + supprime le salon (organisateur ou opener).
 - `_is_ticket_manager(interaction)` — opener ou organisateur ?
 - `prompt_add_member(interaction)` / `add_members(interaction, users)` — ajoute des membres au salon.
@@ -307,9 +302,9 @@ Salon privé (opener + organisateurs) pour discuter puis lancer `/raid`-like via
 - `/reload cog` — recharge un cog à chaud.
 
 ### `cogs/settings.py` — `SettingsCog`
-- `/setchannel setting channel` — fixe salon raids **ou** catégorie tickets (admin). `setting` ∈ {raids_channel, ticket_category}.
-- `/setraidrole role?` — fixe le **rôle organisateur** autorisé à créer/gérer les raids et tickets (admin). Vide = admins seulement.
-- `/showconfig` — embed de la config de la guilde (salon, catégorie, rôle organisateur).
+- `/setchannel setting channel` — fixe le salon raids (admin).
+- `/setraidrole role?` — fixe le **rôle organisateur** autorisé à créer/gérer les raids (admin). Vide = admins seulement.
+- `/showconfig` — embed de la config de la guilde (salon, rôle organisateur).
 
 ### Permissions (`utils/perms.py`)
 Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** détenteur du rôle configuré par guilde (`SETTING_RAID_MANAGER_ROLE`, via `/setraidrole`). Si aucun rôle n'est configuré, seuls les `ADMIN_IDS` sont organisateurs.
@@ -317,7 +312,7 @@ Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** d
 - `can_manage_raid(interaction, raid)` — organisateur **ou créateur** du raid (clôture sondage, annulation, retrait de participants).
 - `can_manage_ticket(interaction, ticket)` — organisateur **ou opener** du ticket (fermer, ajouter des membres).
 
-> **Total : 11 slash commands** (core×1, admin×2, settings×3, raid×4, ticket×1).
+> **Total : 11 slash commands** (core×1, admin×2, settings×4, raid×4).
 
 ---
 
@@ -337,7 +332,6 @@ Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** d
 | `RAID_NAMES` | `Gigalodon,Jardins Éternels` | Raids possibles |
 | `RAID_CAPS` | `Gigalodon:12,Jardins Éternels:16` | Caps par raid |
 | `RAIDS_CHANNEL_ID` | — | Salon des raids (vide = salon courant) |
-| `TICKET_CATEGORY_ID` | — | Catégorie des tickets |
 | `DB_PATH` | `/app/data/beb_raid.db` | Chemin SQLite |
 
 ---

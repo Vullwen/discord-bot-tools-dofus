@@ -35,10 +35,6 @@ def _parse_channel_id(raw: str) -> int:
 # Vide = on utilise le salon où la commande /raid a été invoquée.
 RAIDS_CHANNEL_ID = _parse_channel_id(os.getenv("RAIDS_CHANNEL_ID", ""))
 
-# Catégorie où créer les salons de ticket. Vide = catégorie du salon courant.
-TICKET_CATEGORY_ID = _parse_channel_id(os.getenv("TICKET_CATEGORY_ID", ""))
-
-
 def _parse_hours(raw: str) -> list[int]:
     hours = []
     for chunk in raw.split(","):

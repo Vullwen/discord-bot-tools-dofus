@@ -510,7 +510,6 @@ def close_ticket(channel_id: int) -> None:
 
 
 SETTING_RAIDS_CHANNEL = "raids_channel"
-SETTING_TICKET_CATEGORY = "ticket_category"
 # Rôle Discord autorisé à créer/gérer les raids (et tickets). Vide = admins seulement.
 SETTING_RAID_MANAGER_ROLE = "raid_manager_role"
 # Rôle Discord mentionné à l'annonce d'un nouveau raid (1er message). Vide = aucune mention.

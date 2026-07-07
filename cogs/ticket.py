@@ -1,35 +1,23 @@
-"""Système de ticket : permet à un groupe d'organiser un raid en salon privé.
+"""Gestion des salons de ticket déjà ouverts.
 
-- /raid_panel (admin) poste un panneau avec un bouton « Ouvrir un ticket raid ».
-- Le bouton crée un salon privé (opener + admins), avec deux actions :
-  « 🎯 Créer ce raid » (modal) et « 🔒 Fermer ».
-- La création de raid depuis le ticket réutilise RaidCog.create_raid().
+Les boutons de ticket existants permettent encore de créer un raid depuis le
+salon privé, d'ajouter des membres et de fermer le salon.
 """
 from __future__ import annotations
 
 import logging
-import re
-import unicodedata
 from typing import Optional
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
 import db
-from config import ADMIN_IDS, RAID_NAMES, TICKET_CATEGORY_ID
+from config import RAID_NAMES
 from utils import dates as dates_utils
 from utils import names as names_utils
 from utils.perms import can_manage_ticket, is_raid_organizer
 
 logger = logging.getLogger("beb-raid.ticket")
-
-
-def _channel_name(name: str) -> str:
-    nfkd = unicodedata.normalize("NFKD", name)
-    ascii_only = "".join(c for c in nfkd if not unicodedata.combining(c))
-    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "", ascii_only.lower()).strip("-_") or "raid"
-    return f"raid-{cleaned}"[:100]
 
 
 class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
@@ -108,15 +96,6 @@ class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
         )
 
 
-class _OpenTicketButton(discord.ui.Button):
-    def __init__(self, cog: "TicketCog"):
-        super().__init__(label="🎟️ Ouvrir un ticket raid", style=discord.ButtonStyle.success, custom_id="bebraid:ticket_open")
-        self.cog = cog
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await self.cog.open_ticket(interaction)
-
-
 class _CreateFromTicketButton(discord.ui.Button):
     def __init__(self, cog: "TicketCog"):
         super().__init__(label="🎯 Créer ce raid", style=discord.ButtonStyle.primary, custom_id="bebraid:ticket_create")
@@ -167,12 +146,6 @@ class AddMemberView(discord.ui.View):
         self.add_item(_AddMemberSelect(cog))
 
 
-class TicketPanelView(discord.ui.View):
-    def __init__(self, cog: "TicketCog"):
-        super().__init__(timeout=None)
-        self.add_item(_OpenTicketButton(cog))
-
-
 class TicketChannelView(discord.ui.View):
     def __init__(self, cog: "TicketCog"):
         super().__init__(timeout=None)
@@ -187,111 +160,8 @@ class TicketCog(commands.Cog):
 
     async def cog_load(self) -> None:
         # Vues persistantes (custom_id fixes) : routage sur tous les messages.
-        self.bot.add_view(TicketPanelView(self))
         self.bot.add_view(TicketChannelView(self))
         logger.info("TicketCog prêt")
-
-    @app_commands.command(name="raid_panel", description="Poste le panneau de ticket pour organiser un raid")
-    async def raid_panel(self, interaction: discord.Interaction) -> None:
-        if not is_raid_organizer(interaction):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
-            return
-        embed = discord.Embed(
-            title="🎟️ Organiser un raid en groupe",
-            description=(
-                "Clique sur **Ouvrir un ticket raid** pour créer un salon privé.\n"
-                "Tu pourras y discuter de l'orga et lancer la création du raid "
-                "(le sondage sera posté dans le salon des raids)."
-            ),
-            color=0x2ECC71,
-        )
-        await interaction.channel.send(embed=embed, view=TicketPanelView(self))
-        await interaction.response.send_message("Panneau de ticket posté.", ephemeral=True)
-
-    def _resolve_ticket_category(self, guild: discord.Guild):
-        # 1) réglage /setchannel (DB) ; 2) variable d'env ; 3) None.
-        cid = db.get_guild_setting_int(guild.id, db.SETTING_TICKET_CATEGORY)
-        if cid:
-            cat = guild.get_channel(cid)
-            if isinstance(cat, discord.CategoryChannel):
-                return cat
-        if TICKET_CATEGORY_ID:
-            cat = guild.get_channel(TICKET_CATEGORY_ID)
-            if isinstance(cat, discord.CategoryChannel):
-                return cat
-        return None
-
-    async def open_ticket(self, interaction: discord.Interaction) -> None:
-        guild = interaction.guild
-        opener = interaction.user
-        if guild is None:
-            await interaction.response.send_message("Commande à utiliser dans un serveur.", ephemeral=True)
-            return
-        if not is_raid_organizer(interaction):
-            await interaction.response.send_message(
-                "🔒 Tu dois avoir le rôle organisateur (ou être admin) pour ouvrir un ticket raid.",
-                ephemeral=True,
-            )
-            return
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            guild.me: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, manage_channels=True, read_message_history=True
-            ),
-            opener: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, attach_files=True, read_message_history=True
-            ),
-        }
-        for admin_id in ADMIN_IDS:
-            member = guild.get_member(admin_id)
-            if member is None:
-                try:
-                    member = await guild.fetch_member(admin_id)
-                except discord.DiscordException:
-                    member = None
-            if member is not None:
-                overwrites[member] = discord.PermissionOverwrite(
-                    view_channel=True, send_messages=True, read_message_history=True
-                )
-
-        category = self._resolve_ticket_category(guild)
-
-        # Nom unique : raid-pseudo, raid-pseudo-2, raid-pseudo-3…
-        base = _channel_name(opener.display_name)
-        existing = {c.name for c in guild.text_channels}
-        name = base
-        suffix = 2
-        while name in existing:
-            name = f"{base}-{suffix}"
-            suffix += 1
-
-        try:
-            channel = await guild.create_text_channel(
-                name,
-                category=category,
-                overwrites=overwrites,
-                reason=f"Ticket raid ouvert par {opener}",
-            )
-        except discord.DiscordException as exc:
-            await interaction.response.send_message(f"Impossible de créer le ticket : {exc}", ephemeral=True)
-            return
-
-        db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=opener.id)
-
-        embed = discord.Embed(
-            title="🎟️ Ticket raid",
-            description=(
-                f"Bienvenue {opener.mention} !\n\n"
-                "Discutez de l'organisation ici, puis cliquez sur **🎯 Créer ce raid** "
-                "pour lancer le sondage (posté dans le salon des raids).\n"
-                "Besoin d'amis dans le salon ? **➕ Ajouter un membre**.\n\n"
-                "Quand c'est fini, cliquez sur **🔒 Fermer**."
-            ),
-            color=0xF1C40F,
-        )
-        await channel.send(embed=embed, view=TicketChannelView(self))
-        await interaction.response.send_message(f"Ticket créé : {channel.mention}", ephemeral=True)
 
     async def close_ticket(self, interaction: discord.Interaction) -> None:
         ticket = db.get_ticket_by_channel(interaction.channel_id)

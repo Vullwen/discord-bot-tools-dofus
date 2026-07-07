@@ -1,7 +1,6 @@
-"""Configuration en Discord du salon des raids et de la catégorie des tickets.
+"""Configuration en Discord du salon des raids.
 
 - /setchannel : définit le salon où arrivent les sondages/embeds des raids
-                (ou la catégorie des tickets). Organisateur uniquement.
 - /showconfig : affiche la configuration courante de la guilde.
 """
 from __future__ import annotations
@@ -18,7 +17,6 @@ from utils.perms import is_raid_organizer
 
 _CHANNEL_LABEL = {
     db.SETTING_RAIDS_CHANNEL: "Salon des raids",
-    db.SETTING_TICKET_CATEGORY: "Catégorie des tickets",
 }
 
 
@@ -41,15 +39,14 @@ class SettingsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="setchannel", description="Définit le salon des raids ou la catégorie des tickets")
+    @app_commands.command(name="setchannel", description="Définit le salon des raids")
     @app_commands.describe(
         setting="Ce que tu veux configurer",
-        channel="Le salon (raid) ou la catégorie (tickets)",
+        channel="Le salon des raids",
     )
     @app_commands.choices(
         setting=[
             app_commands.Choice(name="Salon des raids", value=db.SETTING_RAIDS_CHANNEL),
-            app_commands.Choice(name="Catégorie des tickets", value=db.SETTING_TICKET_CATEGORY),
         ]
     )
     async def setchannel(
@@ -65,13 +62,6 @@ class SettingsCog(commands.Cog):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
 
-        if setting.value == db.SETTING_TICKET_CATEGORY and not isinstance(channel, discord.CategoryChannel):
-            await interaction.response.send_message(
-                "La catégorie des tickets doit être une **catégorie** (➕ Créer une catégorie), pas un salon texte.",
-                ephemeral=True,
-            )
-            return
-
         db.set_guild_setting(interaction.guild.id, setting.value, str(channel.id))
         label = _CHANNEL_LABEL.get(setting.value, setting.value)
         await interaction.response.send_message(
@@ -81,7 +71,7 @@ class SettingsCog(commands.Cog):
 
     @app_commands.command(
         name="setraidrole",
-        description="Définit le rôle autorisé à créer/gérer les raids et tickets",
+        description="Définit le rôle autorisé à créer/gérer les raids",
     )
     @app_commands.describe(
         role="ID, mention ou nom exact du rôle (vide = permission Administrateur Discord)",
@@ -117,7 +107,7 @@ class SettingsCog(commands.Cog):
         db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_MANAGER_ROLE, str(resolved.id))
         await interaction.response.send_message(
             f"✅ Rôle organisateur défini : {resolved.mention}. Ses détenteurs peuvent "
-            f"créer/gérer les raids et tickets.",
+            f"créer/gérer les raids.",
             ephemeral=True,
         )
 
@@ -162,7 +152,7 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="showconfig", description="Affiche la configuration des raids/tickets de ce serveur")
+    @app_commands.command(name="showconfig", description="Affiche la configuration des raids de ce serveur")
     async def showconfig(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
@@ -185,7 +175,6 @@ class SettingsCog(commands.Cog):
 
         embed = discord.Embed(title="⚙️ Configuration", color=0x2ECC71)
         embed.add_field(name="Salon des raids", value=_mention(db.SETTING_RAIDS_CHANNEL), inline=False)
-        embed.add_field(name="Catégorie des tickets", value=_mention(db.SETTING_TICKET_CATEGORY), inline=False)
         embed.add_field(
             name="Rôle organisateur",
             value=_role_mention(db.SETTING_RAID_MANAGER_ROLE, "*(non défini — permission Administrateur)*"),
