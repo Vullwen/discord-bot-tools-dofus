@@ -192,7 +192,14 @@ class _RegisterButton(discord.ui.Button):
 
 
 class _LevelChoiceButton(discord.ui.Button):
-    def __init__(self, cog: "RaidCog", raid_id: int, level_group: str):
+    def __init__(
+        self,
+        cog: "RaidCog",
+        raid_id: int,
+        level_group: str,
+        action: str,
+        hour: Optional[int] = None,
+    ):
         super().__init__(
             label=_level_label(level_group),
             style=discord.ButtonStyle.primary if level_group == LEVEL_200_PLUS else discord.ButtonStyle.secondary,
@@ -200,9 +207,17 @@ class _LevelChoiceButton(discord.ui.Button):
         self.cog = cog
         self.raid_id = raid_id
         self.level_group = level_group
+        self.action = action
+        self.hour = hour
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self.cog.handle_register_level_choice(interaction, self.raid_id, self.level_group)
+        await self.cog.handle_level_choice(
+            interaction,
+            self.raid_id,
+            self.level_group,
+            self.action,
+            self.hour,
+        )
 
 
 class _UnregisterButton(discord.ui.Button):
@@ -374,10 +389,16 @@ class ScheduledRaidView(discord.ui.View):
 
 
 class LevelChoiceView(discord.ui.View):
-    def __init__(self, cog: "RaidCog", raid_id: int):
+    def __init__(
+        self,
+        cog: "RaidCog",
+        raid_id: int,
+        action: str = "register",
+        hour: Optional[int] = None,
+    ):
         super().__init__(timeout=120)
-        self.add_item(_LevelChoiceButton(cog, raid_id, LEVEL_199_MINUS))
-        self.add_item(_LevelChoiceButton(cog, raid_id, LEVEL_200_PLUS))
+        self.add_item(_LevelChoiceButton(cog, raid_id, LEVEL_199_MINUS, action, hour))
+        self.add_item(_LevelChoiceButton(cog, raid_id, LEVEL_200_PLUS, action, hour))
 
 
 class HourTieBreakView(discord.ui.View):
@@ -557,6 +578,49 @@ class RaidCog(commands.Cog):
         """(confirmés, liste d'attente) pour alimenter les embeds."""
         return db.count_confirmed(raid_id), db.count_waitlist(raid_id)
 
+    def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
+        low_level_cap = raid_low_level_cap(raid["name"])
+        if low_level_cap <= 0:
+            return f"{raid['name']} n'a pas de place ouverte aux 199-. Choisis **200+** si tu es 200 ou plus."
+        taken = (
+            db.count_level_group(raid_id, LEVEL_199_MINUS)
+            + db.count_active_level_choices(raid_id, LEVEL_199_MINUS)
+        )
+        if taken >= low_level_cap:
+            return f"Les {low_level_cap} place(s) 199- sont déjà prises pour {raid['name']}."
+        return None
+
+    def _hour_vote_level_block_message(self, raid, raid_id: int, user_id: int) -> Optional[str]:
+        if db.get_level_choice(raid_id, user_id) != LEVEL_199_MINUS:
+            return None
+        if db.get_user_votes(raid_id, user_id, "hour"):
+            return None
+        return self._low_level_full_message(raid, raid_id)
+
+    async def _refresh_hour_poll_message(self, raid) -> None:
+        counts = db.get_vote_counts(raid["id"], "hour")
+        creator = await self._creator_display(raid["created_by"])
+        confirmed, waitlist = self._counts(raid["id"])
+        await self._edit_message(
+            raid["channel_id"], raid["hour_poll_message_id"],
+            embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),
+        )
+
+    def _record_hour_vote(self, raid_id: int, user_id: int, hour: int) -> str:
+        added = db.toggle_vote(raid_id, user_id, "hour", str(hour))
+        user_hours = sorted(int(h) for h in db.get_user_votes(raid_id, user_id, "hour"))
+        votes_str = ", ".join(f"{h}h" for h in user_hours) or "aucun"
+        auto_note = " Si ce créneau gagne, tu seras inscrit automatiquement." if added else ""
+        return f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}.{auto_note}"
+
+    def _record_all_hour_votes(self, raid_id: int, user_id: int, hours: list[int]) -> str:
+        db.replace_votes(raid_id, user_id, "hour", [str(hour) for hour in hours])
+        votes_str = ", ".join(f"{hour}h" for hour in hours)
+        return (
+            f"✅ Tu es indiqué dispo pour tous les créneaux proposés : {votes_str}. "
+            "Si l'un d'eux gagne, tu seras inscrit automatiquement."
+        )
+
     def _register_user(
         self,
         raid_id: int,
@@ -583,10 +647,11 @@ class RaidCog(commands.Cog):
         confirmed = 0
         waitlist = 0
         for user_id in db.get_voters(raid_id, "hour", winner_hour):
-            status = self._register_user(raid_id, user_id, raid["name"])
+            level_group = db.get_level_choice(raid_id, user_id) or LEVEL_200_PLUS
+            status = self._register_user(raid_id, user_id, raid["name"], level_group)
             if status == "waitlist":
                 waitlist += 1
-            else:
+            elif status == "confirmed":
                 confirmed += 1
         return confirmed, waitlist
 
@@ -869,19 +934,20 @@ class RaidCog(commands.Cog):
         if date.fromisoformat(raid["date"]) == now_paris().date() and hour <= now_paris().hour:
             await interaction.response.send_message("⏰ Ce créneau est déjà passé.", ephemeral=True)
             return
-        added = db.toggle_vote(raid_id, interaction.user.id, "hour", str(hour))
-        counts = db.get_vote_counts(raid_id, "hour")
-        creator = await self._creator_display(raid["created_by"])
-        confirmed, waitlist = self._counts(raid_id)
-        user_hours = sorted(int(h) for h in db.get_user_votes(raid_id, interaction.user.id, "hour"))
-        votes_str = ", ".join(f"{h}h" for h in user_hours) or "aucun"
-        auto_note = " Si ce créneau gagne, tu seras inscrit automatiquement." if added else ""
-        msg = f"{'✅' if added else '🚫'} **{hour}h** {'ajouté' if added else 'retiré'}. Tes créneaux : {votes_str}.{auto_note}"
+        if db.get_level_choice(raid_id, interaction.user.id) is None:
+            await interaction.response.send_message(
+                f"Choisis ton palier de niveau pour enregistrer ton vote **{hour}h** :",
+                view=LevelChoiceView(self, raid_id, "hour", hour),
+                ephemeral=True,
+            )
+            return
+        blocked = self._hour_vote_level_block_message(raid, raid_id, interaction.user.id)
+        if blocked:
+            await interaction.response.send_message(blocked, ephemeral=True)
+            return
+        msg = self._record_hour_vote(raid_id, interaction.user.id, hour)
         await interaction.response.send_message(msg, ephemeral=True)
-        await self._edit_message(
-            raid["channel_id"], raid["hour_poll_message_id"],
-            embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),
-        )
+        await self._refresh_hour_poll_message(raid)
 
     async def handle_all_hour_votes(self, interaction: discord.Interaction, raid_id: int) -> None:
         raid = db.get_raid(raid_id)
@@ -892,20 +958,20 @@ class RaidCog(commands.Cog):
         if not hours:
             await interaction.response.send_message("Aucun créneau encore votable.", ephemeral=True)
             return
-        db.replace_votes(raid_id, interaction.user.id, "hour", [str(hour) for hour in hours])
-        counts = db.get_vote_counts(raid_id, "hour")
-        creator = await self._creator_display(raid["created_by"])
-        confirmed, waitlist = self._counts(raid_id)
-        votes_str = ", ".join(f"{hour}h" for hour in hours)
-        await interaction.response.send_message(
-            f"✅ Tu es indiqué dispo pour tous les créneaux proposés : {votes_str}. "
-            "Si l'un d'eux gagne, tu seras inscrit automatiquement.",
-            ephemeral=True,
-        )
-        await self._edit_message(
-            raid["channel_id"], raid["hour_poll_message_id"],
-            embed=embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid)),
-        )
+        if db.get_level_choice(raid_id, interaction.user.id) is None:
+            await interaction.response.send_message(
+                "Choisis ton palier de niveau pour enregistrer tous les créneaux :",
+                view=LevelChoiceView(self, raid_id, "all_hours"),
+                ephemeral=True,
+            )
+            return
+        blocked = self._hour_vote_level_block_message(raid, raid_id, interaction.user.id)
+        if blocked:
+            await interaction.response.send_message(blocked, ephemeral=True)
+            return
+        msg = self._record_all_hour_votes(raid_id, interaction.user.id, hours)
+        await interaction.response.send_message(msg, ephemeral=True)
+        await self._refresh_hour_poll_message(raid)
 
     async def handle_clear_hour_votes(self, interaction: discord.Interaction, raid_id: int) -> None:
         raid = db.get_raid(raid_id)
@@ -941,13 +1007,45 @@ class RaidCog(commands.Cog):
             ephemeral=True,
         )
 
-    async def handle_register_level_choice(
+    async def handle_level_choice(
         self,
         interaction: discord.Interaction,
         raid_id: int,
         level_group: str,
+        action: str = "register",
+        hour: Optional[int] = None,
     ) -> None:
         raid = db.get_raid(raid_id)
+        if action in ("hour", "all_hours"):
+            if not raid or raid["state"] != STATE_VOTING_HOUR:
+                await interaction.response.edit_message(
+                    content="Ce sondage est terminé.", view=None
+                )
+                return
+            if level_group == LEVEL_199_MINUS:
+                blocked = self._low_level_full_message(raid, raid_id)
+                if blocked:
+                    await interaction.response.edit_message(content=blocked, view=None)
+                    return
+            db.set_level_choice(raid_id, interaction.user.id, level_group)
+            if action == "hour":
+                if hour is None:
+                    await interaction.response.edit_message(content="Créneau introuvable.", view=None)
+                    return
+                msg = self._record_hour_vote(raid_id, interaction.user.id, hour)
+            else:
+                hours = _votable_hours(raid)
+                if not hours:
+                    await interaction.response.edit_message(content="Aucun créneau encore votable.", view=None)
+                    return
+                msg = self._record_all_hour_votes(raid_id, interaction.user.id, hours)
+            await interaction.response.edit_message(
+                content=f"Palier enregistré : **{_level_label(level_group)}**.\n{msg}",
+                view=None,
+            )
+            await self._refresh_hour_poll_message(raid)
+            return
+
         if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
             await interaction.response.edit_message(
                 content="Inscription impossible pour ce raid.", view=None

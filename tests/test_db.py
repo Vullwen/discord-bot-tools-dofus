@@ -43,6 +43,24 @@ def test_votes_changeable_and_counts(tmp_path):
     assert db.get_voters(rid, "raid", "Gigalodon") == [200]
 
 
+def test_level_choice_for_hour_votes(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="Gigalodon", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="voting_hour",
+    )
+    db.set_level_choice(rid, 100, "199_minus")
+    db.toggle_vote(rid, 100, "hour", "20")
+    db.set_level_choice(rid, 200, "199_minus")
+    db.set_level_choice(rid, 300, "200_plus")
+    db.toggle_vote(rid, 300, "hour", "21")
+
+    assert db.get_level_choice(rid, 100) == "199_minus"
+    assert db.get_level_choice(rid, 999) is None
+    assert db.count_active_level_choices(rid, "199_minus") == 1
+    assert db.count_active_level_choices(rid, "200_plus") == 1
+
+
 def test_participants(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(

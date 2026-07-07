@@ -87,6 +87,43 @@ def test_winning_hour_voters_are_registered(tmp_path):
     assert not db.is_participant(raid_id, 300)
 
 
+def test_winning_hour_voters_keep_level_choice(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="voting_hour",
+    )
+    raid = db.get_raid(raid_id)
+    db.set_level_choice(raid_id, 100, LEVEL_199_MINUS)
+    db.toggle_vote(raid_id, 100, "hour", "15")
+
+    assert _cog()._register_winning_hour_voters(raid_id, raid, "15") == (1, 0)
+    assert db.get_participant_level_group(raid_id, 100) == LEVEL_199_MINUS
+
+
+def test_low_level_active_hour_choices_count_against_cap(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="voting_hour",
+    )
+    raid = db.get_raid(raid_id)
+    db.set_level_choice(raid_id, 10, LEVEL_199_MINUS)
+    db.toggle_vote(raid_id, 10, "hour", "15")
+    db.set_level_choice(raid_id, 20, LEVEL_199_MINUS)
+    db.toggle_vote(raid_id, 20, "hour", "16")
+
+    assert _cog()._low_level_full_message(raid, raid_id) == "Les 2 place(s) 199- sont déjà prises pour Gigalodon."
+
+
 def test_register_low_level_cap_for_gigalodon(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
     raid_id = db.create_raid(

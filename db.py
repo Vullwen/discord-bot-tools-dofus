@@ -320,6 +320,36 @@ def get_voters(raid_id: int, kind: str, choice: str) -> list[int]:
     return [row["user_id"] for row in rows]
 
 
+def set_level_choice(raid_id: int, user_id: int, level_group: str) -> None:
+    cast_vote(raid_id, user_id, "level", level_group)
+
+
+def get_level_choice(raid_id: int, user_id: int) -> Optional[str]:
+    choices = get_user_votes(raid_id, user_id, "level")
+    return choices[0] if choices else None
+
+
+def count_active_level_choices(raid_id: int, level_group: str) -> int:
+    row = _db().execute(
+        """
+        SELECT COUNT(DISTINCT level.user_id) AS n
+        FROM votes AS level
+        WHERE level.raid_id = ?
+          AND level.kind = 'level'
+          AND level.choice = ?
+          AND EXISTS (
+              SELECT 1
+              FROM votes AS hour
+              WHERE hour.raid_id = level.raid_id
+                AND hour.user_id = level.user_id
+                AND hour.kind = 'hour'
+          )
+        """,
+        (raid_id, level_group),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
 # --------------------------------------------------------------------- participants
 
 
