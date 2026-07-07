@@ -29,6 +29,7 @@ from config import (
     REMINDER_MINUTES,
     now_paris,
     raid_cap,
+    raid_low_level_cap,
 )
 from utils import embeds
 from utils import dates as dates_utils
@@ -47,6 +48,17 @@ from utils.poll import (
 )
 
 logger = logging.getLogger("beb-raid.raid")
+
+LEVEL_199_MINUS = "199_minus"
+LEVEL_200_PLUS = "200_plus"
+LEVEL_LABELS = {
+    LEVEL_199_MINUS: "199-",
+    LEVEL_200_PLUS: "200+",
+}
+
+
+def _level_label(level_group: Optional[str]) -> str:
+    return LEVEL_LABELS.get(level_group or LEVEL_200_PLUS, "200+")
 
 def _slugify(name: str) -> str:
     nfkd = unicodedata.normalize("NFKD", name)
@@ -177,6 +189,20 @@ class _RegisterButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await self.cog.handle_register(interaction, self.raid_id)
+
+
+class _LevelChoiceButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int, level_group: str):
+        super().__init__(
+            label=_level_label(level_group),
+            style=discord.ButtonStyle.primary if level_group == LEVEL_200_PLUS else discord.ButtonStyle.secondary,
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+        self.level_group = level_group
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.handle_register_level_choice(interaction, self.raid_id, self.level_group)
 
 
 class _UnregisterButton(discord.ui.Button):
@@ -345,6 +371,13 @@ class ScheduledRaidView(discord.ui.View):
         self.add_item(_ParticipantsButton(cog, raid_id))
         self.add_item(_AdminRemoveButton(cog, raid_id))
         self.add_item(_AdminCancelButton(cog, raid_id))
+
+
+class LevelChoiceView(discord.ui.View):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(timeout=120)
+        self.add_item(_LevelChoiceButton(cog, raid_id, LEVEL_199_MINUS))
+        self.add_item(_LevelChoiceButton(cog, raid_id, LEVEL_200_PLUS))
 
 
 class HourTieBreakView(discord.ui.View):
@@ -524,15 +557,25 @@ class RaidCog(commands.Cog):
         """(confirmés, liste d'attente) pour alimenter les embeds."""
         return db.count_confirmed(raid_id), db.count_waitlist(raid_id)
 
-    def _register_user(self, raid_id: int, user_id: int, name) -> str:
+    def _register_user(
+        self,
+        raid_id: int,
+        user_id: int,
+        name,
+        level_group: str = LEVEL_200_PLUS,
+    ) -> str:
         """Inscrit un user s'il ne l'est pas. Retourne son statut ('confirmed' ou
         'waitlist'). Un raid sans cap (nom inconnu) => toujours 'confirmed'."""
         existing = db.get_participant_status(raid_id, user_id)
         if existing:
             return existing
+        if level_group == LEVEL_199_MINUS:
+            low_level_cap = raid_low_level_cap(name)
+            if low_level_cap <= 0 or db.count_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
+                return "low_level_full"
         cap = raid_cap(name)
         status = "confirmed" if (cap is None or db.count_confirmed(raid_id) < cap) else "waitlist"
-        db.add_participant(raid_id, user_id, status)
+        db.add_participant(raid_id, user_id, status, level_group)
         return status
 
     def _register_winning_hour_voters(self, raid_id: int, raid, winner_hour: str) -> tuple[int, int]:
@@ -884,19 +927,56 @@ class RaidCog(commands.Cog):
         if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
             await interaction.response.send_message("Inscription impossible pour ce raid.", ephemeral=True)
             return
-        status = self._register_user(raid_id, interaction.user.id, raid["name"])
+        existing = db.get_participant_status(raid_id, interaction.user.id)
+        if existing:
+            level = _level_label(db.get_participant_level_group(raid_id, interaction.user.id))
+            where = "en liste d'attente" if existing == "waitlist" else "inscrit"
+            await interaction.response.send_message(
+                f"Tu es déjà {where} pour ce raid ({level}).", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(
+            "Choisis ton palier de niveau pour finaliser l'inscription :",
+            view=LevelChoiceView(self, raid_id),
+            ephemeral=True,
+        )
+
+    async def handle_register_level_choice(
+        self,
+        interaction: discord.Interaction,
+        raid_id: int,
+        level_group: str,
+    ) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
+            await interaction.response.edit_message(
+                content="Inscription impossible pour ce raid.", view=None
+            )
+            return
+        status = self._register_user(raid_id, interaction.user.id, raid["name"], level_group)
+        if status == "low_level_full":
+            low_level_cap = raid_low_level_cap(raid["name"])
+            if low_level_cap <= 0:
+                msg = f"{raid['name']} n'a pas de place ouverte aux 199-. Choisis **200+** si tu es 200 ou plus."
+            else:
+                msg = f"Les {low_level_cap} place(s) 199- sont déjà prises pour {raid['name']}."
+            await interaction.response.edit_message(content=msg, view=None)
+            return
         creator = await self._creator_display(raid["created_by"])
         confirmed, waitlist = self._counts(raid_id)
         if status == "waitlist":
             pos = db.waitlist_position(raid_id, interaction.user.id)
-            await interaction.response.send_message(
-                f"⏳ Raid complet : tu es en liste d'attente (position {pos}). "
-                f"Tu seras inscrit automatiquement si une place se libère.",
-                ephemeral=True,
+            await interaction.response.edit_message(
+                content=(
+                    f"⏳ Raid complet : tu es en liste d'attente (position {pos}). "
+                    f"Tu seras inscrit automatiquement si une place se libère. ({_level_label(level_group)})"
+                ),
+                view=None,
             )
         else:
-            await interaction.response.send_message(
-                "Inscrit pour le rappel MP ! Tu seras prévenu avant le raid.", ephemeral=True
+            await interaction.response.edit_message(
+                content=f"Inscrit pour le rappel MP ! Tu seras prévenu avant le raid. ({_level_label(level_group)})",
+                view=None,
             )
         await self._edit_message(
             raid["channel_id"], raid["scheduled_message_id"],
@@ -1009,9 +1089,10 @@ class RaidCog(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
         confirmed_names: list[str] = []
         waitlist_names: list[str] = []
-        for uid, status in db.get_participants(raid_id):
+        for uid, status, level_group in db.get_participants(raid_id):
             name = await self._member_display_name(interaction.guild, uid)
-            (waitlist_names if status == "waitlist" else confirmed_names).append(name)
+            display = f"{name} ({_level_label(level_group)})"
+            (waitlist_names if status == "waitlist" else confirmed_names).append(display)
         await interaction.followup.send(
             embed=embeds.participants_embed(raid, confirmed_names, waitlist_names), ephemeral=True
         )
@@ -1190,7 +1271,7 @@ class RaidCog(commands.Cog):
         raid = db.get_raid(raid_id)
         if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
             return
-        confirmed_uids = [uid for uid, status in db.get_participants(raid_id) if status != "waitlist"]
+        confirmed_uids = [uid for uid, status, _level in db.get_participants(raid_id) if status != "waitlist"]
         dm_embed = embeds.reminder_dm_embed(raid)
         sent = 0
         for uid in confirmed_uids:

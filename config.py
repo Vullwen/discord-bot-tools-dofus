@@ -122,12 +122,28 @@ def _parse_caps(raw: str) -> dict:
 
 RAID_CAPS = {**_DEFAULT_CAPS, **_parse_caps(os.getenv("RAID_CAPS", ""))}
 
+# Nombre maximum d'inscrits 199- par raid. Par défaut : 2 places 199- sur
+# Gigalodon, aucune sur Jardins Éternels. Surcharge possible via
+# RAID_LOW_LEVEL_CAPS="Gigalodon:3,Jardins Éternels:0".
+_DEFAULT_LOW_LEVEL_CAPS = {"Gigalodon": 2, "Jardins Éternels": 0}
+RAID_LOW_LEVEL_CAPS = {
+    **_DEFAULT_LOW_LEVEL_CAPS,
+    **_parse_caps(os.getenv("RAID_LOW_LEVEL_CAPS", "")),
+}
+
 
 def raid_cap(name):
     """Capacité max d'un raid (None si pas de nom ou inconnu)."""
     if not name:
         return None
     return RAID_CAPS.get(name)
+
+
+def raid_low_level_cap(name):
+    """Nombre de places ouvertes aux personnages 199- pour un raid."""
+    if not name:
+        return 0
+    return max(0, RAID_LOW_LEVEL_CAPS.get(name, 0))
 
 
 def now_paris() -> datetime:

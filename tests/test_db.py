@@ -53,7 +53,25 @@ def test_participants(tmp_path):
     db.add_participant(rid, 10)  # doublon ignoré
     db.add_participant(rid, 20)
     assert db.count_participants(rid) == 2
-    assert {u for u, _ in db.get_participants(rid)} == {10, 20}
+    assert {u for u, _, _ in db.get_participants(rid)} == {10, 20}
+    assert db.get_participant_level_group(rid, 10) == "200_plus"
+
+
+def test_participant_level_group(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="Gigalodon", date_iso="2026-06-28", poll_duration_seconds=3600,
+        created_by=1, guild_id=2, channel_id=3, state="scheduled",
+    )
+    db.add_participant(rid, 10, "confirmed", "199_minus")
+    db.add_participant(rid, 20, "waitlist", "200_plus")
+    assert db.get_participant_level_group(rid, 10) == "199_minus"
+    assert db.count_level_group(rid, "199_minus") == 1
+    assert db.count_level_group(rid, "200_plus") == 1
+    assert db.get_participants(rid) == [
+        (10, "confirmed", "199_minus"),
+        (20, "waitlist", "200_plus"),
+    ]
 
 
 def test_is_participant(tmp_path):
@@ -205,5 +223,5 @@ def test_waitlist_promotion(tmp_path):
     # get_participants ordonne confirmés puis liste d'attente.
     db.add_participant(rid, 5, "waitlist")
     parts = db.get_participants(rid)
-    assert {u for u, _ in parts} == {2, 3, 5}
-    assert [u for u, s in parts if s == "waitlist"] == [5]
+    assert {u for u, _, _ in parts} == {2, 3, 5}
+    assert [u for u, s, _ in parts if s == "waitlist"] == [5]

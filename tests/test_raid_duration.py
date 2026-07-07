@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import db
 from config import PARIS
-from cogs.raid import RaidCog
+from cogs.raid import LEVEL_199_MINUS, LEVEL_200_PLUS, RaidCog
 
 
 def _cog():
@@ -85,6 +85,41 @@ def test_winning_hour_voters_are_registered(tmp_path):
     assert db.is_participant(raid_id, 100)
     assert not db.is_participant(raid_id, 200)
     assert not db.is_participant(raid_id, 300)
+
+
+def test_register_low_level_cap_for_gigalodon(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="scheduled",
+    )
+    cog = _cog()
+
+    assert cog._register_user(raid_id, 10, "Gigalodon", LEVEL_199_MINUS) == "confirmed"
+    assert cog._register_user(raid_id, 20, "Gigalodon", LEVEL_199_MINUS) == "confirmed"
+    assert cog._register_user(raid_id, 30, "Gigalodon", LEVEL_199_MINUS) == "low_level_full"
+    assert cog._register_user(raid_id, 40, "Gigalodon", LEVEL_200_PLUS) == "confirmed"
+    assert db.count_level_group(raid_id, LEVEL_199_MINUS) == 2
+
+
+def test_register_low_level_forbidden_for_jardins(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Jardins Éternels",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="scheduled",
+    )
+    cog = _cog()
+
+    assert cog._register_user(raid_id, 10, "Jardins Éternels", LEVEL_199_MINUS) == "low_level_full"
+    assert cog._register_user(raid_id, 20, "Jardins Éternels", LEVEL_200_PLUS) == "confirmed"
 
 
 def test_tied_hour_choices_only_returns_positive_ties(tmp_path):

@@ -88,6 +88,7 @@ def init(db_path: str = DB_PATH) -> None:
     _migrate("ALTER TABLE raids ADD COLUMN poll_close_hour INTEGER")
     _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
     _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
+    _migrate("ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'")
     # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
     _conn.execute(
         "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
@@ -322,24 +323,29 @@ def get_voters(raid_id: int, kind: str, choice: str) -> list[int]:
 # --------------------------------------------------------------------- participants
 
 
-def add_participant(raid_id: int, user_id: int, status: str = "confirmed") -> None:
+def add_participant(
+    raid_id: int,
+    user_id: int,
+    status: str = "confirmed",
+    level_group: str = "200_plus",
+) -> None:
     _db().execute(
-        "INSERT OR IGNORE INTO participants (raid_id, user_id, status, joined_at) "
-        "VALUES (?, ?, ?, ?)",
-        (raid_id, user_id, status, _now_iso()),
+        "INSERT OR IGNORE INTO participants (raid_id, user_id, status, joined_at, level_group) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (raid_id, user_id, status, _now_iso(), level_group),
     )
     _db().commit()
 
 
-def get_participants(raid_id: int) -> list[tuple[int, str]]:
-    """Liste (user_id, status) : confirmés d'abord (ordre d'arrivée), puis liste
-    d'attente (ordre d'arrivée)."""
+def get_participants(raid_id: int) -> list[tuple[int, str, str]]:
+    """Liste (user_id, status, level_group) : confirmés d'abord (ordre d'arrivée),
+    puis liste d'attente (ordre d'arrivée)."""
     rows = _db().execute(
-        "SELECT user_id, status FROM participants WHERE raid_id = ? "
+        "SELECT user_id, status, level_group FROM participants WHERE raid_id = ? "
         "ORDER BY (status = 'confirmed') DESC, joined_at ASC",
         (raid_id,),
     ).fetchall()
-    return [(row["user_id"], row["status"]) for row in rows]
+    return [(row["user_id"], row["status"], row["level_group"]) for row in rows]
 
 
 def get_participant_status(raid_id: int, user_id: int) -> Optional[str]:
@@ -348,6 +354,14 @@ def get_participant_status(raid_id: int, user_id: int) -> Optional[str]:
         (raid_id, user_id),
     ).fetchone()
     return row["status"] if row else None
+
+
+def get_participant_level_group(raid_id: int, user_id: int) -> Optional[str]:
+    row = _db().execute(
+        "SELECT level_group FROM participants WHERE raid_id = ? AND user_id = ?",
+        (raid_id, user_id),
+    ).fetchone()
+    return row["level_group"] if row else None
 
 
 def count_participants(raid_id: int) -> int:
@@ -369,6 +383,14 @@ def count_waitlist(raid_id: int) -> int:
     row = _db().execute(
         "SELECT COUNT(*) AS n FROM participants WHERE raid_id = ? AND status = 'waitlist'",
         (raid_id,),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def count_level_group(raid_id: int, level_group: str) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM participants WHERE raid_id = ? AND level_group = ?",
+        (raid_id, level_group),
     ).fetchone()
     return row["n"] if row else 0
 
