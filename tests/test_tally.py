@@ -2,6 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from utils import poll
+from utils import embeds
 
 PARIS = ZoneInfo("Europe/Paris")
 
@@ -61,3 +62,13 @@ def test_parse_poll_hours():
     assert poll.parse_poll_hours("", [14, 15]) == [14, 15]           # vide -> fallback
     assert poll.parse_poll_hours(None, [14]) == [14]
     assert poll.parse_poll_hours("99,abc,-1", [14, 15]) == [14, 15]  # invalide -> fallback
+
+
+def test_participants_embed_stays_under_discord_description_limit():
+    raid = {"id": 1, "name": "Gigalodon"}
+    confirmed = [f"joueur-confirmé-{i}-" + "x" * 120 for i in range(80)]
+    waitlist = [f"joueur-attente-{i}-" + "y" * 120 for i in range(80)]
+    embed = embeds.participants_embed(raid, confirmed, waitlist)
+    assert len(embed.description) <= embeds.EMBED_DESCRIPTION_LIMIT
+    assert "autre(s)" in embed.description
+    assert "80/12" in embed.footer.text

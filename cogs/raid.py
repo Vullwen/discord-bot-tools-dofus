@@ -1006,12 +1006,13 @@ class RaidCog(commands.Cog):
         if not raid:
             await interaction.response.send_message("Raid introuvable.", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True, thinking=True)
         confirmed_names: list[str] = []
         waitlist_names: list[str] = []
         for uid, status in db.get_participants(raid_id):
             name = await self._member_display_name(interaction.guild, uid)
             (waitlist_names if status == "waitlist" else confirmed_names).append(name)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embeds.participants_embed(raid, confirmed_names, waitlist_names), ephemeral=True
         )
 

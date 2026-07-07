@@ -15,6 +15,8 @@ GOLD = 0xF1C40F
 BLUE = 0x3498DB
 RED = 0xE74C3C
 GREY = 0x95A5A6
+EMBED_DESCRIPTION_LIMIT = 4096
+PARTICIPANTS_DESCRIPTION_LIMIT = 3900
 
 
 def _parse_day(raid) -> date:
@@ -200,18 +202,50 @@ def participants_embed(raid, confirmed_names, waitlist_names) -> discord.Embed:
         title=f"📌 Participants — {raid['name'] or 'Raid'}",
         color=BLUE,
     )
-    parts: list[str] = []
-    if confirmed_names:
-        parts.append("**Confirmés :**\n" + "\n".join(
-            f"{i}. {n}" for i, n in enumerate(confirmed_names, 1)
-        ))
-    if waitlist_names:
-        parts.append("**Liste d'attente :**\n" + "\n".join(
-            f"{i}. {n}" for i, n in enumerate(waitlist_names, 1)
-        ))
-    embed.description = "\n\n".join(parts) if parts else "Aucun participant pour l'instant."
+    embed.description = _participants_description(confirmed_names, waitlist_names)
     embed.set_footer(text=f"{_format_spots(len(confirmed_names), len(waitlist_names), cap)} • Raid #{raid['id']}")
     return embed
+
+
+def _participants_description(confirmed_names, waitlist_names) -> str:
+    sections: list[str] = []
+    omitted = 0
+    for title, names in (
+        ("**Confirmés :**", confirmed_names),
+        ("**Liste d'attente :**", waitlist_names),
+    ):
+        if not names:
+            continue
+        lines = [title]
+        added = False
+        for i, name in enumerate(names, 1):
+            line = f"{i}. {str(name)[:96]}"
+            candidate = "\n\n".join(sections + ["\n".join(lines + [line])])
+            if len(candidate) > PARTICIPANTS_DESCRIPTION_LIMIT:
+                omitted += len(names) - i + 1
+                break
+            lines.append(line)
+            added = True
+        if added:
+            sections.append("\n".join(lines))
+        elif omitted == 0:
+            omitted += len(names)
+
+    if not sections:
+        return "Aucun participant pour l'instant."
+
+    description = "\n\n".join(sections)
+    if omitted:
+        suffix = f"\n\n... et {omitted} autre(s)."
+        while len(description) + len(suffix) > EMBED_DESCRIPTION_LIMIT and sections:
+            lines = sections[-1].splitlines()
+            if len(lines) <= 2:
+                sections.pop()
+            else:
+                sections[-1] = "\n".join(lines[:-1])
+            description = "\n\n".join(sections)
+        description += suffix
+    return description[:EMBED_DESCRIPTION_LIMIT]
 
 
 def waitlist_promoted_embed(raid) -> discord.Embed:
