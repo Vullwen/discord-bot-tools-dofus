@@ -578,6 +578,13 @@ class RaidCog(commands.Cog):
         """(confirmés, liste d'attente) pour alimenter les embeds."""
         return db.count_confirmed(raid_id), db.count_waitlist(raid_id)
 
+    def _reminder_user_ids(self, raid_id: int) -> list[int]:
+        return [
+            uid
+            for uid, status, _level in db.get_participants(raid_id)
+            if status == "confirmed"
+        ]
+
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
         low_level_cap = raid_low_level_cap(raid["name"])
         if low_level_cap <= 0:
@@ -1369,7 +1376,7 @@ class RaidCog(commands.Cog):
         raid = db.get_raid(raid_id)
         if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
             return
-        confirmed_uids = [uid for uid, status, _level in db.get_participants(raid_id) if status != "waitlist"]
+        confirmed_uids = self._reminder_user_ids(raid_id)
         dm_embed = embeds.reminder_dm_embed(raid)
         sent = 0
         for uid in confirmed_uids:
