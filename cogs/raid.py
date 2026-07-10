@@ -55,6 +55,7 @@ LEVEL_LABELS = {
     LEVEL_199_MINUS: "199-",
     LEVEL_200_PLUS: "200+",
 }
+REGISTRATION_STATES = frozenset({STATE_SCHEDULED, STATE_REMINDED, STATE_DONE})
 
 
 def _level_label(level_group: Optional[str]) -> str:
@@ -585,6 +586,9 @@ class RaidCog(commands.Cog):
             if status == "confirmed"
         ]
 
+    def _registration_allowed(self, raid) -> bool:
+        return raid is not None and raid["state"] in REGISTRATION_STATES
+
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
         low_level_cap = raid_low_level_cap(raid["name"])
         if low_level_cap <= 0:
@@ -997,7 +1001,7 @@ class RaidCog(commands.Cog):
 
     async def handle_register(self, interaction: discord.Interaction, raid_id: int) -> None:
         raid = db.get_raid(raid_id)
-        if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
+        if not self._registration_allowed(raid):
             await interaction.response.send_message("Inscription impossible pour ce raid.", ephemeral=True)
             return
         existing = db.get_participant_status(raid_id, interaction.user.id)
@@ -1053,7 +1057,7 @@ class RaidCog(commands.Cog):
             await self._refresh_hour_poll_message(raid)
             return
 
-        if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
+        if not self._registration_allowed(raid):
             await interaction.response.edit_message(
                 content="Inscription impossible pour ce raid.", view=None
             )
@@ -1090,7 +1094,7 @@ class RaidCog(commands.Cog):
 
     async def handle_unregister(self, interaction: discord.Interaction, raid_id: int) -> None:
         raid = db.get_raid(raid_id)
-        if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
+        if not self._registration_allowed(raid):
             await interaction.response.send_message("Désinscription impossible pour ce raid.", ephemeral=True)
             return
         if not db.is_participant(raid_id, interaction.user.id):
@@ -1124,7 +1128,7 @@ class RaidCog(commands.Cog):
                 "🔒 Réservé aux admins et au créateur du raid.", ephemeral=True
             )
             return
-        if not raid or raid["state"] not in (STATE_SCHEDULED, STATE_REMINDED):
+        if not self._registration_allowed(raid):
             await interaction.response.send_message("Aucun participant à gérer pour ce raid.", ephemeral=True)
             return
         await interaction.response.send_message(
@@ -1550,6 +1554,11 @@ class RaidCog(commands.Cog):
         """
         for raid in db.list_raids_with_messages():
             raid_id = raid["id"]
+            if raid["state"] == STATE_DONE and raid["scheduled_message_id"]:
+                try:
+                    self.bot.add_view(ScheduledRaidView(self, raid_id), message_id=raid["scheduled_message_id"])
+                except discord.DiscordException as exc:
+                    logger.warning("add_view raid terminé #%d échoué: %s", raid_id, exc)
             scheduled_at = _parse_when(raid["scheduled_at"])
             self._schedule(
                 raid_id, "del_raid_msgs",

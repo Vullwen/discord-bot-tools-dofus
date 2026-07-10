@@ -176,6 +176,20 @@ def test_reminder_user_ids_excludes_waitlist(tmp_path):
     assert _cog()._reminder_user_ids(raid_id) == [10, 30]
 
 
+def test_registration_allowed_after_raid_is_done(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="done",
+    )
+
+    assert _cog()._registration_allowed(db.get_raid(raid_id)) is True
+
+
 def test_tied_hour_choices_only_returns_positive_ties(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
     raid_id = db.create_raid(
