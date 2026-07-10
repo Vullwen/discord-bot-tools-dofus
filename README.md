@@ -44,6 +44,16 @@ Raids :
 Sur chaque message de raid, un bouton **Annuler (admin)** permet d'annuler à
 n'importe quelle étape, avec demande de confirmation.
 
+Absences :
+
+- `/absence_panel` — poste le bouton de déclaration dans le salon absence configuré.
+- `/search_abs [member]` — liste les absences actives ou à venir, sans afficher les motifs.
+
+Les absences déclarées publient un embed public avec pseudo + dates. Le motif,
+s'il est renseigné, part uniquement dans le salon admin absences. Le message
+public est supprimé automatiquement à minuit après la date de fin ; le message
+admin est conservé.
+
 Configuration (organisateur) :
 
 - `/setchannel` — salons des raids, des absences et des motifs admin.
@@ -51,7 +61,6 @@ Configuration (organisateur) :
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
   ou nom exact (vide = pas de mention).
-- `/absence_panel` — poste le bouton de déclaration d'absence dans le salon configuré.
 - `/showconfig` — affiche la config du serveur.
 
 ## Rôles

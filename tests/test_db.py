@@ -129,6 +129,46 @@ def test_tickets(tmp_path):
     assert db.get_ticket_by_channel(111)["closed"] == 1
 
 
+def test_absences_search_and_cleanup(tmp_path):
+    _fresh(tmp_path)
+    a1 = db.create_absence(
+        guild_id=2,
+        user_id=10,
+        user_display="Alice",
+        start_date="2026-07-10",
+        end_date="2026-07-12",
+        public_channel_id=100,
+        public_message_id=1000,
+        admin_channel_id=200,
+        admin_message_id=2000,
+    )
+    db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2026-07-11",
+        end_date="2026-07-13",
+        public_channel_id=100,
+        public_message_id=1001,
+    )
+    db.create_absence(
+        guild_id=3,
+        user_id=10,
+        user_display="Alice",
+        start_date="2026-07-11",
+        end_date="2026-07-13",
+        public_channel_id=100,
+        public_message_id=1002,
+    )
+
+    assert [row["id"] for row in db.search_absences(guild_id=2, today_iso="2026-07-10")] == [a1, a1 + 1]
+    assert [row["id"] for row in db.search_absences(guild_id=2, user_id=10, today_iso="2026-07-10")] == [a1]
+
+    db.mark_absence_public_deleted(a1)
+    assert [row["id"] for row in db.search_absences(guild_id=2, today_iso="2026-07-10")] == [a1 + 1]
+    assert [row["id"] for row in db.list_absences_for_cleanup()] == [a1 + 1, a1 + 2]
+
+
 def test_list_active_excludes_terminal(tmp_path):
     _fresh(tmp_path)
     db.create_raid(

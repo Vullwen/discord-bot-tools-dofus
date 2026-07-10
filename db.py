@@ -77,6 +77,21 @@ def init(db_path: str = DB_PATH) -> None:
             value     TEXT,
             PRIMARY KEY (guild_id, key)
         );
+
+        CREATE TABLE IF NOT EXISTS absences (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id            INTEGER NOT NULL,
+            user_id             INTEGER NOT NULL,
+            user_display        TEXT NOT NULL,
+            start_date          TEXT NOT NULL,
+            end_date            TEXT NOT NULL,
+            public_channel_id   INTEGER NOT NULL,
+            public_message_id   INTEGER NOT NULL,
+            admin_channel_id    INTEGER,
+            admin_message_id    INTEGER,
+            public_deleted_at   TEXT,
+            created_at          TEXT NOT NULL
+        );
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
@@ -504,6 +519,98 @@ def close_ticket(channel_id: int) -> None:
         "UPDATE tickets SET closed = 1 WHERE channel_id = ?", (channel_id,)
     )
     _db().commit()
+
+
+# ------------------------------------------------------------------------- absences
+
+
+def create_absence(
+    *,
+    guild_id: int,
+    user_id: int,
+    user_display: str,
+    start_date: str,
+    end_date: str,
+    public_channel_id: int,
+    public_message_id: int,
+    admin_channel_id: Optional[int] = None,
+    admin_message_id: Optional[int] = None,
+) -> int:
+    cur = _db().execute(
+        """
+        INSERT INTO absences
+            (guild_id, user_id, user_display, start_date, end_date,
+             public_channel_id, public_message_id, admin_channel_id, admin_message_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            guild_id,
+            user_id,
+            user_display,
+            start_date,
+            end_date,
+            public_channel_id,
+            public_message_id,
+            admin_channel_id,
+            admin_message_id,
+            _now_iso(),
+        ),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_absence(absence_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute("SELECT * FROM absences WHERE id = ?", (absence_id,)).fetchone()
+
+
+def list_absences_for_cleanup() -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM absences
+        WHERE public_deleted_at IS NULL
+          AND public_message_id IS NOT NULL
+        ORDER BY end_date, id
+        """
+    ).fetchall()
+    return list(rows)
+
+
+def mark_absence_public_deleted(absence_id: int) -> None:
+    _db().execute(
+        "UPDATE absences SET public_deleted_at = ? WHERE id = ?",
+        (_now_iso(), absence_id),
+    )
+    _db().commit()
+
+
+def search_absences(
+    *,
+    guild_id: int,
+    user_id: Optional[int] = None,
+    today_iso: Optional[str] = None,
+    limit: int = 20,
+) -> list[sqlite3.Row]:
+    today_iso = today_iso or _now_iso()[:10]
+    where = [
+        "guild_id = ?",
+        "public_deleted_at IS NULL",
+        "end_date >= ?",
+    ]
+    params: list[Any] = [guild_id, today_iso]
+    if user_id is not None:
+        where.append("user_id = ?")
+        params.append(user_id)
+    rows = _db().execute(
+        f"""
+        SELECT * FROM absences
+        WHERE {" AND ".join(where)}
+        ORDER BY start_date, end_date, id
+        LIMIT ?
+        """,
+        (*params, limit),
+    ).fetchall()
+    return list(rows)
 
 
 # ---------------------------------------------------------------------- settings
