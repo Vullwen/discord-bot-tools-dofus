@@ -134,10 +134,7 @@ class AbsenceCog(commands.Cog):
     ) -> Optional[discord.abc.Messageable]:
         if interaction.guild is None:
             return None
-        configured = await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
-        if configured is not None:
-            return configured
-        return interaction.channel if isinstance(interaction.channel, discord.abc.Messageable) else None
+        return await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
 
     async def submit_absence(
         self,
@@ -195,11 +192,9 @@ class AbsenceCog(commands.Cog):
         )
 
     @app_commands.command(name="absence_panel", description="Poste le bouton de déclaration d'absence")
-    @app_commands.describe(channel="Salon où poster le bouton (par défaut : salon absence configuré)")
     async def absence_panel(
         self,
         interaction: discord.Interaction,
-        channel: Optional[discord.TextChannel] = None,
     ) -> None:
         if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
@@ -208,11 +203,12 @@ class AbsenceCog(commands.Cog):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
 
-        target = channel or await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
+        target = await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
         if target is None:
-            target = interaction.channel if isinstance(interaction.channel, discord.abc.Messageable) else None
-        if target is None:
-            await interaction.response.send_message("Aucun salon absence disponible.", ephemeral=True)
+            await interaction.response.send_message(
+                "Configure d'abord le salon absence avec `/setchannel`.",
+                ephemeral=True,
+            )
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
