@@ -617,6 +617,8 @@ def search_absences(
 
 
 SETTING_RAIDS_CHANNEL = "raids_channel"
+# Salon où est posté le bouton de déclaration d'absence.
+SETTING_ABSENCE_PANEL_CHANNEL = "absence_panel_channel"
 # Salon public où sont publiées les absences.
 SETTING_ABSENCE_CHANNEL = "absence_channel"
 # Salon admin où sont envoyés les motifs d'absence.

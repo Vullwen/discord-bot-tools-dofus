@@ -314,10 +314,10 @@ class AbsenceCog(commands.Cog):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
 
-        target = await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
+        target = await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_PANEL_CHANNEL)
         if target is None:
             await interaction.response.send_message(
-                "Configure d'abord le salon absence avec `/setchannel`.",
+                "Configure d'abord le salon panel absences avec `/setchannel`.",
                 ephemeral=True,
             )
             return

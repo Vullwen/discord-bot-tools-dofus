@@ -46,13 +46,15 @@ n'importe quelle étape, avec demande de confirmation.
 
 Absences :
 
-- `/absence_panel` — poste le bouton de déclaration dans le salon absence configuré.
+- `/absence_panel` — poste le bouton de déclaration dans le salon panel absences configuré.
 - `/search_abs [member]` — liste les absences actives ou à venir, sans afficher les motifs.
 
-Les absences déclarées publient un embed public avec pseudo + dates. Le motif,
-s'il est renseigné, part uniquement dans le salon admin absences. Le message
-public est supprimé automatiquement à minuit après la date de fin ; le message
-admin est conservé.
+Le panel et les messages d'absence utilisent deux salons différents : le bouton
+est posté dans le salon panel absences, puis les absences déclarées publient un
+embed public avec pseudo + dates dans le salon absence. Le motif, s'il est
+renseigné, part uniquement dans le salon admin absences. Le message public est
+supprimé automatiquement à minuit après la date de fin ; le message admin est
+conservé.
 
 Configuration (organisateur) :
 
