@@ -17,6 +17,8 @@ from utils.perms import is_raid_organizer
 
 _CHANNEL_LABEL = {
     db.SETTING_RAIDS_CHANNEL: "Salon des raids",
+    db.SETTING_ABSENCE_CHANNEL: "Salon absence",
+    db.SETTING_ABSENCE_ADMIN_CHANNEL: "Salon admin absences",
 }
 
 
@@ -39,14 +41,16 @@ class SettingsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="setchannel", description="Définit le salon des raids")
+    @app_commands.command(name="setchannel", description="Définit un salon du bot")
     @app_commands.describe(
         setting="Ce que tu veux configurer",
-        channel="Le salon des raids",
+        channel="Le salon à utiliser",
     )
     @app_commands.choices(
         setting=[
             app_commands.Choice(name="Salon des raids", value=db.SETTING_RAIDS_CHANNEL),
+            app_commands.Choice(name="Salon absence", value=db.SETTING_ABSENCE_CHANNEL),
+            app_commands.Choice(name="Salon admin absences", value=db.SETTING_ABSENCE_ADMIN_CHANNEL),
         ]
     )
     async def setchannel(
@@ -175,6 +179,12 @@ class SettingsCog(commands.Cog):
 
         embed = discord.Embed(title="⚙️ Configuration", color=0x2ECC71)
         embed.add_field(name="Salon des raids", value=_mention(db.SETTING_RAIDS_CHANNEL), inline=False)
+        embed.add_field(name="Salon absence", value=_mention(db.SETTING_ABSENCE_CHANNEL), inline=False)
+        embed.add_field(
+            name="Salon admin absences",
+            value=_mention(db.SETTING_ABSENCE_ADMIN_CHANNEL),
+            inline=False,
+        )
         embed.add_field(
             name="Rôle organisateur",
             value=_role_mention(db.SETTING_RAID_MANAGER_ROLE, "*(non défini — permission Administrateur)*"),

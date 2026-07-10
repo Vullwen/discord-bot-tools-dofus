@@ -46,11 +46,12 @@ n'importe quelle étape, avec demande de confirmation.
 
 Configuration (organisateur) :
 
-- `/setchannel` — salon des raids.
+- `/setchannel` — salons des raids, des absences et des motifs admin.
 - `/setraidrole` — rôle autorisé à créer et gérer les raids : ID, mention copiée
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
   ou nom exact (vide = pas de mention).
+- `/absence_panel` — poste le bouton de déclaration d'absence dans le salon configuré.
 - `/showconfig` — affiche la config du serveur.
 
 ## Rôles

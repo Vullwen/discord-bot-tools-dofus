@@ -510,6 +510,10 @@ def close_ticket(channel_id: int) -> None:
 
 
 SETTING_RAIDS_CHANNEL = "raids_channel"
+# Salon public où sont publiées les absences.
+SETTING_ABSENCE_CHANNEL = "absence_channel"
+# Salon admin où sont envoyés les motifs d'absence.
+SETTING_ABSENCE_ADMIN_CHANNEL = "absence_admin_channel"
 # Rôle Discord autorisé à créer/gérer les raids (et tickets). Vide = admins seulement.
 SETTING_RAID_MANAGER_ROLE = "raid_manager_role"
 # Rôle Discord mentionné à l'annonce d'un nouveau raid (1er message). Vide = aucune mention.

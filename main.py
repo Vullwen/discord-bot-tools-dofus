@@ -42,6 +42,7 @@ COGS = [
     "cogs.settings",
     "cogs.raid",
     "cogs.ticket",
+    "cogs.absence",
 ]
 
 
