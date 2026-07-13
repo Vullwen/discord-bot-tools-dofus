@@ -41,6 +41,7 @@ le premier joueur en attente est promu automatiquement et reçoit un MP.
 
 Général :
 
+- `/help` — affiche l'aide du bot.
 - `/ping` — vérifie que le bot répond.
 
 Raids :
