@@ -17,6 +17,7 @@ from utils.perms import is_raid_organizer
 
 _CHANNEL_LABEL = {
     db.SETTING_RAIDS_CHANNEL: "Salon des raids",
+    db.SETTING_RAID_ADMIN_CHANNEL: "Salon admin raids",
     db.SETTING_ABSENCE_PANEL_CHANNEL: "Salon panel absences",
     db.SETTING_ABSENCE_CHANNEL: "Salon absence",
     db.SETTING_ABSENCE_ADMIN_CHANNEL: "Salon admin absences",
@@ -50,6 +51,7 @@ class SettingsCog(commands.Cog):
     @app_commands.choices(
         setting=[
             app_commands.Choice(name="Salon des raids", value=db.SETTING_RAIDS_CHANNEL),
+            app_commands.Choice(name="Salon admin raids", value=db.SETTING_RAID_ADMIN_CHANNEL),
             app_commands.Choice(name="Salon panel absences", value=db.SETTING_ABSENCE_PANEL_CHANNEL),
             app_commands.Choice(name="Salon absence", value=db.SETTING_ABSENCE_CHANNEL),
             app_commands.Choice(name="Salon admin absences", value=db.SETTING_ABSENCE_ADMIN_CHANNEL),
@@ -181,6 +183,7 @@ class SettingsCog(commands.Cog):
 
         embed = discord.Embed(title="⚙️ Configuration", color=0x2ECC71)
         embed.add_field(name="Salon des raids", value=_mention(db.SETTING_RAIDS_CHANNEL), inline=False)
+        embed.add_field(name="Salon admin raids", value=_mention(db.SETTING_RAID_ADMIN_CHANNEL), inline=False)
         embed.add_field(
             name="Salon panel absences",
             value=_mention(db.SETTING_ABSENCE_PANEL_CHANNEL),

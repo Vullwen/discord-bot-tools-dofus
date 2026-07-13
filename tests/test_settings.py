@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from cogs.settings import _resolve_role
+import db
+from cogs.settings import _CHANNEL_LABEL, _resolve_role
 
 
 def _guild(*roles):
@@ -34,3 +35,7 @@ def test_resolve_role_rejects_unknown_or_ambiguous_name():
     second = _role(456, "Raid Admin")
     assert _resolve_role(_guild(first), "Missing") is None
     assert _resolve_role(_guild(first, second), "Raid Admin") is None
+
+
+def test_channel_labels_include_raid_admin_channel():
+    assert _CHANNEL_LABEL[db.SETTING_RAID_ADMIN_CHANNEL] == "Salon admin raids"

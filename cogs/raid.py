@@ -601,6 +601,35 @@ class RaidCog(commands.Cog):
         reason = (ban["reason"] or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
         return f"Tu es banni des raids pour encore {remaining_days} jour{suffix} car {reason}."
 
+    async def _notify_raid_ban_admin(
+        self,
+        guild_id: int,
+        banned_user: discord.abc.User,
+        moderator: discord.abc.User,
+        days: int,
+        banned_until: datetime,
+        reason: str,
+    ) -> None:
+        channel_id = db.get_guild_setting_int(guild_id, db.SETTING_RAID_ADMIN_CHANNEL)
+        if not channel_id:
+            return
+        channel = await self._get_channel(channel_id)
+        if channel is None:
+            return
+        suffix = "s" if days > 1 else ""
+        try:
+            await channel.send(
+                content=(
+                    "🚫 **Ban raid**\n"
+                    f"Membre : {banned_user.mention} (`{banned_user.id}`)\n"
+                    f"Durée : {days} jour{suffix} (jusqu'au {banned_until:%d/%m/%Y %Hh%M})\n"
+                    f"Raison : {reason}\n"
+                    f"Appliqué par : {moderator.mention}"
+                )
+            )
+        except discord.DiscordException as exc:
+            logger.warning("Notification ban raid échouée pour %s: %s", banned_user.id, exc)
+
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
         low_level_cap = raid_low_level_cap(raid["name"])
         if low_level_cap <= 0:
@@ -1711,6 +1740,14 @@ class RaidCog(commands.Cog):
             banned_until=banned_until,
             reason=reason,
             created_by=interaction.user.id,
+        )
+        await self._notify_raid_ban_admin(
+            interaction.guild.id,
+            user,
+            interaction.user,
+            jours,
+            banned_until,
+            reason,
         )
         suffix = "s" if jours > 1 else ""
         await interaction.response.send_message(

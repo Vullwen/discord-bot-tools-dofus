@@ -50,7 +50,7 @@ Raids :
   l'heure de fermeture le jour du raid (ex. `12h` = midi le jour du raid).
 - `/list_raids` — raids actifs.
 - `/ban_raid user jours [raison]` — interdit temporairement à un membre de voter
-  ou de s'inscrire aux raids.
+  ou de s'inscrire aux raids, avec notification dans le salon admin raids configuré.
 - `/unban_raid user` — retire le ban raid d'un membre.
 - `/cancel_raid raid_id` — annule un raid (créateur ou organisateur).
 - `/force_close raid_id` — clôture tout de suite le sondage en cours.
@@ -82,7 +82,7 @@ Tickets :
 
 Configuration (organisateur) :
 
-- `/setchannel` — salons des raids, des absences et des motifs admin.
+- `/setchannel` — salons des raids, de l'admin raids, des absences et des motifs admin.
 - `/setraidrole` — rôle autorisé à créer et gérer les raids : ID, mention copiée
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée

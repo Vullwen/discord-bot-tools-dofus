@@ -150,9 +150,12 @@ async def test_ban_raid_command_persists_ban(tmp_path, monkeypatch):
         "cogs.raid.now_paris",
         lambda: datetime(2026, 6, 25, 12, 0, tzinfo=PARIS),
     )
+    admin_channel = _FakeChannel(500)
+    db.set_guild_setting(2, db.SETTING_RAID_ADMIN_CHANNEL, str(admin_channel.id))
     cog = _cog()
+    cog._get_channel = _async_return(admin_channel)
     interaction = SimpleNamespace(
-        user=SimpleNamespace(id=1),
+        user=SimpleNamespace(id=1, mention="<@1>"),
         guild=SimpleNamespace(id=2),
         response=_FakeResponse(),
     )
@@ -168,6 +171,9 @@ async def test_ban_raid_command_persists_ban(tmp_path, monkeypatch):
     assert ban is not None
     assert ban["banned_until"] == "2026-06-28T12:00:00+02:00"
     assert "3 jours" in interaction.response.messages[0][0]
+    assert "Ban raid" in admin_channel.sent[0].content
+    assert "<@10>" in admin_channel.sent[0].content
+    assert "<@1>" in admin_channel.sent[0].content
 
 
 @pytest.mark.asyncio
