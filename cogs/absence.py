@@ -56,6 +56,13 @@ def _absence_admin_embed(
     return embed
 
 
+def _kick_abs_message(user: discord.abc.User) -> str:
+    return (
+        f"{user.mention}, tu as été kick de la guilde pour afk, "
+        "n'hésite pas à repostuler quand tu recommences à jouer."
+    )
+
+
 def _search_absences_embed(rows: list, title: str = "Absences") -> discord.Embed:
     embed = discord.Embed(title=title, color=0xF1C40F)
     if not rows:
@@ -356,6 +363,50 @@ class AbsenceCog(commands.Cog):
         title = f"Absences - {member.display_name}" if member is not None else "Absences"
         await interaction.response.send_message(
             embed=_search_absences_embed(rows, title=title),
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="kick_abs",
+        description="Préviens un membre qu'il a été kick de la guilde pour AFK",
+    )
+    @app_commands.describe(user="Membre à prévenir")
+    async def kick_abs(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        public_channel = await self._absence_channel(interaction)
+        if public_channel is None:
+            await interaction.response.send_message("Aucun salon absence disponible.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        message = _kick_abs_message(user)
+        try:
+            await public_channel.send(content=message)
+        except discord.DiscordException as exc:
+            logger.warning("Publication kick absence échouée: %s", exc)
+            await interaction.followup.send("Impossible de publier le message d'absence.", ephemeral=True)
+            return
+
+        dm_warning = ""
+        try:
+            await user.send(content=message)
+        except discord.DiscordException as exc:
+            logger.warning("MP kick absence échoué pour %s: %s", user.id, exc)
+            dm_warning = " MP non envoyé : impossible de contacter la personne."
+
+        await interaction.followup.send(
+            f"Message envoyé dans {_channel_label(public_channel)}.{dm_warning}",
             ephemeral=True,
         )
 
