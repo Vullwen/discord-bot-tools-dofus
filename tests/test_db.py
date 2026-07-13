@@ -104,6 +104,27 @@ def test_is_participant(tmp_path):
     assert db.is_participant(rid, 99) is False
 
 
+def test_raid_ban_is_active_until_expiration(tmp_path):
+    _fresh(tmp_path)
+    now = datetime(2026, 6, 25, 12, 0, tzinfo=PARIS)
+    db.set_raid_ban(
+        guild_id=2,
+        user_id=10,
+        banned_until=datetime(2026, 6, 28, 12, 0, tzinfo=PARIS),
+        reason="absence répétée",
+        created_by=1,
+    )
+
+    active = db.get_active_raid_ban(guild_id=2, user_id=10, now=now)
+    assert active is not None
+    assert active["reason"] == "absence répétée"
+    assert db.get_active_raid_ban(
+        guild_id=2,
+        user_id=10,
+        now=datetime(2026, 6, 29, 12, 0, tzinfo=PARIS),
+    ) is None
+
+
 def test_update_and_state_serializes_datetime(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(

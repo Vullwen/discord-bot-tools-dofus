@@ -56,6 +56,7 @@ LEVEL_LABELS = {
     LEVEL_200_PLUS: "200+",
 }
 REGISTRATION_STATES = frozenset({STATE_SCHEDULED, STATE_REMINDED, STATE_DONE})
+DEFAULT_RAID_BAN_REASON = "tu t'es inscrit plusieurs fois à des raids sans te présenter ensuite"
 
 
 def _level_label(level_group: Optional[str]) -> str:
@@ -589,6 +590,17 @@ class RaidCog(commands.Cog):
     def _registration_allowed(self, raid) -> bool:
         return raid is not None and raid["state"] in REGISTRATION_STATES
 
+    def _raid_ban_message(self, guild_id: int, user_id: int) -> Optional[str]:
+        ban = db.get_active_raid_ban(guild_id=guild_id, user_id=user_id, now=now_paris())
+        if ban is None:
+            return None
+        banned_until = datetime.fromisoformat(ban["banned_until"])
+        remaining_seconds = max(0, int((banned_until - now_paris()).total_seconds()))
+        remaining_days = max(1, (remaining_seconds + 86399) // 86400)
+        suffix = "s" if remaining_days > 1 else ""
+        reason = (ban["reason"] or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
+        return f"Tu es banni des raids pour encore {remaining_days} jour{suffix} car {reason}."
+
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
         low_level_cap = raid_low_level_cap(raid["name"])
         if low_level_cap <= 0:
@@ -658,6 +670,8 @@ class RaidCog(commands.Cog):
         confirmed = 0
         waitlist = 0
         for user_id in db.get_voters(raid_id, "hour", winner_hour):
+            if self._raid_ban_message(raid["guild_id"], user_id):
+                continue
             level_group = db.get_level_choice(raid_id, user_id) or LEVEL_200_PLUS
             status = self._register_user(raid_id, user_id, raid["name"], level_group)
             if status == "waitlist":
@@ -930,6 +944,10 @@ class RaidCog(commands.Cog):
         if not raid or raid["state"] != STATE_CHOOSING_RAID:
             await interaction.response.send_message("Ce sondage est terminé.", ephemeral=True)
             return
+        ban_message = self._raid_ban_message(raid["guild_id"], interaction.user.id)
+        if ban_message:
+            await interaction.response.send_message(ban_message, ephemeral=True)
+            return
         db.cast_vote(raid_id, interaction.user.id, "raid", name)
         counts = db.get_vote_counts(raid_id, "raid")
         creator = await self._creator_display(raid["created_by"])
@@ -943,6 +961,10 @@ class RaidCog(commands.Cog):
         raid = db.get_raid(raid_id)
         if not raid or raid["state"] != STATE_VOTING_HOUR:
             await interaction.response.send_message("Ce sondage est terminé.", ephemeral=True)
+            return
+        ban_message = self._raid_ban_message(raid["guild_id"], interaction.user.id)
+        if ban_message:
+            await interaction.response.send_message(ban_message, ephemeral=True)
             return
         # Raid prévu aujourd'hui : on refuse les créneaux déjà passés.
         if date.fromisoformat(raid["date"]) == now_paris().date() and hour <= now_paris().hour:
@@ -967,6 +989,10 @@ class RaidCog(commands.Cog):
         raid = db.get_raid(raid_id)
         if not raid or raid["state"] != STATE_VOTING_HOUR:
             await interaction.response.send_message("Ce sondage est terminé.", ephemeral=True)
+            return
+        ban_message = self._raid_ban_message(raid["guild_id"], interaction.user.id)
+        if ban_message:
+            await interaction.response.send_message(ban_message, ephemeral=True)
             return
         hours = _votable_hours(raid)
         if not hours:
@@ -1007,6 +1033,10 @@ class RaidCog(commands.Cog):
         if not self._registration_allowed(raid):
             await interaction.response.send_message("Inscription impossible pour ce raid.", ephemeral=True)
             return
+        ban_message = self._raid_ban_message(raid["guild_id"], interaction.user.id)
+        if ban_message:
+            await interaction.response.send_message(ban_message, ephemeral=True)
+            return
         existing = db.get_participant_status(raid_id, interaction.user.id)
         if existing:
             level = _level_label(db.get_participant_level_group(raid_id, interaction.user.id))
@@ -1036,6 +1066,10 @@ class RaidCog(commands.Cog):
                     content="Ce sondage est terminé.", view=None
                 )
                 return
+            ban_message = self._raid_ban_message(raid["guild_id"], interaction.user.id)
+            if ban_message:
+                await interaction.response.edit_message(content=ban_message, view=None)
+                return
             if level_group == LEVEL_199_MINUS:
                 blocked = self._low_level_full_message(raid, raid_id)
                 if blocked:
@@ -1064,6 +1098,10 @@ class RaidCog(commands.Cog):
             await interaction.response.edit_message(
                 content="Inscription impossible pour ce raid.", view=None
             )
+            return
+        ban_message = self._raid_ban_message(raid["guild_id"], interaction.user.id)
+        if ban_message:
+            await interaction.response.edit_message(content=ban_message, view=None)
             return
         status = self._register_user(raid_id, interaction.user.id, raid["name"], level_group)
         if status == "low_level_full":
@@ -1641,6 +1679,45 @@ class RaidCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         rows = db.list_active_raids()
         await interaction.followup.send(embed=embeds.list_embed(rows), ephemeral=True)
+
+    @app_commands.command(name="ban_raid", description="Interdit temporairement les votes et inscriptions raid")
+    @app_commands.describe(
+        user="Membre à bannir des raids",
+        jours="Durée du ban en jours",
+        raison="Raison affichée au membre lorsqu'il essaie de voter ou s'inscrire",
+    )
+    async def ban_raid(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        jours: int,
+        raison: Optional[str] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if jours < 1:
+            await interaction.response.send_message("La durée doit être d'au moins 1 jour.", ephemeral=True)
+            return
+
+        banned_until = now_paris() + timedelta(days=jours)
+        reason = (raison or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
+        db.set_raid_ban(
+            guild_id=interaction.guild.id,
+            user_id=user.id,
+            banned_until=banned_until,
+            reason=reason,
+            created_by=interaction.user.id,
+        )
+        suffix = "s" if jours > 1 else ""
+        await interaction.response.send_message(
+            f"{user.mention} est banni des raids pour {jours} jour{suffix}, jusqu'au "
+            f"{banned_until:%d/%m/%Y %Hh%M}.",
+            ephemeral=True,
+        )
 
     async def _apply_cancel(self, raid_id: int) -> bool:
         """Annule un raid (sans interaction) : annule les tâches planifiées, passe en

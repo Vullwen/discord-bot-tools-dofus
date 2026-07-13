@@ -20,6 +20,7 @@ def _help_embed() -> discord.Embed:
         value=(
             "`/raid` : crée un raid\n"
             "`/list_raids` : liste les raids actifs\n"
+            "`/ban_raid` : interdit temporairement les votes et inscriptions\n"
             "`/cancel_raid` : annule un raid\n"
             "`/force_close` : clôture un sondage"
         ),

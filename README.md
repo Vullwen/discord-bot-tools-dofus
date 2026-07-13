@@ -49,6 +49,8 @@ Raids :
 - `/raid date [raid] [cloture] [note]` — crée un raid. `cloture` choisit
   l'heure de fermeture le jour du raid (ex. `12h` = midi le jour du raid).
 - `/list_raids` — raids actifs.
+- `/ban_raid user jours [raison]` — interdit temporairement à un membre de voter
+  ou de s'inscrire aux raids.
 - `/cancel_raid raid_id` — annule un raid (créateur ou organisateur).
 - `/force_close raid_id` — clôture tout de suite le sondage en cours.
 

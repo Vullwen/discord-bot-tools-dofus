@@ -84,6 +84,18 @@ class _FakeChannel:
         return msg
 
 
+class _FakeResponse:
+    def __init__(self):
+        self.messages = []
+        self.edits = []
+
+    async def send_message(self, content=None, **kwargs):
+        self.messages.append((content, kwargs))
+
+    async def edit_message(self, content=None, **kwargs):
+        self.edits.append((content, kwargs))
+
+
 def _async_return(value):
     async def inner(*_args, **_kwargs):
         return value
@@ -128,6 +140,65 @@ async def test_hour_poll_after_raid_choice_mentions_notify_role(tmp_path):
     assert [(kind, fn) for _rid, kind, _when, fn in scheduled] == [
         ("hour_close", "_close_hour_poll")
     ]
+
+
+@pytest.mark.asyncio
+async def test_ban_raid_command_persists_ban(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
+    monkeypatch.setattr(
+        "cogs.raid.now_paris",
+        lambda: datetime(2026, 6, 25, 12, 0, tzinfo=PARIS),
+    )
+    cog = _cog()
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=1),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+    user = SimpleNamespace(id=10, mention="<@10>")
+
+    await RaidCog.ban_raid.callback(cog, interaction, user, 3, None)
+
+    ban = db.get_active_raid_ban(
+        guild_id=2,
+        user_id=10,
+        now=datetime(2026, 6, 25, 12, 0, tzinfo=PARIS),
+    )
+    assert ban is not None
+    assert ban["banned_until"] == "2026-06-28T12:00:00+02:00"
+    assert "3 jours" in interaction.response.messages[0][0]
+
+
+@pytest.mark.asyncio
+async def test_banned_user_cannot_vote_for_raid(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr(
+        "cogs.raid.now_paris",
+        lambda: datetime(2026, 6, 25, 12, 0, tzinfo=PARIS),
+    )
+    raid_id = db.create_raid(
+        name=None,
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="choosing_raid",
+    )
+    db.set_raid_ban(
+        guild_id=2,
+        user_id=10,
+        banned_until=datetime(2026, 6, 27, 12, 0, tzinfo=PARIS),
+        reason="tu t'es inscrit plusieurs fois à des raids sans te présenter ensuite",
+        created_by=1,
+    )
+    cog = _cog()
+    interaction = SimpleNamespace(user=SimpleNamespace(id=10), response=_FakeResponse())
+
+    await cog.handle_raid_vote(interaction, raid_id, "Gigalodon")
+
+    assert "Tu es banni des raids pour encore 2 jours" in interaction.response.messages[0][0]
+    assert db.get_vote_counts(raid_id, "raid") == {}
 
 
 def test_winning_hour_voters_are_registered(tmp_path):

@@ -22,6 +22,7 @@ def test_help_embed_lists_main_commands():
         "/ping",
         "/raid",
         "/list_raids",
+        "/ban_raid",
         "/absence_panel",
         "/search_abs",
         "/kick_abs",

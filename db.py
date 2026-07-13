@@ -92,6 +92,16 @@ def init(db_path: str = DB_PATH) -> None:
             public_deleted_at   TEXT,
             created_at          TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS raid_bans (
+            guild_id      INTEGER NOT NULL,
+            user_id       INTEGER NOT NULL,
+            banned_until  TEXT NOT NULL,
+            reason        TEXT NOT NULL,
+            created_by    INTEGER NOT NULL,
+            created_at    TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id)
+        );
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
@@ -494,6 +504,54 @@ def remove_participant(raid_id: int, user_id: int) -> Optional[int]:
             promoted = nxt["user_id"]
     conn.commit()
     return promoted
+
+
+# --------------------------------------------------------------------------- bans
+
+
+def set_raid_ban(
+    *,
+    guild_id: int,
+    user_id: int,
+    banned_until: datetime,
+    reason: str,
+    created_by: int,
+) -> None:
+    _db().execute(
+        """
+        INSERT OR REPLACE INTO raid_bans
+            (guild_id, user_id, banned_until, reason, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (guild_id, user_id, banned_until.isoformat(), reason, created_by, _now_iso()),
+    )
+    _db().commit()
+
+
+def get_active_raid_ban(
+    *,
+    guild_id: int,
+    user_id: int,
+    now: Optional[datetime] = None,
+) -> Optional[sqlite3.Row]:
+    now_iso = (now.isoformat() if now is not None else _now_iso())
+    return _db().execute(
+        """
+        SELECT * FROM raid_bans
+        WHERE guild_id = ?
+          AND user_id = ?
+          AND banned_until > ?
+        """,
+        (guild_id, user_id, now_iso),
+    ).fetchone()
+
+
+def clear_raid_ban(*, guild_id: int, user_id: int) -> None:
+    _db().execute(
+        "DELETE FROM raid_bans WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    )
+    _db().commit()
 
 
 # --------------------------------------------------------------------------- tickets
