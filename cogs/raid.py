@@ -702,9 +702,9 @@ class RaidCog(commands.Cog):
         poll_hours: Optional[list[int]],
     ) -> Optional[datetime]:
         if fixed_time is not None:
-            return dates_utils.combine_date_time(raid_date, fixed_time)
+            return dates_utils.combine_date_time(raid_date, fixed_time) - timedelta(hours=3)
         hours = poll_hours or RAID_HOURS
-        return dates_utils.combine_date_hour(raid_date, min(hours)) if hours else None
+        return dates_utils.combine_date_hour(raid_date, min(hours)) - timedelta(hours=3) if hours else None
 
     def _poll_closes_at(
         self,
@@ -721,7 +721,10 @@ class RaidCog(commands.Cog):
         if latest is not None and close > latest:
             close = latest
         if close <= now:
-            close = now + timedelta(minutes=15)
+            fallback = now + timedelta(minutes=15)
+            close = min(fallback, latest) if latest is not None else fallback
+            if close <= now:
+                close = now
         return close
 
     async def _dm_user(self, user_id: int, embed) -> None:
@@ -1287,7 +1290,8 @@ class RaidCog(commands.Cog):
         if channel is None:
             logger.warning("Salon introuvable pour le raid #%d : sondage heure non posté", raid_id)
             return
-        await self._send_hour_poll(channel, raid_id)
+        notify_role_id = db.get_guild_setting_int(raid["guild_id"], db.SETTING_RAID_NOTIFY_ROLE)
+        await self._send_hour_poll(channel, raid_id, notify_role_id=notify_role_id)
         self._schedule(raid_id, "hour_close", hour_closes, self._close_hour_poll)
 
     async def _close_hour_poll(self, raid_id: int) -> None:

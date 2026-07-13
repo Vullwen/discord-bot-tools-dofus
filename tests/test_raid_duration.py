@@ -1,4 +1,7 @@
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
+from types import SimpleNamespace
+
+import pytest
 
 import db
 from config import PARIS
@@ -28,7 +31,7 @@ def test_poll_close_hour_is_capped_before_first_hour():
         poll_close_hour=18,
         poll_hours=[14, 21],
     )
-    assert closes == datetime(2026, 6, 26, 14, 0, tzinfo=PARIS)
+    assert closes == datetime(2026, 6, 26, 11, 0, tzinfo=PARIS)
 
 
 def test_auto_poll_close_uses_configured_hour():
@@ -50,7 +53,7 @@ def test_poll_close_hour_is_capped_before_fixed_time():
         poll_close_hour=22,
         fixed_time=time(20, 30),
     )
-    assert closes == datetime(2026, 6, 26, 20, 30, tzinfo=PARIS)
+    assert closes == datetime(2026, 6, 26, 17, 30, tzinfo=PARIS)
 
 
 def test_today_past_close_hour_falls_back_to_short_delay():
@@ -61,7 +64,70 @@ def test_today_past_close_hour_falls_back_to_short_delay():
         poll_close_hour=12,
         poll_hours=[21, 22],
     )
-    assert closes == now + timedelta(minutes=15)
+    assert closes == now
+
+
+class _FakeChannel:
+    def __init__(self, channel_id: int = 3):
+        self.id = channel_id
+        self.sent = []
+
+    async def send(self, *, content=None, embed=None, view=None):
+        msg = SimpleNamespace(
+            id=1000 + len(self.sent),
+            content=content,
+            embed=embed,
+            view=view,
+            channel=self,
+        )
+        self.sent.append(msg)
+        return msg
+
+
+def _async_return(value):
+    async def inner(*_args, **_kwargs):
+        return value
+
+    return inner
+
+
+async def _async_noop(*_args, **_kwargs):
+    return None
+
+
+@pytest.mark.asyncio
+async def test_hour_poll_after_raid_choice_mentions_notify_role(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = _FakeChannel()
+    db.set_guild_setting(2, db.SETTING_RAID_NOTIFY_ROLE, "555")
+    raid_id = db.create_raid(
+        name=None,
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=channel.id,
+        state="choosing_raid",
+        raid_poll_message_id=42,
+        poll_hours=[19, 20, 21],
+    )
+    db.cast_vote(raid_id, 10, "raid", "Gigalodon")
+    cog = _cog()
+    cog._creator_display = _async_return("Creator")
+    cog._edit_message = _async_noop
+    cog._get_channel = _async_return(channel)
+    scheduled = []
+    cog._schedule = lambda raid_id, kind, when, coro_fn: scheduled.append((raid_id, kind, when, coro_fn.__name__))
+
+    await cog._close_raid_choice(raid_id)
+
+    raid = db.get_raid(raid_id)
+    assert raid["state"] == "voting_hour"
+    assert raid["name"] == "Gigalodon"
+    assert raid["hour_poll_message_id"] == channel.sent[0].id
+    assert channel.sent[0].content == "<@&555>"
+    assert [(kind, fn) for _rid, kind, _when, fn in scheduled] == [
+        ("hour_close", "_close_hour_poll")
+    ]
 
 
 def test_winning_hour_voters_are_registered(tmp_path):
