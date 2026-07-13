@@ -1719,6 +1719,37 @@ class RaidCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(name="unban_raid", description="Autorise à nouveau un membre à voter et s'inscrire aux raids")
+    @app_commands.describe(user="Membre à débannir des raids")
+    async def unban_raid(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        active = db.get_active_raid_ban(
+            guild_id=interaction.guild.id,
+            user_id=user.id,
+            now=now_paris(),
+        )
+        db.clear_raid_ban(guild_id=interaction.guild.id, user_id=user.id)
+        if active is None:
+            await interaction.response.send_message(
+                f"{user.mention} n'avait pas de ban raid actif.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            f"{user.mention} peut de nouveau voter et s'inscrire aux raids.",
+            ephemeral=True,
+        )
+
     async def _apply_cancel(self, raid_id: int) -> bool:
         """Annule un raid (sans interaction) : annule les tâches planifiées, passe en
         CANCELLED et édite les messages visibles en embed « annulé ». Retourne False si

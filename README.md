@@ -51,6 +51,7 @@ Raids :
 - `/list_raids` — raids actifs.
 - `/ban_raid user jours [raison]` — interdit temporairement à un membre de voter
   ou de s'inscrire aux raids.
+- `/unban_raid user` — retire le ban raid d'un membre.
 - `/cancel_raid raid_id` — annule un raid (créateur ou organisateur).
 - `/force_close raid_id` — clôture tout de suite le sondage en cours.
 

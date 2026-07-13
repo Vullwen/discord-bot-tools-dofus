@@ -171,6 +171,39 @@ async def test_ban_raid_command_persists_ban(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_unban_raid_command_clears_active_ban(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
+    monkeypatch.setattr(
+        "cogs.raid.now_paris",
+        lambda: datetime(2026, 6, 25, 12, 0, tzinfo=PARIS),
+    )
+    db.set_raid_ban(
+        guild_id=2,
+        user_id=10,
+        banned_until=datetime(2026, 6, 28, 12, 0, tzinfo=PARIS),
+        reason="absence répétée",
+        created_by=1,
+    )
+    cog = _cog()
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=1),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+    user = SimpleNamespace(id=10, mention="<@10>")
+
+    await RaidCog.unban_raid.callback(cog, interaction, user)
+
+    assert db.get_active_raid_ban(
+        guild_id=2,
+        user_id=10,
+        now=datetime(2026, 6, 25, 12, 0, tzinfo=PARIS),
+    ) is None
+    assert "peut de nouveau voter" in interaction.response.messages[0][0]
+
+
+@pytest.mark.asyncio
 async def test_banned_user_cannot_vote_for_raid(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr(
