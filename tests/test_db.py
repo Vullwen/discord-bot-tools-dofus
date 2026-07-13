@@ -125,6 +125,41 @@ def test_raid_ban_is_active_until_expiration(tmp_path):
     ) is None
 
 
+def test_list_active_raid_bans_filters_and_orders(tmp_path):
+    _fresh(tmp_path)
+    now = datetime(2026, 6, 25, 12, 0, tzinfo=PARIS)
+    db.set_raid_ban(
+        guild_id=2,
+        user_id=10,
+        banned_until=datetime(2026, 6, 28, 12, 0, tzinfo=PARIS),
+        reason="trois absences",
+        created_by=1,
+    )
+    db.set_raid_ban(
+        guild_id=2,
+        user_id=20,
+        banned_until=datetime(2026, 6, 27, 12, 0, tzinfo=PARIS),
+        reason="deux absences",
+        created_by=1,
+    )
+    db.set_raid_ban(
+        guild_id=2,
+        user_id=30,
+        banned_until=datetime(2026, 6, 24, 12, 0, tzinfo=PARIS),
+        reason="expiré",
+        created_by=1,
+    )
+    db.set_raid_ban(
+        guild_id=3,
+        user_id=40,
+        banned_until=datetime(2026, 6, 29, 12, 0, tzinfo=PARIS),
+        reason="autre guilde",
+        created_by=1,
+    )
+
+    assert [row["user_id"] for row in db.list_active_raid_bans(guild_id=2, now=now)] == [20, 10]
+
+
 def test_update_and_state_serializes_datetime(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(

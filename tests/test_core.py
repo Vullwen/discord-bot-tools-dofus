@@ -24,6 +24,7 @@ def test_help_embed_lists_main_commands():
         "/list_raids",
         "/ban_raid",
         "/unban_raid",
+        "/show_bans",
         "/absence_panel",
         "/search_abs",
         "/kick_abs",

@@ -210,6 +210,38 @@ async def test_unban_raid_command_clears_active_ban(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_show_bans_lists_active_bans(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
+    monkeypatch.setattr(
+        "cogs.raid.now_paris",
+        lambda: datetime(2026, 6, 25, 12, 0, tzinfo=PARIS),
+    )
+    db.set_raid_ban(
+        guild_id=2,
+        user_id=10,
+        banned_until=datetime(2026, 6, 27, 12, 0, tzinfo=PARIS),
+        reason="absence répétée",
+        created_by=1,
+    )
+    cog = _cog()
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=1),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+
+    await RaidCog.show_bans.callback(cog, interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    assert kwargs == {"ephemeral": True}
+    assert "Bans raid actifs" in content
+    assert "<@10>" in content
+    assert "encore 2 jours" in content
+    assert "absence répétée" in content
+
+
+@pytest.mark.asyncio
 async def test_banned_user_cannot_vote_for_raid(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr(

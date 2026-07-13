@@ -595,11 +595,14 @@ class RaidCog(commands.Cog):
         if ban is None:
             return None
         banned_until = datetime.fromisoformat(ban["banned_until"])
-        remaining_seconds = max(0, int((banned_until - now_paris()).total_seconds()))
-        remaining_days = max(1, (remaining_seconds + 86399) // 86400)
+        remaining_days = self._raid_ban_remaining_days(banned_until)
         suffix = "s" if remaining_days > 1 else ""
         reason = (ban["reason"] or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
         return f"Tu es banni des raids pour encore {remaining_days} jour{suffix} car {reason}."
+
+    def _raid_ban_remaining_days(self, banned_until: datetime) -> int:
+        remaining_seconds = max(0, int((banned_until - now_paris()).total_seconds()))
+        return max(1, (remaining_seconds + 86399) // 86400)
 
     async def _notify_raid_ban_admin(
         self,
@@ -1786,6 +1789,33 @@ class RaidCog(commands.Cog):
             f"{user.mention} peut de nouveau voter et s'inscrire aux raids.",
             ephemeral=True,
         )
+
+    @app_commands.command(name="show_bans", description="Affiche les bans raid actifs")
+    async def show_bans(self, interaction: discord.Interaction) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        rows = db.list_active_raid_bans(guild_id=interaction.guild.id, now=now_paris())
+        if not rows:
+            await interaction.response.send_message("Aucun ban raid actif.", ephemeral=True)
+            return
+
+        lines = ["**Bans raid actifs**"]
+        for row in rows:
+            banned_until = datetime.fromisoformat(row["banned_until"])
+            days = self._raid_ban_remaining_days(banned_until)
+            suffix = "s" if days > 1 else ""
+            reason = (row["reason"] or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
+            lines.append(
+                f"- <@{row['user_id']}> (`{row['user_id']}`) : encore {days} jour{suffix}, "
+                f"jusqu'au {banned_until:%d/%m/%Y %Hh%M} — {reason} "
+                f"(par <@{row['created_by']}>)"
+            )
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     async def _apply_cancel(self, raid_id: int) -> bool:
         """Annule un raid (sans interaction) : annule les tâches planifiées, passe en

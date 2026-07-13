@@ -546,6 +546,26 @@ def get_active_raid_ban(
     ).fetchone()
 
 
+def list_active_raid_bans(
+    *,
+    guild_id: int,
+    now: Optional[datetime] = None,
+    limit: int = 50,
+) -> list[sqlite3.Row]:
+    now_iso = (now.isoformat() if now is not None else _now_iso())
+    rows = _db().execute(
+        """
+        SELECT * FROM raid_bans
+        WHERE guild_id = ?
+          AND banned_until > ?
+        ORDER BY banned_until ASC, user_id ASC
+        LIMIT ?
+        """,
+        (guild_id, now_iso, limit),
+    ).fetchall()
+    return list(rows)
+
+
 def clear_raid_ban(*, guild_id: int, user_id: int) -> None:
     _db().execute(
         "DELETE FROM raid_bans WHERE guild_id = ? AND user_id = ?",
