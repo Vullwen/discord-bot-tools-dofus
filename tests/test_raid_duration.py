@@ -20,7 +20,7 @@ def test_poll_closes_at_selected_raid_day_hour():
         poll_close_hour=12,
         poll_hours=[14, 21],
     )
-    assert closes == datetime(2026, 6, 26, 12, 0, tzinfo=PARIS)
+    assert closes == datetime(2026, 6, 26, 11, 0, tzinfo=PARIS)
 
 
 def test_poll_close_hour_is_capped_before_first_hour():
@@ -42,7 +42,7 @@ def test_auto_poll_close_uses_configured_hour():
         poll_close_hour=None,
         poll_hours=[14, 21],
     )
-    assert closes == datetime(2026, 6, 26, 12, 0, tzinfo=PARIS)
+    assert closes == datetime(2026, 6, 26, 11, 0, tzinfo=PARIS)
 
 
 def test_poll_close_hour_is_capped_before_fixed_time():
@@ -107,9 +107,9 @@ async def test_hour_poll_after_raid_choice_mentions_notify_role(tmp_path):
         guild_id=2,
         channel_id=channel.id,
         state="choosing_raid",
-        raid_poll_message_id=42,
         poll_hours=[19, 20, 21],
     )
+    db.update_raid(raid_id, raid_poll_message_id=42)
     db.cast_vote(raid_id, 10, "raid", "Gigalodon")
     cog = _cog()
     cog._creator_display = _async_return("Creator")

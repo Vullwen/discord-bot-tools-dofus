@@ -1,4 +1,16 @@
-from cogs.core import _help_embed
+from types import SimpleNamespace
+
+import pytest
+
+from cogs.core import CoreCog, _help_embed
+
+
+class _FakeResponse:
+    def __init__(self):
+        self.messages = []
+
+    async def send_message(self, content=None, **kwargs):
+        self.messages.append((content, kwargs))
 
 
 def test_help_embed_lists_main_commands():
@@ -17,3 +29,28 @@ def test_help_embed_lists_main_commands():
         "/showconfig",
     ):
         assert command in text
+
+
+@pytest.mark.asyncio
+async def test_help_denies_non_admin(monkeypatch):
+    monkeypatch.setattr("cogs.core.ADMIN_IDS", {42})
+    cog = CoreCog(SimpleNamespace())
+    interaction = SimpleNamespace(user=SimpleNamespace(id=10), response=_FakeResponse())
+
+    await CoreCog.help.callback(cog, interaction)
+
+    assert interaction.response.messages == [("Permission refusee.", {"ephemeral": True})]
+
+
+@pytest.mark.asyncio
+async def test_help_allows_admin(monkeypatch):
+    monkeypatch.setattr("cogs.core.ADMIN_IDS", {42})
+    cog = CoreCog(SimpleNamespace())
+    interaction = SimpleNamespace(user=SimpleNamespace(id=42), response=_FakeResponse())
+
+    await CoreCog.help.callback(cog, interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    assert content is None
+    assert kwargs["ephemeral"] is True
+    assert kwargs["embed"].title == "Aide Beb Raid"

@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands
 
+from config import ADMIN_IDS
+
 
 def _help_embed() -> discord.Embed:
     embed = discord.Embed(
@@ -56,6 +58,9 @@ class CoreCog(commands.Cog):
 
     @discord.app_commands.command(name="help", description="Affiche l'aide du bot")
     async def help(self, interaction: discord.Interaction):
+        if interaction.user.id not in ADMIN_IDS:
+            await interaction.response.send_message("Permission refusee.", ephemeral=True)
+            return
         await interaction.response.send_message(embed=_help_embed(), ephemeral=True)
 
     @discord.app_commands.command(name="ping", description="Check si le bot est vivant")
