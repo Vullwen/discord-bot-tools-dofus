@@ -49,6 +49,13 @@ def test_invalid_format():
         d.parse_raid_date("32/13/2026", NOW)
 
 
+def test_parse_absence_date_accepts_day_only():
+    assert d.parse_absence_date("26", NOW).isoformat() == "2026-06-26"
+    assert d.parse_absence_date("16", NOW).isoformat() == "2026-07-16"
+    start = d.parse_absence_date("30", NOW)
+    assert d.parse_absence_date("2", NOW, reference=start).isoformat() == "2026-07-02"
+
+
 def test_combine_and_format():
     day = d.parse_raid_date("28/06/2026", NOW)
     dt = d.combine_date_hour(day, 21)

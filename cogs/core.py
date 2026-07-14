@@ -31,6 +31,8 @@ def _help_embed() -> discord.Embed:
         value=(
             "`/absence_panel` : poste le bouton d'absence\n"
             "`/search_abs` : recherche les absences\n"
+            "`/add_abs` : ajoute une absence pour un membre\n"
+            "`/stop_abs` : stoppe une absence\n"
             "`/kick_abs` : prévient un membre AFK dans le salon absence et en MP"
         ),
         inline=False,

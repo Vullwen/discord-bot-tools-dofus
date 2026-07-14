@@ -52,11 +52,22 @@ class _FakeChannel:
 
     def __init__(self):
         self.sent = []
+        self._messages = {}
 
     async def send(self, *, content=None, embed=None, view=None):
         message = SimpleNamespace(id=1000 + len(self.sent), channel=self, content=content, embed=embed, view=view)
+        message.deleted = False
+
+        async def delete():
+            message.deleted = True
+
+        message.delete = delete
         self.sent.append(message)
+        self._messages[message.id] = message
         return message
+
+    async def fetch_message(self, message_id):
+        return self._messages[message_id]
 
 
 class _FailingChannel(_FakeChannel):
@@ -119,6 +130,38 @@ async def test_submit_absence_tries_panel_channel_when_configured_channel_fails(
 
     assert len(panel_channel.sent) == 1
     assert interaction.followup.messages[0] == ("Absence publiée dans <#100>.", {"ephemeral": True})
+
+
+@pytest.mark.asyncio
+async def test_stop_abs_marks_member_absence_deleted(tmp_path, monkeypatch):
+    monkeypatch.setattr("cogs.absence.is_raid_organizer", lambda _interaction: True)
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    public_channel = _FakeChannel()
+    public_message = await public_channel.send(embed=None)
+    absence_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2026-08-28",
+        end_date="2026-08-30",
+        public_channel_id=public_channel.id,
+        public_message_id=public_message.id,
+    )
+    cog = AbsenceCog(SimpleNamespace(get_channel=lambda _channel_id: public_channel))
+    cog._cleanup_tasks[absence_id] = SimpleNamespace(cancel=lambda: None)
+    member = _FakeUser(20)
+    interaction = SimpleNamespace(
+        user=_FakeUser(10),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+        followup=_FakeFollowup(),
+    )
+
+    await AbsenceCog.stop_abs.callback(cog, interaction, member)
+
+    assert public_message.deleted is True
+    assert db.get_absence(absence_id)["public_deleted_at"] is not None
+    assert interaction.followup.messages[0] == ("1 absence(s) stoppée(s) pour user-20.", {"ephemeral": True})
 
 
 @pytest.mark.asyncio

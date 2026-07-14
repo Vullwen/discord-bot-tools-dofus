@@ -181,7 +181,7 @@ class AbsenceCog(commands.Cog):
             except discord.DiscordException as exc:
                 logger.warning("Salon %s introuvable pour %s: %s", channel_id, key, exc)
                 return None
-        return channel if isinstance(channel, discord.abc.Messageable) else None
+        return channel if _is_messageable(channel) else None
 
     async def _get_channel(self, channel_id: int) -> Optional[discord.abc.Messageable]:
         channel = self.bot.get_channel(channel_id)
@@ -191,7 +191,7 @@ class AbsenceCog(commands.Cog):
             except discord.DiscordException as exc:
                 logger.warning("Salon %s introuvable: %s", channel_id, exc)
                 return None
-        return channel if isinstance(channel, discord.abc.Messageable) else None
+        return channel if _is_messageable(channel) else None
 
     async def _absence_channel(
         self,
@@ -239,10 +239,10 @@ class AbsenceCog(commands.Cog):
         finally:
             self._cleanup_tasks.pop(absence_id, None)
 
-    async def _delete_public_absence(self, absence_id: int) -> None:
+    async def _delete_public_absence(self, absence_id: int) -> bool:
         absence = db.get_absence(absence_id)
         if absence is None or absence["public_deleted_at"]:
-            return
+            return False
 
         channel = await self._get_channel(absence["public_channel_id"])
         if channel is not None:
@@ -254,50 +254,30 @@ class AbsenceCog(commands.Cog):
                 logger.info("Absence #%d : message public déjà absent", absence_id)
             except discord.DiscordException as exc:
                 logger.warning("Absence #%d : suppression message public échouée: %s", absence_id, exc)
-                return
+                return False
 
         db.mark_absence_public_deleted(absence_id)
+        return True
 
-    async def submit_absence(
+    def _cancel_cleanup(self, absence_id: int) -> None:
+        task = self._cleanup_tasks.pop(absence_id, None)
+        if task is not None:
+            task.cancel()
+
+    async def _publish_absence(
         self,
         interaction: discord.Interaction,
-        start_raw: str,
-        end_raw: str,
+        user: discord.abc.User,
+        start: date,
+        end: date,
         motif: str,
+        public_channels: list[discord.abc.Messageable],
     ) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
-            return
-
-        try:
-            start = dates_utils.parse_raid_date(start_raw)
-            end = dates_utils.parse_raid_date(end_raw)
-        except dates_utils.InvalidRaidDate as exc:
-            await interaction.response.send_message(f"Date invalide : {exc}", ephemeral=True)
-            return
-
-        if end < start:
-            await interaction.response.send_message(
-                "Date invalide : la date de fin doit être après la date de début.",
-                ephemeral=True,
-            )
-            return
-
-        public_channels = await self._absence_channels(interaction)
-        if not public_channels:
-            await interaction.response.send_message(
-                "Aucun salon absence disponible. Configure le salon absence avec `/setchannel`.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
         public_channel = None
         public_message = None
         failed_channels = []
         try:
-            embed = _absence_embed(interaction.user, start, end)
+            embed = _absence_embed(user, start, end)
             for candidate in public_channels:
                 try:
                     public_message = await candidate.send(embed=embed)
@@ -332,7 +312,7 @@ class AbsenceCog(commands.Cog):
         if admin_channel is not None:
             try:
                 admin_message = await admin_channel.send(
-                    embed=_absence_admin_embed(interaction.user, start, end, motif.strip())
+                    embed=_absence_admin_embed(user, start, end, motif.strip())
                 )
             except discord.DiscordException as exc:
                 logger.warning("Publication motif absence échouée: %s", exc)
@@ -342,8 +322,8 @@ class AbsenceCog(commands.Cog):
 
         absence_id = db.create_absence(
             guild_id=interaction.guild.id,
-            user_id=interaction.user.id,
-            user_display=_user_display(interaction.user),
+            user_id=user.id,
+            user_display=_user_display(user),
             start_date=start.isoformat(),
             end_date=end.isoformat(),
             public_channel_id=public_message.channel.id,
@@ -353,10 +333,158 @@ class AbsenceCog(commands.Cog):
         )
         self._schedule_cleanup(absence_id, end)
 
+        prefix = "Absence publiée" if user.id == interaction.user.id else f"Absence de {_user_display(user)} publiée"
         await interaction.followup.send(
-            f"Absence publiée dans {_channel_label(public_channel)}.{admin_warning}",
+            f"{prefix} dans {_channel_label(public_channel)}.{admin_warning}",
             ephemeral=True,
         )
+
+    def _parse_absence_dates(self, start_raw: str, end_raw: str) -> tuple[date, date]:
+        start = dates_utils.parse_absence_date(start_raw)
+        end = dates_utils.parse_absence_date(end_raw, reference=start)
+        return start, end
+
+    async def submit_absence(
+        self,
+        interaction: discord.Interaction,
+        start_raw: str,
+        end_raw: str,
+        motif: str,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        try:
+            start, end = self._parse_absence_dates(start_raw, end_raw)
+        except dates_utils.InvalidRaidDate as exc:
+            await interaction.response.send_message(f"Date invalide : {exc}", ephemeral=True)
+            return
+
+        if end < start:
+            await interaction.response.send_message(
+                "Date invalide : la date de fin doit être après la date de début.",
+                ephemeral=True,
+            )
+            return
+
+        public_channels = await self._absence_channels(interaction)
+        if not public_channels:
+            await interaction.response.send_message(
+                "Aucun salon absence disponible. Configure le salon absence avec `/setchannel`.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self._publish_absence(interaction, interaction.user, start, end, motif, public_channels)
+
+    @app_commands.command(name="add_abs", description="Ajoute une absence pour un membre")
+    @app_commands.describe(
+        member="Membre absent",
+        debut="Date de début (ex: 16, 16/07, demain)",
+        fin="Date de fin (ex: 17, 17/07, dimanche)",
+        motif="Motif optionnel",
+    )
+    async def add_abs(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        debut: str,
+        fin: str,
+        motif: Optional[str] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        try:
+            start, end = self._parse_absence_dates(debut, fin)
+        except dates_utils.InvalidRaidDate as exc:
+            await interaction.response.send_message(f"Date invalide : {exc}", ephemeral=True)
+            return
+
+        if end < start:
+            await interaction.response.send_message(
+                "Date invalide : la date de fin doit être après la date de début.",
+                ephemeral=True,
+            )
+            return
+
+        public_channels = await self._absence_channels(interaction)
+        if not public_channels:
+            await interaction.response.send_message(
+                "Aucun salon absence disponible. Configure le salon absence avec `/setchannel`.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self._publish_absence(interaction, member, start, end, motif or "", public_channels)
+
+    @app_commands.command(name="stop_abs", description="Stoppe les absences actives ou à venir d'un membre")
+    @app_commands.describe(
+        member="Membre dont l'absence doit être stoppée",
+        absence_id="ID précis si plusieurs absences existent",
+    )
+    async def stop_abs(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        absence_id: Optional[int] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        today_iso = now_paris().date().isoformat()
+        if absence_id is not None:
+            row = db.get_absence(absence_id)
+            rows = [
+                row
+                for row in [row]
+                if row is not None
+                and row["guild_id"] == interaction.guild.id
+                and row["user_id"] == member.id
+                and not row["public_deleted_at"]
+                and row["end_date"] >= today_iso
+            ]
+        else:
+            rows = db.search_absences(
+                guild_id=interaction.guild.id,
+                user_id=member.id,
+                today_iso=today_iso,
+                limit=100,
+            )
+
+        if not rows:
+            await interaction.response.send_message(
+                f"Aucune absence active ou à venir trouvée pour {_user_display(member)}.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        stopped = 0
+        failed = 0
+        for row in rows:
+            if await self._delete_public_absence(row["id"]):
+                self._cancel_cleanup(row["id"])
+                stopped += 1
+            else:
+                failed += 1
+
+        message = f"{stopped} absence(s) stoppée(s) pour {_user_display(member)}."
+        if failed:
+            message += f" {failed} suppression(s) impossible(s) : vérifie les permissions du salon."
+        await interaction.followup.send(message, ephemeral=True)
 
     @app_commands.command(name="absence_panel", description="Poste le bouton de déclaration d'absence")
     async def absence_panel(

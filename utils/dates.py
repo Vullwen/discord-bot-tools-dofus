@@ -148,6 +148,51 @@ def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
     return result
 
 
+def _next_month(year: int, month: int) -> tuple[int, int]:
+    return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def parse_absence_date(
+    text: str,
+    now: Optional[datetime] = None,
+    reference: Optional[date] = None,
+) -> date:
+    """Convertit une date d'absence.
+
+    Même formats que parse_raid_date(), avec en plus un jour seul ("16").
+    Pour un jour seul, on prend le mois courant/référence, ou le mois suivant si
+    ce jour est déjà passé par rapport à la date de référence.
+    """
+    if not text:
+        raise InvalidRaidDate("date vide")
+
+    raw = strip_hour(text.strip().lower().replace("’", "'"))
+    now = now or datetime.now(PARIS)
+    base = reference or now.date()
+
+    if re.fullmatch(r"\d{1,2}", raw):
+        day = int(raw)
+        year = base.year
+        month = base.month
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            try:
+                year, month = _next_month(year, month)
+                candidate = date(year, month, day)
+            except ValueError as exc:
+                raise InvalidRaidDate(f"date invalide : {text!r} ({exc})")
+        if candidate < base:
+            try:
+                year, month = _next_month(year, month)
+                candidate = date(year, month, day)
+            except ValueError as exc:
+                raise InvalidRaidDate(f"date invalide : {text!r} ({exc})")
+        return candidate
+
+    return parse_raid_date(text, now)
+
+
 def combine_date_hour(day: date, hour: int) -> datetime:
     """Combine une date et une heure en datetime aware Paris."""
     return datetime.combine(day, time(hour=hour, minute=0), tzinfo=PARIS)
