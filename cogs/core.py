@@ -29,11 +29,12 @@ def _help_embed() -> discord.Embed:
     embed.add_field(
         name="Absences",
         value=(
-            "`/absence_panel` : poste le bouton d'absence\n"
-            "`/search_abs` : recherche les absences\n"
-            "`/add_abs` : ajoute une absence pour un membre\n"
-            "`/stop_abs` : stoppe une absence\n"
-            "`/kick_abs` : prévient un membre AFK dans le salon absence et en MP"
+            "`/absence declare` : ouvre le formulaire d'absence\n"
+            "`/absence panel` : poste le bouton d'absence\n"
+            "`/absence search` : recherche les absences\n"
+            "`/absence add` : ajoute une absence pour un membre\n"
+            "`/absence stop` : stoppe une absence\n"
+            "`/absence kick` : prévient un membre AFK, remet le rôle de base et envoie le MP"
         ),
         inline=False,
     )
@@ -43,7 +44,7 @@ def _help_embed() -> discord.Embed:
             "`/setchannel` : configure les salons\n"
             "`/setraidrole` : configure le rôle organisateur\n"
             "`/setraidnotifyrole` : configure le rôle de notification\n"
-            "`/setbaserole` : configure le rôle remis avec `/kick_abs`\n"
+            "`/setbaserole` : configure le rôle remis avec `/absence kick`\n"
             "`/showconfig` : affiche la configuration"
         ),
         inline=False,

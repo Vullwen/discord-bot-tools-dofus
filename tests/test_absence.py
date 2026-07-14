@@ -209,7 +209,7 @@ async def test_kick_abs_notifies_absence_channel_member_dm_and_resets_roles(tmp_
     assert public_channel.sent[0].content == expected
     assert member.dms[0].content == expected
     assert member.role_edits == [
-        {"roles": [base_role], "reason": "kick_abs : remise au rôle de base"}
+        {"roles": [base_role], "reason": "/absence kick : remise au rôle de base"}
     ]
     assert interaction.response.deferred is True
     assert interaction.response.defer_kwargs == {"ephemeral": True, "thinking": True}

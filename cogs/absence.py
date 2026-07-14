@@ -142,6 +142,8 @@ class AbsenceView(discord.ui.View):
 
 
 class AbsenceCog(commands.Cog):
+    absence = app_commands.Group(name="absence", description="Gestion des absences")
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._cleanup_tasks: dict[int, asyncio.Task] = {}
@@ -364,7 +366,7 @@ class AbsenceCog(commands.Cog):
         try:
             await member.edit(
                 roles=[base_role],
-                reason="kick_abs : remise au rôle de base",
+                reason="/absence kick : remise au rôle de base",
             )
         except discord.Forbidden:
             logger.warning("Remise rôle base refusée pour %s", member.id)
@@ -410,7 +412,14 @@ class AbsenceCog(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await self._publish_absence(interaction, interaction.user, start, end, motif, public_channels)
 
-    @app_commands.command(name="add_abs", description="Ajoute une absence pour un membre")
+    @absence.command(name="declare", description="Ouvre le formulaire de déclaration d'absence")
+    async def declare_abs(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        await interaction.response.send_modal(AbsenceModal(self))
+
+    @absence.command(name="add", description="Ajoute une absence pour un membre")
     @app_commands.describe(
         member="Membre absent",
         debut="Date de début (ex: 16, 16/07, demain)",
@@ -456,7 +465,7 @@ class AbsenceCog(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await self._publish_absence(interaction, member, start, end, motif or "", public_channels)
 
-    @app_commands.command(name="stop_abs", description="Stoppe les absences actives ou à venir d'un membre")
+    @absence.command(name="stop", description="Stoppe les absences actives ou à venir d'un membre")
     @app_commands.describe(
         member="Membre dont l'absence doit être stoppée",
         absence_id="ID précis si plusieurs absences existent",
@@ -517,7 +526,7 @@ class AbsenceCog(commands.Cog):
             message += f" {failed} suppression(s) impossible(s) : vérifie les permissions du salon."
         await interaction.followup.send(message, ephemeral=True)
 
-    @app_commands.command(name="absence_panel", description="Poste le bouton de déclaration d'absence")
+    @absence.command(name="panel", description="Poste le bouton de déclaration d'absence")
     async def absence_panel(
         self,
         interaction: discord.Interaction,
@@ -552,7 +561,7 @@ class AbsenceCog(commands.Cog):
             return
         await interaction.followup.send(f"Bouton absence posté dans {_channel_label(target)}.", ephemeral=True)
 
-    @app_commands.command(name="search_abs", description="Recherche les absences actives ou à venir")
+    @absence.command(name="search", description="Recherche les absences actives ou à venir")
     @app_commands.describe(member="Membre à filtrer")
     async def search_abs(
         self,
@@ -574,9 +583,9 @@ class AbsenceCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(
-        name="kick_abs",
-        description="Préviens un membre qu'il a été kick de la guilde pour AFK",
+    @absence.command(
+        name="kick",
+        description="Préviens un membre AFK, remet le rôle de base et retire les autres rôles",
     )
     @app_commands.describe(user="Membre à prévenir")
     async def kick_abs(

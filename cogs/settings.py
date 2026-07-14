@@ -162,7 +162,7 @@ class SettingsCog(commands.Cog):
 
     @app_commands.command(
         name="setbaserole",
-        description="Définit le rôle remis après /kick_abs",
+        description="Définit le rôle remis après /absence kick",
     )
     @app_commands.describe(
         role="ID, mention ou nom exact du rôle (vide = désactive le changement de rôles)",
@@ -182,7 +182,7 @@ class SettingsCog(commands.Cog):
         if role is None:
             db.set_guild_setting(interaction.guild.id, db.SETTING_BASE_ROLE, "")
             await interaction.response.send_message(
-                "✅ Rôle de base désactivé. `/kick_abs` ne modifiera plus les rôles.",
+                "✅ Rôle de base désactivé. `/absence kick` ne modifiera plus les rôles.",
                 ephemeral=True,
             )
             return
@@ -197,7 +197,7 @@ class SettingsCog(commands.Cog):
 
         db.set_guild_setting(interaction.guild.id, db.SETTING_BASE_ROLE, str(resolved.id))
         await interaction.response.send_message(
-            f"✅ Rôle de base défini : {resolved.mention}. `/kick_abs` retirera les autres rôles "
+            f"✅ Rôle de base défini : {resolved.mention}. `/absence kick` retirera les autres rôles "
             "et remettra celui-ci.",
             ephemeral=True,
         )
@@ -249,7 +249,7 @@ class SettingsCog(commands.Cog):
         )
         embed.add_field(
             name="Rôle de base",
-            value=_role_mention(db.SETTING_BASE_ROLE, "*(non défini — /kick_abs ne modifie pas les rôles)*"),
+            value=_role_mention(db.SETTING_BASE_ROLE, "*(non défini — /absence kick ne modifie pas les rôles)*"),
             inline=False,
         )
         embed.set_footer(text="Configure avec /setchannel, /setraidrole, /setraidnotifyrole et /setbaserole")

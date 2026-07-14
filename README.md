@@ -62,10 +62,13 @@ annuler le raid avec confirmation.
 
 Absences :
 
-- `/absence_panel` — poste le bouton de déclaration dans le salon panel absences configuré.
-- `/search_abs [member]` — liste les absences actives ou à venir, sans afficher les motifs.
-- `/kick_abs user` — prévient dans le salon absence et en MP qu'un membre a été
-  kick de la guilde pour AFK, sans kick Discord.
+- `/absence declare` — ouvre le formulaire de déclaration d'absence.
+- `/absence panel` — poste le bouton de déclaration dans le salon panel absences configuré.
+- `/absence search [member]` — liste les absences actives ou à venir, sans afficher les motifs.
+- `/absence add member debut fin [motif]` — ajoute une absence pour un membre.
+- `/absence stop member [absence_id]` — stoppe une absence active ou à venir.
+- `/absence kick user` — prévient dans le salon absence et en MP qu'un membre a été
+  kick de la guilde pour AFK, retire ses rôles et remet le rôle de base configuré.
 
 Le panel et les messages d'absence utilisent deux salons différents : le bouton
 est posté dans le salon panel absences, puis les absences déclarées publient un
