@@ -24,20 +24,25 @@ def _has_administrator_permission(interaction: discord.Interaction) -> bool:
     return bool(getattr(permissions, "administrator", False))
 
 
+def is_bot_admin(interaction: discord.Interaction) -> bool:
+    """Admin bot configuré OU Administrateur Discord sur la guilde."""
+    return interaction.user.id in ADMIN_IDS or _has_administrator_permission(interaction)
+
+
 def is_raid_organizer(interaction: discord.Interaction) -> bool:
     """Admin bot OU détenteur du rôle configuré pour cette guilde.
 
     Si aucun rôle n'est configuré, la permission Discord Administrateur donne
     aussi l'accès. Peut créer/gérer n'importe quel raid ou ticket.
     """
-    if interaction.user.id in ADMIN_IDS:
+    if is_bot_admin(interaction):
         return True
     guild = interaction.guild
     if guild is None:
         return False
     role_id = db.get_guild_setting_int(guild.id, db.SETTING_RAID_MANAGER_ROLE)
     if not role_id:
-        return _has_administrator_permission(interaction)
+        return False
     # interaction.user est un Member en guilde (avec .roles) ; un User hors guilde
     # n'a pas .roles -> getattr retourne None -> non organisateur.
     roles = getattr(interaction.user, "roles", None)

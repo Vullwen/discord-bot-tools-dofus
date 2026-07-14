@@ -74,6 +74,12 @@ def test_member_without_configured_role_denied(tmp_path, monkeypatch):
     assert perms.is_raid_organizer(_interaction(42, guild_id=1, role_ids=(7, 8))) is False
 
 
+def test_discord_admin_allowed_even_when_role_configured(tmp_path, monkeypatch):
+    _fresh(tmp_path, monkeypatch)
+    db.set_guild_setting(1, db.SETTING_RAID_MANAGER_ROLE, "100")
+    assert perms.is_raid_organizer(_interaction(42, guild_id=1, administrator=True)) is True
+
+
 def test_role_is_per_guild(tmp_path, monkeypatch):
     _fresh(tmp_path, monkeypatch)
     db.set_guild_setting(1, db.SETTING_RAID_MANAGER_ROLE, "100")

@@ -195,7 +195,13 @@ class AbsenceCog(commands.Cog):
     ) -> Optional[discord.abc.Messageable]:
         if interaction.guild is None:
             return None
-        return await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
+        configured = await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
+        if configured is not None:
+            return configured
+        channel = getattr(interaction, "channel", None)
+        if isinstance(channel, discord.abc.Messageable) or callable(getattr(channel, "send", None)):
+            return channel
+        return None
 
     def _schedule_cleanup(self, absence_id: int, end: date) -> None:
         previous = self._cleanup_tasks.pop(absence_id, None)
@@ -265,7 +271,10 @@ class AbsenceCog(commands.Cog):
 
         public_channel = await self._absence_channel(interaction)
         if public_channel is None:
-            await interaction.response.send_message("Aucun salon absence disponible.", ephemeral=True)
+            await interaction.response.send_message(
+                "Aucun salon absence disponible. Configure le salon absence avec `/setchannel`.",
+                ephemeral=True,
+            )
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)

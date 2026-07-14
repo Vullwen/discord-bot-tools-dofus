@@ -66,6 +66,20 @@ class _FakeUser:
 
 
 @pytest.mark.asyncio
+async def test_absence_channel_falls_back_to_interaction_channel():
+    panel_channel = _FakeChannel()
+    cog = AbsenceCog(SimpleNamespace())
+
+    async def configured_channel(_guild, _key):
+        return None
+
+    cog._configured_channel = configured_channel
+    interaction = SimpleNamespace(guild=SimpleNamespace(id=2), channel=panel_channel)
+
+    assert await cog._absence_channel(interaction) is panel_channel
+
+
+@pytest.mark.asyncio
 async def test_kick_abs_notifies_absence_channel_and_member_dm(monkeypatch):
     monkeypatch.setattr("cogs.absence.is_raid_organizer", lambda _interaction: True)
     public_channel = _FakeChannel()

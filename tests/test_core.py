@@ -36,7 +36,7 @@ def test_help_embed_lists_main_commands():
 
 @pytest.mark.asyncio
 async def test_help_denies_non_admin(monkeypatch):
-    monkeypatch.setattr("cogs.core.ADMIN_IDS", {42})
+    monkeypatch.setattr("cogs.core.is_bot_admin", lambda _interaction: False)
     cog = CoreCog(SimpleNamespace())
     interaction = SimpleNamespace(user=SimpleNamespace(id=10), response=_FakeResponse())
 
@@ -47,7 +47,7 @@ async def test_help_denies_non_admin(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_help_allows_admin(monkeypatch):
-    monkeypatch.setattr("cogs.core.ADMIN_IDS", {42})
+    monkeypatch.setattr("cogs.core.is_bot_admin", lambda _interaction: True)
     cog = CoreCog(SimpleNamespace())
     interaction = SimpleNamespace(user=SimpleNamespace(id=42), response=_FakeResponse())
 

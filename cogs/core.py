@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 
-from config import ADMIN_IDS
+from utils.perms import is_bot_admin
 
 
 def _help_embed() -> discord.Embed:
@@ -61,7 +61,7 @@ class CoreCog(commands.Cog):
 
     @discord.app_commands.command(name="help", description="Affiche l'aide du bot")
     async def help(self, interaction: discord.Interaction):
-        if interaction.user.id not in ADMIN_IDS:
+        if not is_bot_admin(interaction):
             await interaction.response.send_message("Permission refusee.", ephemeral=True)
             return
         await interaction.response.send_message(embed=_help_embed(), ephemeral=True)

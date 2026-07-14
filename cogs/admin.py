@@ -1,19 +1,17 @@
 import discord
 from discord.ext import commands
 
-from config import ADMIN_IDS, DISCORD_GUILD_ID
+from config import DISCORD_GUILD_ID
+from utils.perms import is_bot_admin
 
 
 class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def _is_admin(self, user_id: int) -> bool:
-        return user_id in ADMIN_IDS
-
     @discord.app_commands.command(name="sync", description="Resync des slash commands")
     async def sync(self, interaction: discord.Interaction):
-        if not self._is_admin(interaction.user.id):
+        if not is_bot_admin(interaction):
             await interaction.response.send_message("Permission refusee.", ephemeral=True)
             return
 
@@ -40,7 +38,7 @@ class AdminCog(commands.Cog):
     @discord.app_commands.command(name="reload", description="Reload un cog")
     @discord.app_commands.describe(cog="Nom du cog (ex: cogs.core)")
     async def reload(self, interaction: discord.Interaction, cog: str):
-        if not self._is_admin(interaction.user.id):
+        if not is_bot_admin(interaction):
             await interaction.response.send_message("Permission refusee.", ephemeral=True)
             return
 
