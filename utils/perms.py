@@ -25,8 +25,13 @@ def _has_administrator_permission(interaction: discord.Interaction) -> bool:
 
 
 def is_bot_admin(interaction: discord.Interaction) -> bool:
-    """Admin bot configuré OU Administrateur Discord sur la guilde."""
-    return interaction.user.id in ADMIN_IDS or _has_administrator_permission(interaction)
+    """Admin bot configuré, propriétaire guilde OU Administrateur Discord."""
+    guild = interaction.guild
+    return (
+        interaction.user.id in ADMIN_IDS
+        or (guild is not None and getattr(guild, "owner_id", None) == interaction.user.id)
+        or _has_administrator_permission(interaction)
+    )
 
 
 def is_raid_organizer(interaction: discord.Interaction) -> bool:

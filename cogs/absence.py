@@ -36,6 +36,10 @@ def _channel_label(channel: discord.abc.Messageable) -> str:
     return getattr(channel, "mention", None) or f"`{getattr(channel, 'id', 'salon')}`"
 
 
+def _is_messageable(channel: object) -> bool:
+    return isinstance(channel, discord.abc.Messageable) or callable(getattr(channel, "send", None))
+
+
 def _absence_embed(user: discord.abc.User, start: date, end: date) -> discord.Embed:
     embed = discord.Embed(title="Absence", color=0xF1C40F)
     embed.add_field(name="Pseudo", value=_user_display(user), inline=False)
@@ -193,15 +197,25 @@ class AbsenceCog(commands.Cog):
         self,
         interaction: discord.Interaction,
     ) -> Optional[discord.abc.Messageable]:
+        channels = await self._absence_channels(interaction)
+        return channels[0] if channels else None
+
+    async def _absence_channels(
+        self,
+        interaction: discord.Interaction,
+    ) -> list[discord.abc.Messageable]:
         if interaction.guild is None:
-            return None
+            return []
+        channels = []
         configured = await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_CHANNEL)
         if configured is not None:
-            return configured
+            channels.append(configured)
         channel = getattr(interaction, "channel", None)
-        if isinstance(channel, discord.abc.Messageable) or callable(getattr(channel, "send", None)):
-            return channel
-        return None
+        if _is_messageable(channel) and all(
+            getattr(existing, "id", None) != getattr(channel, "id", None) for existing in channels
+        ):
+            channels.append(channel)
+        return channels
 
     def _schedule_cleanup(self, absence_id: int, end: date) -> None:
         previous = self._cleanup_tasks.pop(absence_id, None)
@@ -269,8 +283,8 @@ class AbsenceCog(commands.Cog):
             )
             return
 
-        public_channel = await self._absence_channel(interaction)
-        if public_channel is None:
+        public_channels = await self._absence_channels(interaction)
+        if not public_channels:
             await interaction.response.send_message(
                 "Aucun salon absence disponible. Configure le salon absence avec `/setchannel`.",
                 ephemeral=True,
@@ -279,11 +293,37 @@ class AbsenceCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True, thinking=True)
 
+        public_channel = None
+        public_message = None
+        failed_channels = []
         try:
-            public_message = await public_channel.send(embed=_absence_embed(interaction.user, start, end))
+            embed = _absence_embed(interaction.user, start, end)
+            for candidate in public_channels:
+                try:
+                    public_message = await candidate.send(embed=embed)
+                    public_channel = candidate
+                    break
+                except discord.DiscordException as exc:
+                    failed_channels.append(_channel_label(candidate))
+                    logger.warning(
+                        "Publication absence échouée dans %s: %s",
+                        _channel_label(candidate),
+                        exc,
+                    )
+            if public_channel is None or public_message is None:
+                channels = ", ".join(failed_channels) if failed_channels else "le salon absence"
+                await interaction.followup.send(
+                    "Impossible de publier l'absence : le bot n'a pas la permission "
+                    f"d'écrire dans {channels}.",
+                    ephemeral=True,
+                )
+                return
         except discord.DiscordException as exc:
             logger.warning("Publication absence échouée: %s", exc)
-            await interaction.followup.send("Impossible de publier l'absence.", ephemeral=True)
+            await interaction.followup.send(
+                "Impossible de publier l'absence : vérifie les permissions du bot dans le salon absence.",
+                ephemeral=True,
+            )
             return
 
         admin_warning = ""

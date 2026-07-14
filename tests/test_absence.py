@@ -2,7 +2,9 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
+import discord
 
+import db
 from cogs.absence import AbsenceCog, _cleanup_when, _format_absence_period
 
 
@@ -52,12 +54,24 @@ class _FakeChannel:
         self.sent = []
 
     async def send(self, *, content=None, embed=None, view=None):
-        self.sent.append(SimpleNamespace(content=content, embed=embed, view=view))
+        message = SimpleNamespace(id=1000 + len(self.sent), channel=self, content=content, embed=embed, view=view)
+        self.sent.append(message)
+        return message
+
+
+class _FailingChannel(_FakeChannel):
+    id = 200
+    mention = "<#200>"
+
+    async def send(self, *, content=None, embed=None, view=None):
+        raise discord.DiscordException("missing permissions")
 
 
 class _FakeUser:
     def __init__(self, user_id):
         self.id = user_id
+        self.display_name = f"user-{user_id}"
+        self.name = self.display_name
         self.mention = f"<@{user_id}>"
         self.dms = []
 
@@ -77,6 +91,34 @@ async def test_absence_channel_falls_back_to_interaction_channel():
     interaction = SimpleNamespace(guild=SimpleNamespace(id=2), channel=panel_channel)
 
     assert await cog._absence_channel(interaction) is panel_channel
+
+
+@pytest.mark.asyncio
+async def test_submit_absence_tries_panel_channel_when_configured_channel_fails(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    configured_channel = _FailingChannel()
+    panel_channel = _FakeChannel()
+    cog = AbsenceCog(SimpleNamespace())
+    cog._schedule_cleanup = lambda _absence_id, _end: None
+
+    async def configured(_guild, key):
+        if key == db.SETTING_ABSENCE_CHANNEL:
+            return configured_channel
+        return None
+
+    cog._configured_channel = configured
+    interaction = SimpleNamespace(
+        user=_FakeUser(10),
+        guild=SimpleNamespace(id=2),
+        channel=panel_channel,
+        response=_FakeResponse(),
+        followup=_FakeFollowup(),
+    )
+
+    await cog.submit_absence(interaction, "28/08/2026", "28/08/2026", "")
+
+    assert len(panel_channel.sent) == 1
+    assert interaction.followup.messages[0] == ("Absence publiée dans <#100>.", {"ephemeral": True})
 
 
 @pytest.mark.asyncio
