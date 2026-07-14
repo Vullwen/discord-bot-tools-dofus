@@ -580,6 +580,13 @@ class RaidCog(commands.Cog):
         """(confirmés, liste d'attente) pour alimenter les embeds."""
         return db.count_confirmed(raid_id), db.count_waitlist(raid_id)
 
+    def _count_confirmed_level_group(self, raid_id: int, level_group: str) -> int:
+        return sum(
+            1
+            for _uid, status, participant_level in db.get_participants(raid_id)
+            if status == "confirmed" and participant_level == level_group
+        )
+
     def _reminder_user_ids(self, raid_id: int) -> list[int]:
         return [
             uid
@@ -650,7 +657,9 @@ class RaidCog(commands.Cog):
             return None
         if db.get_user_votes(raid_id, user_id, "hour"):
             return None
-        return self._low_level_full_message(raid, raid_id)
+        if raid_low_level_cap(raid["name"]) <= 0:
+            return self._low_level_full_message(raid, raid_id)
+        return None
 
     async def _refresh_hour_poll_message(self, raid) -> None:
         counts = db.get_vote_counts(raid["id"], "hour")
@@ -690,12 +699,27 @@ class RaidCog(commands.Cog):
             return existing
         if level_group == LEVEL_199_MINUS:
             low_level_cap = raid_low_level_cap(name)
-            if low_level_cap <= 0 or db.count_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
+            if low_level_cap <= 0:
                 return "low_level_full"
+            if self._count_confirmed_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
+                db.add_participant(raid_id, user_id, "waitlist", level_group)
+                return "waitlist"
         cap = raid_cap(name)
         status = "confirmed" if (cap is None or db.count_confirmed(raid_id) < cap) else "waitlist"
         db.add_participant(raid_id, user_id, status, level_group)
         return status
+
+    def _waitlist_message(self, raid, raid_id: int, level_group: str, position: Optional[int]) -> str:
+        if level_group == LEVEL_199_MINUS and raid_low_level_cap(raid["name"]) > 0:
+            if self._count_confirmed_level_group(raid_id, LEVEL_199_MINUS) >= raid_low_level_cap(raid["name"]):
+                return (
+                    f"⏳ Places 199- complètes : tu es en liste d'attente 199- (position {position}). "
+                    "Tu seras inscrit automatiquement si une place adaptée se libère."
+                )
+        return (
+            f"⏳ Raid complet : tu es en liste d'attente (position {position}). "
+            f"Tu seras inscrit automatiquement si une place se libère. ({_level_label(level_group)})"
+        )
 
     def _register_winning_hour_voters(self, raid_id: int, raid, winner_hour: str) -> tuple[int, int]:
         """Inscrit les votants du créneau gagnant. Retourne (confirmés, attente)."""
@@ -1104,7 +1128,7 @@ class RaidCog(commands.Cog):
                 return
             if level_group == LEVEL_199_MINUS:
                 blocked = self._low_level_full_message(raid, raid_id)
-                if blocked:
+                if blocked and raid_low_level_cap(raid["name"]) <= 0:
                     await interaction.response.edit_message(content=blocked, view=None)
                     return
             db.set_level_choice(raid_id, interaction.user.id, level_group)
@@ -1149,10 +1173,7 @@ class RaidCog(commands.Cog):
         if status == "waitlist":
             pos = db.waitlist_position(raid_id, interaction.user.id)
             await interaction.response.edit_message(
-                content=(
-                    f"⏳ Raid complet : tu es en liste d'attente (position {pos}). "
-                    f"Tu seras inscrit automatiquement si une place se libère. ({_level_label(level_group)})"
-                ),
+                content=self._waitlist_message(raid, raid_id, level_group, pos),
                 view=None,
             )
         else:
