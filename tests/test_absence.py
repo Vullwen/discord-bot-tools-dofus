@@ -85,9 +85,24 @@ class _FakeUser:
         self.name = self.display_name
         self.mention = f"<@{user_id}>"
         self.dms = []
+        self.role_edits = []
 
     async def send(self, *, content=None, embed=None, view=None):
         self.dms.append(SimpleNamespace(content=content, embed=embed, view=view))
+
+    async def edit(self, **kwargs):
+        self.role_edits.append(kwargs)
+
+
+def _fake_role(role_id: int, name: str):
+    return SimpleNamespace(id=role_id, name=name, mention=f"<@&{role_id}>")
+
+
+def _fake_guild(guild_id: int, *roles):
+    return SimpleNamespace(
+        id=guild_id,
+        get_role=lambda role_id: next((role for role in roles if role.id == role_id), None),
+    )
 
 
 @pytest.mark.asyncio
@@ -165,8 +180,11 @@ async def test_stop_abs_marks_member_absence_deleted(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_kick_abs_notifies_absence_channel_and_member_dm(monkeypatch):
+async def test_kick_abs_notifies_absence_channel_member_dm_and_resets_roles(tmp_path, monkeypatch):
     monkeypatch.setattr("cogs.absence.is_raid_organizer", lambda _interaction: True)
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    base_role = _fake_role(300, "Membre")
+    db.set_guild_setting(2, db.SETTING_BASE_ROLE, str(base_role.id))
     public_channel = _FakeChannel()
     cog = AbsenceCog(SimpleNamespace())
 
@@ -177,7 +195,7 @@ async def test_kick_abs_notifies_absence_channel_and_member_dm(monkeypatch):
     member = _FakeUser(20)
     interaction = SimpleNamespace(
         user=_FakeUser(10),
-        guild=SimpleNamespace(id=2),
+        guild=_fake_guild(2, base_role),
         response=_FakeResponse(),
         followup=_FakeFollowup(),
     )
@@ -190,6 +208,12 @@ async def test_kick_abs_notifies_absence_channel_and_member_dm(monkeypatch):
     )
     assert public_channel.sent[0].content == expected
     assert member.dms[0].content == expected
+    assert member.role_edits == [
+        {"roles": [base_role], "reason": "kick_abs : remise au rôle de base"}
+    ]
     assert interaction.response.deferred is True
     assert interaction.response.defer_kwargs == {"ephemeral": True, "thinking": True}
-    assert interaction.followup.messages[0] == ("Message envoyé dans <#100>.", {"ephemeral": True})
+    assert interaction.followup.messages[0] == (
+        "Message envoyé dans <#100>. Rôles retirés, rôle de base remis : <@&300>.",
+        {"ephemeral": True},
+    )

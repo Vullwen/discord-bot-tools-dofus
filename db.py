@@ -707,6 +707,8 @@ SETTING_ABSENCE_ADMIN_CHANNEL = "absence_admin_channel"
 SETTING_RAID_MANAGER_ROLE = "raid_manager_role"
 # Rôle Discord mentionné à l'annonce d'un nouveau raid (1er message). Vide = aucune mention.
 SETTING_RAID_NOTIFY_ROLE = "raid_notify_role"
+# Rôle de base remis après /kick_abs. Vide = aucun changement de rôles.
+SETTING_BASE_ROLE = "base_member_role"
 
 
 def set_guild_setting(guild_id: int, key: str, value: str) -> None:

@@ -67,6 +67,10 @@ def _kick_abs_message(user: discord.abc.User) -> str:
     )
 
 
+def _role_label(role: object) -> str:
+    return getattr(role, "mention", None) or getattr(role, "name", None) or f"`{getattr(role, 'id', 'rôle')}`"
+
+
 def _search_absences_embed(rows: list, title: str = "Absences") -> discord.Embed:
     embed = discord.Embed(title=title, color=0xF1C40F)
     if not rows:
@@ -344,6 +348,33 @@ class AbsenceCog(commands.Cog):
         end = dates_utils.parse_absence_date(end_raw, reference=start)
         return start, end
 
+    async def _reset_member_roles_to_base(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+    ) -> str:
+        base_role_id = db.get_guild_setting_int(guild.id, db.SETTING_BASE_ROLE)
+        if not base_role_id:
+            return " Rôles non modifiés : rôle de base non configuré."
+
+        base_role = guild.get_role(base_role_id)
+        if base_role is None:
+            return f" Rôles non modifiés : rôle de base `{base_role_id}` introuvable."
+
+        try:
+            await member.edit(
+                roles=[base_role],
+                reason="kick_abs : remise au rôle de base",
+            )
+        except discord.Forbidden:
+            logger.warning("Remise rôle base refusée pour %s", member.id)
+            return " Rôles non modifiés : permission Discord manquante."
+        except discord.DiscordException as exc:
+            logger.warning("Remise rôle base échouée pour %s: %s", member.id, exc)
+            return " Rôles non modifiés : erreur Discord."
+
+        return f" Rôles retirés, rôle de base remis : {_role_label(base_role)}."
+
     async def submit_absence(
         self,
         interaction: discord.Interaction,
@@ -575,6 +606,8 @@ class AbsenceCog(commands.Cog):
             await interaction.followup.send("Impossible de publier le message d'absence.", ephemeral=True)
             return
 
+        role_warning = await self._reset_member_roles_to_base(interaction.guild, user)
+
         dm_warning = ""
         try:
             await user.send(content=message)
@@ -583,7 +616,7 @@ class AbsenceCog(commands.Cog):
             dm_warning = " MP non envoyé : impossible de contacter la personne."
 
         await interaction.followup.send(
-            f"Message envoyé dans {_channel_label(public_channel)}.{dm_warning}",
+            f"Message envoyé dans {_channel_label(public_channel)}.{role_warning}{dm_warning}",
             ephemeral=True,
         )
 

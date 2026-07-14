@@ -160,6 +160,48 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="setbaserole",
+        description="Définit le rôle remis après /kick_abs",
+    )
+    @app_commands.describe(
+        role="ID, mention ou nom exact du rôle (vide = désactive le changement de rôles)",
+    )
+    async def setbaserole(
+        self,
+        interaction: discord.Interaction,
+        role: Optional[str] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        if role is None:
+            db.set_guild_setting(interaction.guild.id, db.SETTING_BASE_ROLE, "")
+            await interaction.response.send_message(
+                "✅ Rôle de base désactivé. `/kick_abs` ne modifiera plus les rôles.",
+                ephemeral=True,
+            )
+            return
+
+        resolved = _resolve_role(interaction.guild, role)
+        if resolved is None:
+            await interaction.response.send_message(
+                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
+                ephemeral=True,
+            )
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_BASE_ROLE, str(resolved.id))
+        await interaction.response.send_message(
+            f"✅ Rôle de base défini : {resolved.mention}. `/kick_abs` retirera les autres rôles "
+            "et remettra celui-ci.",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="showconfig", description="Affiche la configuration des raids de ce serveur")
     async def showconfig(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None:
@@ -205,7 +247,12 @@ class SettingsCog(commands.Cog):
             value=_role_mention(db.SETTING_RAID_NOTIFY_ROLE, "*(non défini — pas de mention)*"),
             inline=False,
         )
-        embed.set_footer(text="Configure avec /setchannel, /setraidrole et /setraidnotifyrole")
+        embed.add_field(
+            name="Rôle de base",
+            value=_role_mention(db.SETTING_BASE_ROLE, "*(non défini — /kick_abs ne modifie pas les rôles)*"),
+            inline=False,
+        )
+        embed.set_footer(text="Configure avec /setchannel, /setraidrole, /setraidnotifyrole et /setbaserole")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

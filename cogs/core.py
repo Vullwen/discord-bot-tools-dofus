@@ -43,6 +43,7 @@ def _help_embed() -> discord.Embed:
             "`/setchannel` : configure les salons\n"
             "`/setraidrole` : configure le rôle organisateur\n"
             "`/setraidnotifyrole` : configure le rôle de notification\n"
+            "`/setbaserole` : configure le rôle remis avec `/kick_abs`\n"
             "`/showconfig` : affiche la configuration"
         ),
         inline=False,

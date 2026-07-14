@@ -29,6 +29,7 @@ def test_help_embed_lists_main_commands():
         "/search_abs",
         "/kick_abs",
         "/setchannel",
+        "/setbaserole",
         "/showconfig",
     ):
         assert command in text

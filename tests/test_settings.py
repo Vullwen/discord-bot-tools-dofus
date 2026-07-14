@@ -39,3 +39,7 @@ def test_resolve_role_rejects_unknown_or_ambiguous_name():
 
 def test_channel_labels_include_raid_admin_channel():
     assert _CHANNEL_LABEL[db.SETTING_RAID_ADMIN_CHANNEL] == "Salon admin raids"
+
+
+def test_base_role_setting_exists():
+    assert db.SETTING_BASE_ROLE == "base_member_role"
