@@ -23,11 +23,8 @@ logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO), handlers=[_
 logger = logging.getLogger("beb-raid")
 
 intents = discord.Intents.default()
-# Requis pour détecter automatiquement les screenshots postés dans les salons
-# privés de vérification Dofus.
-intents.message_content = True
-# Pas de Server Members Intent requis : on utilise interaction.user et fetch_member/fetch_user
-# en fallback.
+# Pas d'intent privilégié requis : on utilise interaction.user et fetch_member/fetch_user
+# en fallback, le bot démarre même si SERVER MEMBERS INTENT n'est pas activé.
 
 
 def _no_prefix(_bot, _message):
@@ -45,7 +42,6 @@ COGS = [
     "cogs.settings",
     "cogs.raid",
     "cogs.ticket",
-    "cogs.verification",
     "cogs.absence",
 ]
 

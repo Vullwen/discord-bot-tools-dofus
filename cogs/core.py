@@ -39,25 +39,12 @@ def _help_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="Vérification Dofus",
-        value=(
-            "`/link` : ouvre un salon privé pour vérifier un personnage\n"
-            "`/mychars` : liste tes personnages vérifiés\n"
-            "`/chars` : liste les personnages vérifiés d'un membre\n"
-            "`/find` : retrouve le Discord lié à un personnage"
-        ),
-        inline=False,
-    )
-    embed.add_field(
         name="Configuration",
         value=(
             "`/setchannel` : configure les salons\n"
             "`/setraidrole` : configure le rôle organisateur\n"
             "`/setraidnotifyrole` : configure le rôle de notification\n"
             "`/setbaserole` : configure le rôle remis avec `/absence kick`\n"
-            "`/setmemberrole` : configure le rôle donné après `/link`\n"
-            "`/setunverifiedrole` : configure le rôle retiré après `/link`\n"
-            "`/setdofusconfig` : configure guilde/serveur Dofus pour `/link`\n"
             "`/showconfig` : affiche la configuration"
         ),
         inline=False,
