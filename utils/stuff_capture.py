@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from io import BytesIO
+
+from PIL import Image
 
 
-VIEWPORT = {"width": 1480, "height": 720}
+VIEWPORT = {"width": 1540, "height": 830}
+CAPTURE_CLIP = {"x": 70, "y": 132, "width": 1470, "height": 690}
+TOP_PADDING = 12
+CAPTURE_BACKGROUND = "#241f1b"
 
 BLOCKED_MARKERS = (
     "Attention Required",
@@ -63,8 +69,8 @@ async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
                 if any(marker in title or marker in body_text for marker in BLOCKED_MARKERS):
                     return None, "Dofusbook a bloque la capture automatique."
 
-                image = await page.screenshot(type="png", full_page=False)
-                return image, None
+                image = await page.screenshot(type="png", clip=CAPTURE_CLIP)
+                return _add_top_padding(image), None
             finally:
                 await browser.close()
     except Exception as exc:
@@ -83,3 +89,17 @@ async def _dismiss_consent_dialog(page) -> None:
             return
         except Exception:
             continue
+
+
+def _add_top_padding(image: bytes) -> bytes:
+    with Image.open(BytesIO(image)) as screenshot:
+        screenshot = screenshot.convert("RGB")
+        canvas = Image.new("RGB", screenshot.size, CAPTURE_BACKGROUND)
+        visible = screenshot.crop(
+            (0, 0, screenshot.width, screenshot.height - TOP_PADDING)
+        )
+        canvas.paste(visible, (0, TOP_PADDING))
+
+        output = BytesIO()
+        canvas.save(output, format="PNG")
+        return output.getvalue()
