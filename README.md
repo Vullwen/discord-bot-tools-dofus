@@ -84,6 +84,17 @@ Tickets :
 - Le créateur du ticket et les organisateurs peuvent ajouter des membres ou fermer
   le salon.
 
+Vérification Dofus :
+
+- `/link personnage [serveur]` — crée un salon privé avec le membre, le bot et les
+  organisateurs. Le bot donne un code à recopier en chat guilde après `/whoami`
+  et `/time`, puis analyse le screenshot par OCR.
+- `/mychars` — liste tes personnages Dofus vérifiés.
+- `/findchar personnage` — retrouve le Discord lié à un personnage.
+- Si l'OCR reconnaît le code, le pseudo, le serveur, la guilde et le message en
+  chat guilde, le bot valide automatiquement. Sinon les organisateurs ont des
+  boutons **Valider** / **Refuser** dans le salon privé.
+
 Configuration (organisateur) :
 
 - `/setchannel` — salons des raids, de l'admin raids, des absences et des motifs admin.
@@ -91,6 +102,8 @@ Configuration (organisateur) :
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
   ou nom exact (vide = pas de mention).
+- `/setmemberrole` — rôle donné automatiquement après une vérification Dofus réussie.
+- `/setdofusconfig` — nom de guilde et serveur attendus dans les screenshots `/link`.
 - `/showconfig` — affiche la config du serveur.
 
 ## Rôles
@@ -123,8 +136,17 @@ Voir `.env.example` pour la liste complète. Les principales :
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
 - `REMINDER_DELETE_HOURS` — délai de suppression des messages de rappel/raid
   après publication ou heure prévue (2 par défaut).
+- `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour `/link`
+  (`Bagarres et Belettes` par défaut, surchargeable par `/setdofusconfig`).
+- `DOFUS_SERVER` — serveur Dofus par défaut (`Dakal` par défaut, surchargeable par
+  `/setdofusconfig`).
+- `VERIFICATION_CODE_PREFIX` — préfixe des codes de vérification (`BEB` par défaut).
+- `VERIFICATION_EXPIRES_MINUTES` — durée de validité d'un code `/link` (15 par défaut).
 - `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/setchannel`).
 - `DB_PATH` — chemin SQLite (par défaut `/app/data/beb_raid.db` en Docker).
+
+La lecture automatique des screenshots nécessite l'intent Discord **Message
+Content** activé pour le bot dans le Developer Portal.
 
 ## Lancement
 

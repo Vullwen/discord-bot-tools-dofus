@@ -88,6 +88,17 @@ except ValueError:
 if REMINDER_DELETE_HOURS < 0:
     REMINDER_DELETE_HOURS = 2
 
+# Vérification Dofus par OCR.
+DOFUS_GUILD_NAME = os.getenv("DOFUS_GUILD_NAME", "Bagarres et Belettes").strip()
+DOFUS_SERVER = os.getenv("DOFUS_SERVER", "Dakal").strip()
+VERIFICATION_CODE_PREFIX = os.getenv("VERIFICATION_CODE_PREFIX", "BEB").strip().upper() or "BEB"
+try:
+    VERIFICATION_EXPIRES_MINUTES = int(os.getenv("VERIFICATION_EXPIRES_MINUTES", "15"))
+except ValueError:
+    VERIFICATION_EXPIRES_MINUTES = 15
+if VERIFICATION_EXPIRES_MINUTES < 1:
+    VERIFICATION_EXPIRES_MINUTES = 15
+
 # Noms de raids possibles (séparés par des virgules).
 RAID_NAMES = [
     name.strip()

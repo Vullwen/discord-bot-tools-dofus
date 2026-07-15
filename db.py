@@ -102,6 +102,35 @@ def init(db_path: str = DB_PATH) -> None:
             created_at    TEXT NOT NULL,
             PRIMARY KEY (guild_id, user_id)
         );
+
+        CREATE TABLE IF NOT EXISTS verification_requests (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id        INTEGER NOT NULL,
+            discord_id      INTEGER NOT NULL,
+            channel_id      INTEGER NOT NULL UNIQUE,
+            character_name  TEXT NOT NULL,
+            server          TEXT NOT NULL,
+            code            TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            expires_at      TEXT NOT NULL,
+            ocr_text        TEXT,
+            reviewed_by     INTEGER,
+            verified_at     TEXT,
+            created_at      TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS dofus_characters (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id        INTEGER NOT NULL,
+            discord_id      INTEGER NOT NULL,
+            character_name  TEXT NOT NULL,
+            server          TEXT NOT NULL,
+            is_main         INTEGER NOT NULL DEFAULT 0,
+            active          INTEGER NOT NULL DEFAULT 1,
+            verified_at     TEXT NOT NULL,
+            verified_by     INTEGER,
+            UNIQUE (guild_id, server, character_name)
+        );
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
@@ -574,6 +603,157 @@ def clear_raid_ban(*, guild_id: int, user_id: int) -> None:
     _db().commit()
 
 
+# --------------------------------------------------------------- vérifications
+
+
+def create_verification_request(
+    *,
+    guild_id: int,
+    discord_id: int,
+    channel_id: int,
+    character_name: str,
+    server: str,
+    code: str,
+    expires_at: datetime,
+) -> int:
+    cur = _db().execute(
+        """
+        INSERT INTO verification_requests
+            (guild_id, discord_id, channel_id, character_name, server, code,
+             status, expires_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        """,
+        (
+            guild_id,
+            discord_id,
+            channel_id,
+            character_name,
+            server,
+            code,
+            expires_at.isoformat(),
+            _now_iso(),
+        ),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_verification_request(request_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM verification_requests WHERE id = ?", (request_id,)
+    ).fetchone()
+
+
+def get_verification_by_channel(channel_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM verification_requests WHERE channel_id = ?", (channel_id,)
+    ).fetchone()
+
+
+def get_pending_verification_for_user(
+    *,
+    guild_id: int,
+    discord_id: int,
+    now: Optional[datetime] = None,
+) -> Optional[sqlite3.Row]:
+    now_iso = (now.isoformat() if now is not None else _now_iso())
+    return _db().execute(
+        """
+        SELECT * FROM verification_requests
+        WHERE guild_id = ?
+          AND discord_id = ?
+          AND status IN ('pending', 'needs_review')
+          AND expires_at > ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (guild_id, discord_id, now_iso),
+    ).fetchone()
+
+
+def update_verification_request(request_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    serialized = {}
+    for key, value in fields.items():
+        if isinstance(value, datetime):
+            serialized[key] = value.isoformat()
+        else:
+            serialized[key] = value
+    assignments = ", ".join(f"{col} = ?" for col in serialized)
+    _db().execute(
+        f"UPDATE verification_requests SET {assignments} WHERE id = ?",
+        (*serialized.values(), request_id),
+    )
+    _db().commit()
+
+
+def save_verified_character(
+    *,
+    guild_id: int,
+    discord_id: int,
+    character_name: str,
+    server: str,
+    verified_by: Optional[int],
+    is_main: bool = False,
+) -> int:
+    conn = _db()
+    if is_main:
+        conn.execute(
+            "UPDATE dofus_characters SET is_main = 0 WHERE guild_id = ? AND discord_id = ?",
+            (guild_id, discord_id),
+        )
+    cur = conn.execute(
+        """
+        INSERT INTO dofus_characters
+            (guild_id, discord_id, character_name, server, is_main, active, verified_at, verified_by)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(guild_id, server, character_name) DO UPDATE SET
+            discord_id = excluded.discord_id,
+            is_main = excluded.is_main,
+            active = 1,
+            verified_at = excluded.verified_at,
+            verified_by = excluded.verified_by
+        """,
+        (
+            guild_id,
+            discord_id,
+            character_name,
+            server,
+            1 if is_main else 0,
+            _now_iso(),
+            verified_by,
+        ),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_user_characters(*, guild_id: int, discord_id: int) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM dofus_characters
+        WHERE guild_id = ? AND discord_id = ? AND active = 1
+        ORDER BY is_main DESC, character_name COLLATE NOCASE ASC
+        """,
+        (guild_id, discord_id),
+    ).fetchall()
+    return list(rows)
+
+
+def find_character(*, guild_id: int, character_name: str) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        """
+        SELECT * FROM dofus_characters
+        WHERE guild_id = ?
+          AND active = 1
+          AND lower(character_name) = lower(?)
+        LIMIT 1
+        """,
+        (guild_id, character_name),
+    ).fetchone()
+
+
 # --------------------------------------------------------------------------- tickets
 
 
@@ -709,6 +889,12 @@ SETTING_RAID_MANAGER_ROLE = "raid_manager_role"
 SETTING_RAID_NOTIFY_ROLE = "raid_notify_role"
 # Rôle de base remis après /absence kick. Vide = aucun changement de rôles.
 SETTING_BASE_ROLE = "base_member_role"
+# Rôle remis après vérification Dofus réussie. Vide = aucun rôle automatique.
+SETTING_VERIFIED_MEMBER_ROLE = "verified_member_role"
+# Nom de guilde Dofus attendu dans le /whoami OCR.
+SETTING_DOFUS_GUILD_NAME = "dofus_guild_name"
+# Serveur Dofus attendu par défaut pour /link.
+SETTING_DOFUS_SERVER = "dofus_server"
 
 
 def set_guild_setting(guild_id: int, key: str, value: str) -> None:
