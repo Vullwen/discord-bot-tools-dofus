@@ -1,6 +1,7 @@
 """Menus de rôles configurables par boutons et menus select."""
 from __future__ import annotations
 
+import io
 import json
 import logging
 import math
@@ -112,6 +113,10 @@ def _build_embed(menu: Any) -> discord.Embed:
     if menu["thumbnail_url"]:
         embed.set_thumbnail(url=menu["thumbnail_url"])
     return embed
+
+
+def _role_id_text(role_id: Optional[int]) -> Optional[str]:
+    return str(role_id) if role_id else None
 
 
 class _RoleButton(discord.ui.Button):
@@ -284,6 +289,60 @@ class RoleMenuCog(commands.Cog):
         buttons = len([c for c in components if c["component_type"] == "button"]) + extra_button
         selects = len([c for c in components if c["component_type"] == "select"]) + extra_select
         return selects + math.ceil(buttons / 5)
+
+    def _export_payload(self, menu: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "embed": {
+                "title": menu["title"],
+                "description": menu["description"] or "",
+                "color": f"#{(menu['color'] if menu['color'] is not None else DEFAULT_COLOR):06x}",
+            },
+            "components": [],
+        }
+        if menu["footer"]:
+            payload["embed"]["footer"] = menu["footer"]
+        if menu["image_url"]:
+            payload["embed"]["image"] = menu["image_url"]
+        if menu["thumbnail_url"]:
+            payload["embed"]["thumbnail"] = menu["thumbnail_url"]
+
+        for component in db.list_role_menu_components(menu["id"]):
+            if component["component_type"] == "button":
+                item = {
+                    "type": "button",
+                    "role": _role_id_text(component["role_id"]),
+                    "label": component["label"],
+                    "style": component["style"] or "secondary",
+                }
+                if component["emoji"]:
+                    item["emoji"] = component["emoji"]
+                if component["exclusive"]:
+                    item["exclusive"] = True
+                payload["components"].append(item)
+                continue
+
+            item = {
+                "type": "select",
+                "placeholder": component["placeholder"] or "Choisis tes rôles",
+                "min": component["min_values"],
+                "max": component["max_values"],
+                "options": [],
+            }
+            if component["exclusive"]:
+                item["exclusive"] = True
+            for option in db.list_role_menu_options(component["id"]):
+                option_item = {
+                    "role": str(option["role_id"]),
+                    "label": option["label"],
+                }
+                if option["description"]:
+                    option_item["description"] = option["description"]
+                if option["emoji"]:
+                    option_item["emoji"] = option["emoji"]
+                item["options"].append(option_item)
+            payload["components"].append(item)
+
+        return payload
 
     async def _send_result(
         self,
@@ -887,6 +946,25 @@ class RoleMenuCog(commands.Cog):
         if len(text) > 1900:
             text = text[:1890] + "\n…"
         await interaction.response.send_message(text, ephemeral=True)
+
+    @rolemenu.command(name="export", description="Exporte un menu en JSON réimportable")
+    @app_commands.describe(menu_id="ID du menu à exporter")
+    async def export(self, interaction: discord.Interaction, menu_id: int) -> None:
+        menu = await self._get_menu_for_admin(interaction, menu_id)
+        if menu is None:
+            return
+
+        payload = self._export_payload(menu)
+        content = json.dumps(payload, ensure_ascii=False, indent=2)
+        file = discord.File(
+            io.BytesIO(content.encode("utf-8")),
+            filename=f"rolemenu-{menu_id}.json",
+        )
+        await interaction.response.send_message(
+            f"✅ Export du menu **#{menu_id}**. Le fichier est compatible avec `/rolemenu import_config`.",
+            file=file,
+            ephemeral=True,
+        )
 
     @rolemenu.command(name="import_config", description="Crée un menu complet depuis une configuration JSON")
     @app_commands.describe(
