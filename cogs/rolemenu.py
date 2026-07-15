@@ -1027,6 +1027,74 @@ class RoleMenuCog(commands.Cog):
             ephemeral=True,
         )
 
+    @rolemenu.command(name="copy", description="Copie un menu de rôles dans un autre salon")
+    @app_commands.describe(
+        menu_id="ID du menu à copier",
+        channel="Salon où poster la copie",
+    )
+    async def copy(
+        self,
+        interaction: discord.Interaction,
+        menu_id: int,
+        channel: discord.TextChannel,
+    ) -> None:
+        source_menu = await self._get_menu_for_admin(interaction, menu_id)
+        if source_menu is None or interaction.guild is None:
+            return
+        if channel.guild.id != interaction.guild.id:
+            await interaction.response.send_message(
+                "Le salon de destination doit être sur le même serveur.",
+                ephemeral=True,
+            )
+            return
+
+        new_menu_id = db.create_role_menu(
+            guild_id=interaction.guild.id,
+            channel_id=channel.id,
+            title=source_menu["title"],
+            description=source_menu["description"],
+            color=source_menu["color"],
+            footer=source_menu["footer"],
+            image_url=source_menu["image_url"],
+            thumbnail_url=source_menu["thumbnail_url"],
+            created_by=interaction.user.id,
+        )
+
+        component_count = 0
+        option_count = 0
+        for component in db.list_role_menu_components(source_menu["id"]):
+            new_component_id = db.add_role_menu_component(
+                menu_id=new_menu_id,
+                component_type=component["component_type"],
+                label=component["label"],
+                placeholder=component["placeholder"],
+                min_values=component["min_values"],
+                max_values=component["max_values"],
+                exclusive=bool(component["exclusive"]),
+                style=component["style"],
+                emoji=component["emoji"],
+                role_id=component["role_id"],
+            )
+            component_count += 1
+            for option in db.list_role_menu_options(component["id"]):
+                db.add_role_menu_option(
+                    component_id=new_component_id,
+                    role_id=option["role_id"],
+                    label=option["label"],
+                    description=option["description"],
+                    emoji=option["emoji"],
+                )
+                option_count += 1
+
+        new_menu = db.get_role_menu(new_menu_id)
+        message = await channel.send(embed=_build_embed(new_menu), view=self._view_or_none(new_menu))
+        db.update_role_menu(new_menu_id, message_id=message.id)
+        await interaction.response.send_message(
+            f"✅ Menu **#{menu_id}** copié vers {channel.mention} sous l'ID **#{new_menu_id}** "
+            f"({component_count} composant(s), {option_count} option(s)).",
+            ephemeral=True,
+        )
+
     @rolemenu.command(name="import_config", description="Crée un menu complet depuis une configuration JSON")
     @app_commands.describe(
         channel="Salon où poster le menu",
