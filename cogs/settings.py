@@ -14,7 +14,7 @@ from discord.ext import commands
 
 import db
 from config import DOFUS_GUILD_NAME, DOFUS_SERVER
-from utils.perms import is_raid_organizer
+from utils.perms import is_bot_admin, is_raid_organizer
 
 _CHANNEL_LABEL = {
     db.SETTING_RAIDS_CHANNEL: "Salon des raids",
@@ -117,6 +117,49 @@ class SettingsCog(commands.Cog):
         await interaction.response.send_message(
             f"✅ Rôle organisateur défini : {resolved.mention}. Ses détenteurs peuvent "
             f"créer/gérer les raids.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="setbotadminrole",
+        description="Définit le rôle qui donne les droits admin du bot",
+    )
+    @app_commands.describe(
+        role="ID, mention ou nom exact du rôle (vide = désactive ce rôle admin bot)",
+    )
+    async def setbotadminrole(
+        self,
+        interaction: discord.Interaction,
+        role: Optional[str] = None,
+    ) -> None:
+        if not is_bot_admin(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        if role is None:
+            db.set_guild_setting(interaction.guild.id, db.SETTING_BOT_ADMIN_ROLE, "")
+            await interaction.response.send_message(
+                "✅ Rôle admin bot retiré. Les admins restent ceux de `ADMIN_IDS`, le propriétaire "
+                "du serveur et les membres avec la permission Administrateur.",
+                ephemeral=True,
+            )
+            return
+
+        resolved = _resolve_role(interaction.guild, role)
+        if resolved is None:
+            await interaction.response.send_message(
+                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
+                ephemeral=True,
+            )
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_BOT_ADMIN_ROLE, str(resolved.id))
+        await interaction.response.send_message(
+            f"✅ Rôle admin bot défini : {resolved.mention}. Ses détenteurs peuvent gérer "
+            "la configuration admin du bot.",
             ephemeral=True,
         )
 
@@ -352,6 +395,11 @@ class SettingsCog(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="Rôle admin bot",
+            value=_role_mention(db.SETTING_BOT_ADMIN_ROLE, "*(non défini — ADMIN_IDS/propriétaire/Administrateur)*"),
+            inline=False,
+        )
+        embed.add_field(
             name="Rôle organisateur",
             value=_role_mention(db.SETTING_RAID_MANAGER_ROLE, "*(non défini — permission Administrateur)*"),
             inline=False,
@@ -385,7 +433,7 @@ class SettingsCog(commands.Cog):
             inline=False,
         )
         embed.set_footer(
-            text="Configure avec /setchannel, /setraidrole, /setraidnotifyrole, /setbaserole, /setmemberrole, /setunverifiedrole et /setdofusconfig"
+            text="Configure avec /setchannel, /setbotadminrole, /setraidrole, /setraidnotifyrole, /setbaserole, /setmemberrole, /setunverifiedrole et /setdofusconfig"
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

@@ -1127,6 +1127,8 @@ SETTING_ABSENCE_PANEL_CHANNEL = "absence_panel_channel"
 SETTING_ABSENCE_CHANNEL = "absence_channel"
 # Salon admin où sont envoyés les motifs d'absence.
 SETTING_ABSENCE_ADMIN_CHANNEL = "absence_admin_channel"
+# Rôle Discord qui donne les droits admin bot. Vide = ADMIN_IDS/proprio/admin Discord.
+SETTING_BOT_ADMIN_ROLE = "bot_admin_role"
 # Rôle Discord autorisé à créer/gérer les raids (et tickets). Vide = admins seulement.
 SETTING_RAID_MANAGER_ROLE = "raid_manager_role"
 # Rôle Discord mentionné à l'annonce d'un nouveau raid (1er message). Vide = aucune mention.

@@ -1,9 +1,8 @@
 """Permissions pour la création/gestion des raids et tickets.
 
-Un « organisateur » est soit un admin bot (ADMIN_IDS, en dur dans le .env),
-soit le détenteur du rôle configuré par guilde (db.SETTING_RAID_MANAGER_ROLE).
-Si aucun rôle n'est configuré, les membres ayant la permission Discord
-Administrateur sont aussi organisateurs.
+Un « organisateur » est soit un admin bot (ADMIN_IDS, propriétaire guilde,
+Administrateur Discord ou rôle admin bot configuré), soit le détenteur du rôle
+configuré par guilde (db.SETTING_RAID_MANAGER_ROLE).
 
 Les helpers sont synchrones : la persistance est synchrone (sqlite3) et, pour
 les interactions en guilde, Discord fournit déjà interaction.user (un Member)
@@ -27,11 +26,21 @@ def _has_administrator_permission(interaction: discord.Interaction) -> bool:
 def is_bot_admin(interaction: discord.Interaction) -> bool:
     """Admin bot configuré, propriétaire guilde OU Administrateur Discord."""
     guild = interaction.guild
-    return (
+    if (
         interaction.user.id in ADMIN_IDS
         or (guild is not None and getattr(guild, "owner_id", None) == interaction.user.id)
         or _has_administrator_permission(interaction)
-    )
+    ):
+        return True
+    if guild is None:
+        return False
+    role_id = db.get_guild_setting_int(guild.id, db.SETTING_BOT_ADMIN_ROLE)
+    if not role_id:
+        return False
+    roles = getattr(interaction.user, "roles", None)
+    if not roles:
+        return False
+    return any(getattr(role, "id", None) == role_id for role in roles)
 
 
 def is_raid_organizer(interaction: discord.Interaction) -> bool:

@@ -35,6 +35,24 @@ def _fresh(tmp_path, monkeypatch):
 # ------------------------------------------------------------------ is_raid_organizer
 
 
+def test_member_with_configured_bot_admin_role_is_bot_admin(tmp_path, monkeypatch):
+    _fresh(tmp_path, monkeypatch)
+    db.set_guild_setting(1, db.SETTING_BOT_ADMIN_ROLE, "500")
+    assert perms.is_bot_admin(_interaction(42, guild_id=1, role_ids=(500,))) is True
+
+
+def test_bot_admin_role_is_per_guild(tmp_path, monkeypatch):
+    _fresh(tmp_path, monkeypatch)
+    db.set_guild_setting(1, db.SETTING_BOT_ADMIN_ROLE, "500")
+    assert perms.is_bot_admin(_interaction(42, guild_id=2, role_ids=(500,))) is False
+
+
+def test_bot_admin_role_makes_member_organizer(tmp_path, monkeypatch):
+    _fresh(tmp_path, monkeypatch)
+    db.set_guild_setting(1, db.SETTING_BOT_ADMIN_ROLE, "500")
+    assert perms.is_raid_organizer(_interaction(42, guild_id=1, role_ids=(500,))) is True
+
+
 def test_admin_always_organizer(tmp_path, monkeypatch):
     _fresh(tmp_path, monkeypatch)
     monkeypatch.setattr(perms, "ADMIN_IDS", {42})

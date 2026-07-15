@@ -45,5 +45,9 @@ def test_base_role_setting_exists():
     assert db.SETTING_BASE_ROLE == "base_member_role"
 
 
+def test_bot_admin_role_setting_exists():
+    assert db.SETTING_BOT_ADMIN_ROLE == "bot_admin_role"
+
+
 def test_unverified_role_setting_exists():
     assert db.SETTING_UNVERIFIED_MEMBER_ROLE == "unverified_member_role"

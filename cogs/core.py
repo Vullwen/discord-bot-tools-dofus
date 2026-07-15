@@ -51,6 +51,7 @@ def _help_embed() -> discord.Embed:
         name="Configuration",
         value=(
             "`/setchannel` : configure les salons\n"
+            "`/setbotadminrole` : configure le rôle admin bot\n"
             "`/setraidrole` : configure le rôle organisateur\n"
             "`/setraidnotifyrole` : configure le rôle de notification\n"
             "`/setbaserole` : configure le rôle remis avec `/absence kick`\n"
