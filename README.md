@@ -86,8 +86,19 @@ Tickets :
 
 Vérification Dofus :
 
-- Le module de vérification Discord ↔ Dofus est désactivé pour le moment. Les
-  commandes associées ne sont pas chargées par le bot.
+- `/link personnage` — crée un salon privé avec le membre, le bot et les
+  organisateurs. Le bot donne un code à recopier en chat guilde après `/whoami`
+  et `/time`, puis analyse le screenshot.
+- `/unlink` — supprime tes liens Dofus, retire le rôle membre vérifié, remet le
+  rôle à vérifier si configuré, et réinitialise ton surnom serveur.
+- `/mychars` — liste tes personnages Dofus vérifiés.
+- `/chars membre` — liste les personnages Dofus vérifiés d'un compte Discord.
+- `/find personnage` — retrouve le Discord lié à un personnage.
+- Si l'analyse reconnaît le code, le pseudo, le serveur, la guilde et le message en
+  chat guilde, le bot valide automatiquement. Sinon les organisateurs ont des
+  boutons **Valider** / **Refuser** dans le salon privé.
+- Après validation, le bot ajoute le rôle membre vérifié, retire le rôle à vérifier
+  si configuré, et renomme le membre Discord avec le pseudo de son personnage main.
 
 Configuration (organisateur) :
 
@@ -96,6 +107,9 @@ Configuration (organisateur) :
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
   ou nom exact (vide = pas de mention).
+- `/setmemberrole` — rôle donné automatiquement après une vérification Dofus réussie.
+- `/setunverifiedrole` — rôle "à vérifier" retiré automatiquement après une vérification réussie.
+- `/setdofusconfig` — nom de guilde et serveur attendus dans les screenshots `/link`.
 - `/showconfig` — affiche la config du serveur.
 
 ## Rôles
@@ -128,8 +142,17 @@ Voir `.env.example` pour la liste complète. Les principales :
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
 - `REMINDER_DELETE_HOURS` — délai de suppression des messages de rappel/raid
   après publication ou heure prévue (2 par défaut).
+- `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour `/link`
+  (`Bagarres et Belettes` par défaut, surchargeable par `/setdofusconfig`).
+- `DOFUS_SERVER` — serveur Dofus par défaut (`Dakal` par défaut, surchargeable par
+  `/setdofusconfig`).
+- `VERIFICATION_CODE_PREFIX` — préfixe des codes de vérification (`BEB` par défaut).
+- `VERIFICATION_EXPIRES_MINUTES` — durée de validité d'un code `/link` (15 par défaut).
 - `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/setchannel`).
 - `DB_PATH` — chemin SQLite (par défaut `/app/data/beb_raid.db` en Docker).
+
+La lecture automatique des screenshots nécessite l'intent Discord **Message
+Content** activé pour le bot dans le Developer Portal.
 
 ## Lancement
 

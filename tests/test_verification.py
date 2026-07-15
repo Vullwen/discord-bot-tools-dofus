@@ -99,3 +99,7 @@ def test_verification_request_and_character_storage(tmp_path):
     chars = db.list_user_characters(guild_id=2, discord_id=10)
     assert [(row["character_name"], row["is_main"]) for row in chars] == [("Vullwan", 1)]
     assert db.find_character(guild_id=2, character_name="vullwan")["discord_id"] == 10
+
+    assert db.delete_user_characters(guild_id=2, discord_id=10) == 1
+    assert db.list_user_characters(guild_id=2, discord_id=10) == []
+    assert db.find_character(guild_id=2, character_name="Vullwan") is None

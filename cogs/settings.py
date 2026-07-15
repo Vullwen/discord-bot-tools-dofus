@@ -13,6 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from config import DOFUS_GUILD_NAME, DOFUS_SERVER
 from utils.perms import is_raid_organizer
 
 _CHANNEL_LABEL = {
@@ -202,6 +203,115 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="setmemberrole",
+        description="Définit le rôle donné après vérification Dofus",
+    )
+    @app_commands.describe(
+        role="ID, mention ou nom exact du rôle (vide = désactive l'attribution automatique)",
+    )
+    async def setmemberrole(
+        self,
+        interaction: discord.Interaction,
+        role: Optional[str] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        if role is None:
+            db.set_guild_setting(interaction.guild.id, db.SETTING_VERIFIED_MEMBER_ROLE, "")
+            await interaction.response.send_message(
+                "✅ Rôle membre vérifié désactivé. `/link` validera les persos sans donner de rôle.",
+                ephemeral=True,
+            )
+            return
+
+        resolved = _resolve_role(interaction.guild, role)
+        if resolved is None:
+            await interaction.response.send_message(
+                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
+                ephemeral=True,
+            )
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_VERIFIED_MEMBER_ROLE, str(resolved.id))
+        await interaction.response.send_message(
+            f"✅ Rôle membre vérifié défini : {resolved.mention}. Il sera donné après `/link` validé.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="setunverifiedrole",
+        description="Définit le rôle retiré après vérification Dofus",
+    )
+    @app_commands.describe(
+        role="ID, mention ou nom exact du rôle à vérifier (vide = désactive le retrait automatique)",
+    )
+    async def setunverifiedrole(
+        self,
+        interaction: discord.Interaction,
+        role: Optional[str] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        if role is None:
+            db.set_guild_setting(interaction.guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE, "")
+            await interaction.response.send_message(
+                "✅ Rôle à vérifier désactivé. `/link` ne retirera aucun rôle automatiquement.",
+                ephemeral=True,
+            )
+            return
+
+        resolved = _resolve_role(interaction.guild, role)
+        if resolved is None:
+            await interaction.response.send_message(
+                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
+                ephemeral=True,
+            )
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE, str(resolved.id))
+        await interaction.response.send_message(
+            f"✅ Rôle à vérifier défini : {resolved.mention}. Il sera retiré après `/link` validé.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="setdofusconfig",
+        description="Définit la guilde et le serveur attendus pour /link",
+    )
+    @app_commands.describe(
+        guilde="Nom exact de la guilde Dofus dans /whoami",
+        serveur="Serveur Dofus par défaut",
+    )
+    async def setdofusconfig(
+        self,
+        interaction: discord.Interaction,
+        guilde: str,
+        serveur: str,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        db.set_guild_setting(interaction.guild.id, db.SETTING_DOFUS_GUILD_NAME, guilde.strip())
+        db.set_guild_setting(interaction.guild.id, db.SETTING_DOFUS_SERVER, serveur.strip())
+        await interaction.response.send_message(
+            f"✅ Vérification Dofus configurée : guilde **{guilde.strip()}**, serveur **{serveur.strip()}**.",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="showconfig", description="Affiche la configuration des raids de ce serveur")
     async def showconfig(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None:
@@ -222,6 +332,10 @@ class SettingsCog(commands.Cog):
                 return fallback
             role = guild.get_role(rid)
             return role.mention if role else f"*(rôle {rid} introuvable)*"
+
+        def _setting(key, fallback):
+            value = db.get_guild_setting(guild.id, key)
+            return value if value else fallback
 
         embed = discord.Embed(title="⚙️ Configuration", color=0x2ECC71)
         embed.add_field(name="Salon des raids", value=_mention(db.SETTING_RAIDS_CHANNEL), inline=False)
@@ -252,8 +366,26 @@ class SettingsCog(commands.Cog):
             value=_role_mention(db.SETTING_BASE_ROLE, "*(non défini — /absence kick ne modifie pas les rôles)*"),
             inline=False,
         )
+        embed.add_field(
+            name="Rôle membre vérifié",
+            value=_role_mention(db.SETTING_VERIFIED_MEMBER_ROLE, "*(non défini — /link ne donne pas de rôle)*"),
+            inline=False,
+        )
+        embed.add_field(
+            name="Rôle à vérifier",
+            value=_role_mention(db.SETTING_UNVERIFIED_MEMBER_ROLE, "*(non défini — /link ne retire pas de rôle)*"),
+            inline=False,
+        )
+        embed.add_field(
+            name="Vérification Dofus",
+            value=(
+                f"Guilde : **{_setting(db.SETTING_DOFUS_GUILD_NAME, DOFUS_GUILD_NAME)}**\n"
+                f"Serveur par défaut : **{_setting(db.SETTING_DOFUS_SERVER, DOFUS_SERVER)}**"
+            ),
+            inline=False,
+        )
         embed.set_footer(
-            text="Configure avec /setchannel, /setraidrole, /setraidnotifyrole et /setbaserole"
+            text="Configure avec /setchannel, /setraidrole, /setraidnotifyrole, /setbaserole, /setmemberrole, /setunverifiedrole et /setdofusconfig"
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

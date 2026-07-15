@@ -754,6 +754,15 @@ def find_character(*, guild_id: int, character_name: str) -> Optional[sqlite3.Ro
     ).fetchone()
 
 
+def delete_user_characters(*, guild_id: int, discord_id: int) -> int:
+    cur = _db().execute(
+        "DELETE FROM dofus_characters WHERE guild_id = ? AND discord_id = ?",
+        (guild_id, discord_id),
+    )
+    _db().commit()
+    return cur.rowcount
+
+
 # --------------------------------------------------------------------------- tickets
 
 

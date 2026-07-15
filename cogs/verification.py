@@ -158,6 +158,24 @@ class VerificationCog(commands.Cog):
             return
         await interaction.response.send_message(_format_character_list(rows), ephemeral=True)
 
+    @app_commands.command(name="unlink", description="Supprime tes liens Dofus et repasse en non vérifié")
+    async def unlink(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        rows = db.list_user_characters(guild_id=interaction.guild.id, discord_id=interaction.user.id)
+        if not rows:
+            await interaction.response.send_message("Aucun personnage vérifié à retirer.", ephemeral=True)
+            return
+
+        deleted = db.delete_user_characters(guild_id=interaction.guild.id, discord_id=interaction.user.id)
+        report = await self._revert_verified_member_updates(interaction.guild, interaction.user)
+        await interaction.response.send_message(
+            f"{deleted} personnage(s) délié(s).\n{report}",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="chars", description="Liste les personnages Dofus vérifiés d'un membre")
     @app_commands.describe(membre="Compte Discord à consulter")
     async def chars(self, interaction: discord.Interaction, membre: discord.Member) -> None:
@@ -470,6 +488,45 @@ class VerificationCog(commands.Cog):
                 reports.append("Pseudo Discord non modifié : permission Discord insuffisante.")
 
         return "\n".join(reports)
+
+    async def _revert_verified_member_updates(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+    ) -> str:
+        reports: list[str] = []
+
+        verified_role_id = db.get_guild_setting_int(guild.id, db.SETTING_VERIFIED_MEMBER_ROLE)
+        if verified_role_id:
+            verified_role = guild.get_role(verified_role_id)
+            if verified_role is not None and verified_role in getattr(member, "roles", []):
+                try:
+                    await member.remove_roles(verified_role, reason="Vérification Dofus supprimée")
+                    reports.append(f"Rôle retiré : {verified_role.mention}.")
+                except discord.DiscordException as exc:
+                    logger.warning("Retrait rôle vérifié échoué: %s", exc)
+                    reports.append("Rôle membre non retiré : permission Discord insuffisante.")
+
+        unverified_role_id = db.get_guild_setting_int(guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE)
+        if unverified_role_id:
+            unverified_role = guild.get_role(unverified_role_id)
+            if unverified_role is not None:
+                try:
+                    await member.add_roles(unverified_role, reason="Vérification Dofus supprimée")
+                    reports.append(f"Rôle attribué : {unverified_role.mention}.")
+                except discord.DiscordException as exc:
+                    logger.warning("Attribution rôle à vérifier échouée: %s", exc)
+                    reports.append("Rôle à vérifier non attribué : permission Discord insuffisante.")
+
+        if getattr(member, "nick", None):
+            try:
+                await member.edit(nick=None, reason="Vérification Dofus supprimée")
+                reports.append("Pseudo Discord réinitialisé.")
+            except discord.DiscordException as exc:
+                logger.warning("Réinitialisation pseudo vérifié échouée: %s", exc)
+                reports.append("Pseudo Discord non modifié : permission Discord insuffisante.")
+
+        return "\n".join(reports) if reports else "Aucun rôle ou pseudo à modifier."
 
     async def _delete_later(self, channel: discord.abc.Messageable, reason: str) -> None:
         await asyncio.sleep(120)
