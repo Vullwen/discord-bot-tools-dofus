@@ -1,0 +1,178 @@
+[
+  {
+    "id": 2,
+    "iconId": 1,
+    "name_fr": "Bûcheron",
+    "name_en": "Lumberjack",
+    "source_url": "https://api.dofusdb.fr/img/jobs/1.png",
+    "file": "assets/dofus/jobs/lumberjack.png"
+  },
+  {
+    "id": 11,
+    "iconId": 10,
+    "name_fr": "Forgeron",
+    "name_en": "Smith",
+    "source_url": "https://api.dofusdb.fr/img/jobs/10.png",
+    "file": "assets/dofus/jobs/smith.png"
+  },
+  {
+    "id": 13,
+    "iconId": 6,
+    "name_fr": "Sculpteur",
+    "name_en": "Carver",
+    "source_url": "https://api.dofusdb.fr/img/jobs/6.png",
+    "file": "assets/dofus/jobs/carver.png"
+  },
+  {
+    "id": 15,
+    "iconId": 5,
+    "name_fr": "Cordonnier",
+    "name_en": "Shoemaker",
+    "source_url": "https://api.dofusdb.fr/img/jobs/5.png",
+    "file": "assets/dofus/jobs/shoemaker.png"
+  },
+  {
+    "id": 16,
+    "iconId": 15,
+    "name_fr": "Bijoutier",
+    "name_en": "Jeweller",
+    "source_url": "https://api.dofusdb.fr/img/jobs/15.png",
+    "file": "assets/dofus/jobs/jeweller.png"
+  },
+  {
+    "id": 24,
+    "iconId": 13,
+    "name_fr": "Mineur",
+    "name_en": "Miner",
+    "source_url": "https://api.dofusdb.fr/img/jobs/13.png",
+    "file": "assets/dofus/jobs/miner.png"
+  },
+  {
+    "id": 26,
+    "iconId": 14,
+    "name_fr": "Alchimiste",
+    "name_en": "Alchemist",
+    "source_url": "https://api.dofusdb.fr/img/jobs/14.png",
+    "file": "assets/dofus/jobs/alchemist.png"
+  },
+  {
+    "id": 27,
+    "iconId": 20,
+    "name_fr": "Tailleur",
+    "name_en": "Tailor",
+    "source_url": "https://api.dofusdb.fr/img/jobs/20.png",
+    "file": "assets/dofus/jobs/tailor.png"
+  },
+  {
+    "id": 28,
+    "iconId": 18,
+    "name_fr": "Paysan",
+    "name_en": "Farmer",
+    "source_url": "https://api.dofusdb.fr/img/jobs/18.png",
+    "file": "assets/dofus/jobs/farmer.png"
+  },
+  {
+    "id": 36,
+    "iconId": 30,
+    "name_fr": "Pêcheur",
+    "name_en": "Fisherman",
+    "source_url": "https://api.dofusdb.fr/img/jobs/30.png",
+    "file": "assets/dofus/jobs/fisherman.png"
+  },
+  {
+    "id": 41,
+    "iconId": 32,
+    "name_fr": "Chasseur",
+    "name_en": "Hunter",
+    "source_url": "https://api.dofusdb.fr/img/jobs/32.png",
+    "file": "assets/dofus/jobs/hunter.png"
+  },
+  {
+    "id": 44,
+    "iconId": 24,
+    "name_fr": "Forgemage",
+    "name_en": "Smithmagus",
+    "source_url": "https://api.dofusdb.fr/img/jobs/24.png",
+    "file": "assets/dofus/jobs/smithmagus.png"
+  },
+  {
+    "id": 48,
+    "iconId": 28,
+    "name_fr": "Sculptemage",
+    "name_en": "Carvmagus",
+    "source_url": "https://api.dofusdb.fr/img/jobs/28.png",
+    "file": "assets/dofus/jobs/carvmagus.png"
+  },
+  {
+    "id": 60,
+    "iconId": 40,
+    "name_fr": "Façonneur",
+    "name_en": "Artificer",
+    "source_url": "https://api.dofusdb.fr/img/jobs/40.png",
+    "file": "assets/dofus/jobs/artificer.png"
+  },
+  {
+    "id": 62,
+    "iconId": 36,
+    "name_fr": "Cordomage",
+    "name_en": "Shoemagus",
+    "source_url": "https://api.dofusdb.fr/img/jobs/36.png",
+    "file": "assets/dofus/jobs/shoemagus.png"
+  },
+  {
+    "id": 63,
+    "iconId": 37,
+    "name_fr": "Joaillomage",
+    "name_en": "Jewelmagus",
+    "source_url": "https://api.dofusdb.fr/img/jobs/37.png",
+    "file": "assets/dofus/jobs/jewelmagus.png"
+  },
+  {
+    "id": 64,
+    "iconId": 35,
+    "name_fr": "Costumage",
+    "name_en": "Costumagus",
+    "source_url": "https://api.dofusdb.fr/img/jobs/35.png",
+    "file": "assets/dofus/jobs/costumagus.png"
+  },
+  {
+    "id": 65,
+    "iconId": 34,
+    "name_fr": "Bricoleur",
+    "name_en": "Handyman",
+    "source_url": "https://api.dofusdb.fr/img/jobs/34.png",
+    "file": "assets/dofus/jobs/handyman.png"
+  },
+  {
+    "id": 74,
+    "iconId": 41,
+    "name_fr": "Façomage",
+    "name_en": "Craftmagus",
+    "source_url": "https://api.dofusdb.fr/img/jobs/41.png",
+    "file": "assets/dofus/jobs/craftmagus.png"
+  },
+  {
+    "id": 75,
+    "iconId": 42,
+    "name_fr": "Parchomage",
+    "name_en": "Scrollmage",
+    "source_url": "https://api.dofusdb.fr/img/jobs/42.png",
+    "file": "assets/dofus/jobs/scrollmage.png"
+  },
+  {
+    "id": 78,
+    "iconId": 42,
+    "name_fr": "Bestiologue",
+    "name_en": "Beastologist",
+    "source_url": "https://api.dofusdb.fr/img/jobs/42.png",
+    "file": "assets/dofus/jobs/beastologist.png"
+  },
+  {
+    "id": 79,
+    "iconId": 2,
+    "name_fr": "Éleveur",
+    "name_en": "Breeder",
+    "source_url": "https://api.dofusdb.fr/img/jobs/2.png",
+    "file": "assets/dofus/jobs/breeder.png"
+  }
+]
