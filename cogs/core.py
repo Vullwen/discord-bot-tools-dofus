@@ -71,7 +71,7 @@ def _help_embed() -> discord.Embed:
             "`/rolemenu add_button` : ajoute un bouton de rôle\n"
             "`/rolemenu edit_button` : modifie un bouton existant\n"
             "`/rolemenu add_select` puis `/rolemenu add_option` : ajoute un menu select\n"
-            "`/rolemenu edit_select` / `edit_option` : modifie les selects/options\n"
+            "`/rolemenu edit_select` / `edit_option` / `move_option` : modifie les selects/options\n"
             "`/rolemenu inspect` : liste les IDs à utiliser pour éditer\n"
             "`/rolemenu export` : récupère le JSON d'un panneau existant\n"
             "`/rolemenu import_config` : crée un panneau complet depuis du JSON"

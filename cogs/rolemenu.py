@@ -849,6 +849,67 @@ class RoleMenuCog(commands.Cog):
         await self._refresh_menu(component["menu_id"])
         await interaction.response.send_message(f"✅ Option **#{option_id}** mise à jour.", ephemeral=True)
 
+    @rolemenu.command(name="move_option", description="Déplace une option vers un autre select du même menu")
+    @app_commands.describe(
+        option_id="ID de l'option à déplacer",
+        select_id="ID du select de destination",
+    )
+    async def move_option(
+        self,
+        interaction: discord.Interaction,
+        option_id: int,
+        select_id: int,
+    ) -> None:
+        option = db.get_role_menu_option(option_id)
+        if option is None:
+            await interaction.response.send_message("Option introuvable.", ephemeral=True)
+            return
+        source = db.get_role_menu_component(option["component_id"])
+        target = db.get_role_menu_component(select_id)
+        if source is None or source["component_type"] != "select":
+            await interaction.response.send_message("Select source introuvable.", ephemeral=True)
+            return
+        if target is None or target["component_type"] != "select":
+            await interaction.response.send_message("Select destination introuvable.", ephemeral=True)
+            return
+        if source["menu_id"] != target["menu_id"]:
+            await interaction.response.send_message(
+                "Déplacement refusé: les deux selects doivent appartenir au même menu.",
+                ephemeral=True,
+            )
+            return
+        menu = await self._get_menu_for_admin(interaction, source["menu_id"])
+        if menu is None:
+            return
+        if source["id"] == target["id"]:
+            await interaction.response.send_message("Cette option est déjà dans ce select.", ephemeral=True)
+            return
+
+        target_options = db.list_role_menu_options(target["id"])
+        duplicate = next(
+            (item for item in target_options if item["role_id"] == option["role_id"]),
+            None,
+        )
+        if duplicate is not None:
+            await interaction.response.send_message(
+                f"Le select destination contient déjà une option pour ce rôle: **#{duplicate['id']}**.",
+                ephemeral=True,
+            )
+            return
+        if len(target_options) >= MAX_SELECT_OPTIONS:
+            await interaction.response.send_message(
+                "Le select destination a déjà 25 options, limite Discord atteinte.",
+                ephemeral=True,
+            )
+            return
+
+        db.update_role_menu_option(option_id, component_id=target["id"])
+        await self._refresh_menu(source["menu_id"])
+        await interaction.response.send_message(
+            f"✅ Option **#{option_id}** déplacée vers le select **#{target['id']}**.",
+            ephemeral=True,
+        )
+
     @rolemenu.command(name="remove_component", description="Supprime un bouton ou un select")
     async def remove_component(self, interaction: discord.Interaction, component_id: int) -> None:
         component = db.get_role_menu_component(component_id)
