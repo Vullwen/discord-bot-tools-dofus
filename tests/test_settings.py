@@ -43,3 +43,7 @@ def test_channel_labels_include_raid_admin_channel():
 
 def test_base_role_setting_exists():
     assert db.SETTING_BASE_ROLE == "base_member_role"
+
+
+def test_unverified_role_setting_exists():
+    assert db.SETTING_UNVERIFIED_MEMBER_ROLE == "unverified_member_role"

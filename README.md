@@ -95,6 +95,8 @@ Vérification Dofus :
 - Si l'analyse reconnaît le code, le pseudo, le serveur, la guilde et le message en
   chat guilde, le bot valide automatiquement. Sinon les organisateurs ont des
   boutons **Valider** / **Refuser** dans le salon privé.
+- Après validation, le bot ajoute le rôle membre vérifié, retire le rôle à vérifier
+  si configuré, et renomme le membre Discord avec le pseudo de son personnage main.
 
 Configuration (organisateur) :
 
@@ -104,6 +106,7 @@ Configuration (organisateur) :
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
   ou nom exact (vide = pas de mention).
 - `/setmemberrole` — rôle donné automatiquement après une vérification Dofus réussie.
+- `/setunverifiedrole` — rôle "à vérifier" retiré automatiquement après une vérification réussie.
 - `/setdofusconfig` — nom de guilde et serveur attendus dans les screenshots `/link`.
 - `/showconfig` — affiche la config du serveur.
 

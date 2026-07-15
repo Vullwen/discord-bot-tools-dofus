@@ -891,6 +891,8 @@ SETTING_RAID_NOTIFY_ROLE = "raid_notify_role"
 SETTING_BASE_ROLE = "base_member_role"
 # Rôle remis après vérification Dofus réussie. Vide = aucun rôle automatique.
 SETTING_VERIFIED_MEMBER_ROLE = "verified_member_role"
+# Rôle retiré après vérification Dofus réussie. Vide = aucun retrait automatique.
+SETTING_UNVERIFIED_MEMBER_ROLE = "unverified_member_role"
 # Nom de guilde Dofus attendu dans le /whoami OCR.
 SETTING_DOFUS_GUILD_NAME = "dofus_guild_name"
 # Serveur Dofus attendu par défaut pour /link.

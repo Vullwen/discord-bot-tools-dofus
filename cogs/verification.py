@@ -380,41 +380,47 @@ class VerificationCog(commands.Cog):
         *,
         reviewed_by: Optional[int],
     ) -> None:
+        existing_characters = db.list_user_characters(
+            guild_id=request["guild_id"],
+            discord_id=request["discord_id"],
+        )
         db.save_verified_character(
             guild_id=request["guild_id"],
             discord_id=request["discord_id"],
             character_name=request["character_name"],
             server=request["server"],
             verified_by=reviewed_by,
-            is_main=not db.list_user_characters(
-                guild_id=request["guild_id"],
-                discord_id=request["discord_id"],
-            ),
+            is_main=not existing_characters,
         )
+        characters = db.list_user_characters(
+            guild_id=request["guild_id"],
+            discord_id=request["discord_id"],
+        )
+        main_character = next((row for row in characters if row["is_main"]), None)
+        main_name = main_character["character_name"] if main_character else request["character_name"]
         db.update_verification_request(
             request["id"],
             status="validated",
             reviewed_by=reviewed_by,
             verified_at=now_paris(),
         )
-        role_report = await self._grant_verified_role(channel, request)
+        member_report = await self._apply_verified_member_updates(channel, request, main_name)
         await channel.send(
             f"Validation OK pour **{request['character_name']}** ({request['server']}).\n"
-            f"{role_report}\n"
+            f"{member_report}\n"
             "Le salon sera supprimé dans 2 minutes."
         )
         asyncio.create_task(self._delete_later(channel, "Vérification Dofus terminée"))
 
-    async def _grant_verified_role(self, channel: discord.abc.Messageable, request) -> str:
+    async def _apply_verified_member_updates(
+        self,
+        channel: discord.abc.Messageable,
+        request,
+        main_name: str,
+    ) -> str:
         guild = getattr(channel, "guild", None)
         if guild is None:
-            return "Rôle non attribué : guilde introuvable."
-        role_id = db.get_guild_setting_int(guild.id, db.SETTING_VERIFIED_MEMBER_ROLE)
-        if not role_id:
-            return "Aucun rôle membre configuré."
-        role = guild.get_role(role_id)
-        if role is None:
-            return "Rôle membre configuré introuvable."
+            return "Modifications Discord non appliquées : guilde introuvable."
         member = guild.get_member(request["discord_id"])
         if member is None:
             try:
@@ -422,13 +428,48 @@ class VerificationCog(commands.Cog):
             except discord.DiscordException:
                 member = None
         if member is None:
-            return "Rôle non attribué : membre introuvable."
-        try:
-            await member.add_roles(role, reason="Vérification Dofus validée")
-        except discord.DiscordException as exc:
-            logger.warning("Attribution rôle vérifié échouée: %s", exc)
-            return "Rôle non attribué : permission Discord insuffisante."
-        return f"Rôle attribué : {role.mention}."
+            return "Modifications Discord non appliquées : membre introuvable."
+
+        reports: list[str] = []
+
+        verified_role_id = db.get_guild_setting_int(guild.id, db.SETTING_VERIFIED_MEMBER_ROLE)
+        if verified_role_id:
+            verified_role = guild.get_role(verified_role_id)
+            if verified_role is None:
+                reports.append("Rôle membre configuré introuvable.")
+            else:
+                try:
+                    await member.add_roles(verified_role, reason="Vérification Dofus validée")
+                    reports.append(f"Rôle attribué : {verified_role.mention}.")
+                except discord.DiscordException as exc:
+                    logger.warning("Attribution rôle vérifié échouée: %s", exc)
+                    reports.append("Rôle membre non attribué : permission Discord insuffisante.")
+        else:
+            reports.append("Aucun rôle membre configuré.")
+
+        unverified_role_id = db.get_guild_setting_int(guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE)
+        if unverified_role_id:
+            unverified_role = guild.get_role(unverified_role_id)
+            if unverified_role is None:
+                reports.append("Rôle à vérifier configuré introuvable.")
+            elif unverified_role in getattr(member, "roles", []):
+                try:
+                    await member.remove_roles(unverified_role, reason="Vérification Dofus validée")
+                    reports.append(f"Rôle retiré : {unverified_role.mention}.")
+                except discord.DiscordException as exc:
+                    logger.warning("Retrait rôle à vérifier échoué: %s", exc)
+                    reports.append("Rôle à vérifier non retiré : permission Discord insuffisante.")
+
+        current_nick = getattr(member, "nick", None) or getattr(member, "display_name", None)
+        if current_nick != main_name:
+            try:
+                await member.edit(nick=main_name, reason="Pseudo main Dofus vérifié")
+                reports.append(f"Pseudo Discord renommé en **{main_name}**.")
+            except discord.DiscordException as exc:
+                logger.warning("Renommage membre vérifié échoué: %s", exc)
+                reports.append("Pseudo Discord non modifié : permission Discord insuffisante.")
+
+        return "\n".join(reports)
 
     async def _delete_later(self, channel: discord.abc.Messageable, reason: str) -> None:
         await asyncio.sleep(120)

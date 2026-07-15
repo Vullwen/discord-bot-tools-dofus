@@ -56,6 +56,7 @@ def _help_embed() -> discord.Embed:
             "`/setraidnotifyrole` : configure le rôle de notification\n"
             "`/setbaserole` : configure le rôle remis avec `/absence kick`\n"
             "`/setmemberrole` : configure le rôle donné après `/link`\n"
+            "`/setunverifiedrole` : configure le rôle retiré après `/link`\n"
             "`/setdofusconfig` : configure guilde/serveur Dofus pour `/link`\n"
             "`/showconfig` : affiche la configuration"
         ),
