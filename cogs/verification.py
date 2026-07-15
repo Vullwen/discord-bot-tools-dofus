@@ -48,6 +48,13 @@ def _is_image_attachment(attachment: discord.Attachment) -> bool:
     return attachment.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
 
 
+def _format_character_list(rows) -> str:
+    return "\n".join(
+        f"{'* ' if row['is_main'] else '- '}**{row['character_name']}** — {row['server']}"
+        for row in rows
+    )
+
+
 class ManualReviewView(discord.ui.View):
     def __init__(self, cog: "VerificationCog", request_id: int):
         super().__init__(timeout=24 * 60 * 60)
@@ -70,13 +77,11 @@ class VerificationCog(commands.Cog):
     @app_commands.command(name="link", description="Lie un personnage Dofus à ton Discord")
     @app_commands.describe(
         personnage="Nom exact du personnage Dofus à vérifier",
-        serveur="Serveur Dofus (vide = serveur configuré)",
     )
     async def link(
         self,
         interaction: discord.Interaction,
         personnage: str,
-        serveur: Optional[str] = None,
     ) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
@@ -98,9 +103,7 @@ class VerificationCog(commands.Cog):
                 return
             db.update_verification_request(existing["id"], status="expired")
 
-        dofus_server = (serveur or "").strip() or _setting_or_default(
-            guild.id, db.SETTING_DOFUS_SERVER, DOFUS_SERVER
-        )
+        dofus_server = _setting_or_default(guild.id, db.SETTING_DOFUS_SERVER, DOFUS_SERVER)
         dofus_guild = _setting_or_default(guild.id, db.SETTING_DOFUS_GUILD_NAME, DOFUS_GUILD_NAME)
         code = _new_code()
         expires_at = now_paris() + timedelta(minutes=VERIFICATION_EXPIRES_MINUTES)
@@ -153,15 +156,29 @@ class VerificationCog(commands.Cog):
         if not rows:
             await interaction.response.send_message("Aucun personnage vérifié pour l'instant.", ephemeral=True)
             return
-        lines = [
-            f"{'⭐ ' if row['is_main'] else ''}**{row['character_name']}** — {row['server']}"
-            for row in rows
-        ]
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        await interaction.response.send_message(_format_character_list(rows), ephemeral=True)
 
-    @app_commands.command(name="findchar", description="Retrouve le Discord lié à un personnage Dofus")
+    @app_commands.command(name="chars", description="Liste les personnages Dofus vérifiés d'un membre")
+    @app_commands.describe(membre="Compte Discord à consulter")
+    async def chars(self, interaction: discord.Interaction, membre: discord.Member) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        rows = db.list_user_characters(guild_id=interaction.guild.id, discord_id=membre.id)
+        if not rows:
+            await interaction.response.send_message(
+                f"Aucun personnage vérifié pour {membre.mention}.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            f"Personnages vérifiés de {membre.mention} :\n{_format_character_list(rows)}",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="find", description="Retrouve le Discord lié à un personnage Dofus")
     @app_commands.describe(personnage="Nom exact du personnage Dofus")
-    async def findchar(self, interaction: discord.Interaction, personnage: str) -> None:
+    async def find(self, interaction: discord.Interaction, personnage: str) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
@@ -295,7 +312,7 @@ class VerificationCog(commands.Cog):
         db.update_verification_request(request["id"], ocr_text=ocr_text, status=result.status)
 
         if result.is_valid:
-            await self._validate_request(channel, request, reviewed_by=None, result=result)
+            await self._validate_request(channel, request, reviewed_by=None)
             await status_message.edit(content="Vérification validée automatiquement.")
             return
 
@@ -362,7 +379,6 @@ class VerificationCog(commands.Cog):
         request,
         *,
         reviewed_by: Optional[int],
-        result: Optional[VerificationResult] = None,
     ) -> None:
         db.save_verified_character(
             guild_id=request["guild_id"],
@@ -382,9 +398,8 @@ class VerificationCog(commands.Cog):
             verified_at=now_paris(),
         )
         role_report = await self._grant_verified_role(channel, request)
-        score = f" Score d'analyse : **{result.score}/110**." if result else ""
         await channel.send(
-            f"Validation OK pour **{request['character_name']}** ({request['server']}).{score}\n"
+            f"Validation OK pour **{request['character_name']}** ({request['server']}).\n"
             f"{role_report}\n"
             "Le salon sera supprimé dans 2 minutes."
         )

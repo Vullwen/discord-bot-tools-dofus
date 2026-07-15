@@ -43,7 +43,8 @@ def _help_embed() -> discord.Embed:
         value=(
             "`/link` : ouvre un salon privé pour vérifier un personnage\n"
             "`/mychars` : liste tes personnages vérifiés\n"
-            "`/findchar` : retrouve le Discord lié à un personnage"
+            "`/chars` : liste les personnages vérifiés d'un membre\n"
+            "`/find` : retrouve le Discord lié à un personnage"
         ),
         inline=False,
     )
