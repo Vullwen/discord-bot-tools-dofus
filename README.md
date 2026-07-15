@@ -86,11 +86,7 @@ Tickets :
 
 Vérification Dofus :
 
-- `/link personnage` — crée un salon privé avec le membre, le bot et les
-  organisateurs. Le bot donne un code à recopier en chat guilde après `/whoami`
-  et `/time`, puis analyse le screenshot.
-- `/unlink` — supprime tes liens Dofus, retire le rôle membre vérifié, remet le
-  rôle à vérifier si configuré, et réinitialise ton surnom serveur.
+- Les commandes de liaison `/link` et `/unlink` sont désactivées pour le moment.
 - `/mychars` — liste tes personnages Dofus vérifiés.
 - `/chars membre` — liste les personnages Dofus vérifiés d'un compte Discord.
 - `/find personnage` — retrouve le Discord lié à un personnage.
@@ -109,7 +105,7 @@ Configuration (organisateur) :
   ou nom exact (vide = pas de mention).
 - `/setmemberrole` — rôle donné automatiquement après une vérification Dofus réussie.
 - `/setunverifiedrole` — rôle "à vérifier" retiré automatiquement après une vérification réussie.
-- `/setdofusconfig` — nom de guilde et serveur attendus dans les screenshots `/link`.
+- `/setdofusconfig` — nom de guilde et serveur attendus dans les screenshots de vérification.
 - `/showconfig` — affiche la config du serveur.
 
 ## Rôles
@@ -142,12 +138,12 @@ Voir `.env.example` pour la liste complète. Les principales :
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
 - `REMINDER_DELETE_HOURS` — délai de suppression des messages de rappel/raid
   après publication ou heure prévue (2 par défaut).
-- `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour `/link`
+- `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour la vérification
   (`Bagarres et Belettes` par défaut, surchargeable par `/setdofusconfig`).
 - `DOFUS_SERVER` — serveur Dofus par défaut (`Dakal` par défaut, surchargeable par
   `/setdofusconfig`).
 - `VERIFICATION_CODE_PREFIX` — préfixe des codes de vérification (`BEB` par défaut).
-- `VERIFICATION_EXPIRES_MINUTES` — durée de validité d'un code `/link` (15 par défaut).
+- `VERIFICATION_EXPIRES_MINUTES` — durée de validité d'un code de vérification (15 par défaut).
 - `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/setchannel`).
 - `DB_PATH` — chemin SQLite (par défaut `/app/data/beb_raid.db` en Docker).
 

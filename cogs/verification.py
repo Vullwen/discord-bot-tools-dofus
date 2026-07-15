@@ -74,10 +74,6 @@ class VerificationCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="link", description="Lie un personnage Dofus à ton Discord")
-    @app_commands.describe(
-        personnage="Nom exact du personnage Dofus à vérifier",
-    )
     async def link(
         self,
         interaction: discord.Interaction,
@@ -158,7 +154,6 @@ class VerificationCog(commands.Cog):
             return
         await interaction.response.send_message(_format_character_list(rows), ephemeral=True)
 
-    @app_commands.command(name="unlink", description="Supprime tes liens Dofus et repasse en non vérifié")
     async def unlink(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
@@ -220,7 +215,7 @@ class VerificationCog(commands.Cog):
             return
         if datetime_from_iso(request["expires_at"]) <= now_paris():
             db.update_verification_request(request["id"], status="expired")
-            await message.channel.send("Code expiré. Relance `/link` pour générer un nouveau salon.")
+            await message.channel.send("Code expiré. Demande un nouveau salon de vérification à un organisateur.")
             return
 
         images = [attachment for attachment in message.attachments if _is_image_attachment(attachment)]

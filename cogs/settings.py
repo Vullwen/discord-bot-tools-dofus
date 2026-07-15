@@ -225,7 +225,7 @@ class SettingsCog(commands.Cog):
         if role is None:
             db.set_guild_setting(interaction.guild.id, db.SETTING_VERIFIED_MEMBER_ROLE, "")
             await interaction.response.send_message(
-                "✅ Rôle membre vérifié désactivé. `/link` validera les persos sans donner de rôle.",
+                "✅ Rôle membre vérifié désactivé. La vérification validera les persos sans donner de rôle.",
                 ephemeral=True,
             )
             return
@@ -240,7 +240,7 @@ class SettingsCog(commands.Cog):
 
         db.set_guild_setting(interaction.guild.id, db.SETTING_VERIFIED_MEMBER_ROLE, str(resolved.id))
         await interaction.response.send_message(
-            f"✅ Rôle membre vérifié défini : {resolved.mention}. Il sera donné après `/link` validé.",
+            f"✅ Rôle membre vérifié défini : {resolved.mention}. Il sera donné après vérification validée.",
             ephemeral=True,
         )
 
@@ -266,7 +266,7 @@ class SettingsCog(commands.Cog):
         if role is None:
             db.set_guild_setting(interaction.guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE, "")
             await interaction.response.send_message(
-                "✅ Rôle à vérifier désactivé. `/link` ne retirera aucun rôle automatiquement.",
+                "✅ Rôle à vérifier désactivé. La vérification ne retirera aucun rôle automatiquement.",
                 ephemeral=True,
             )
             return
@@ -281,13 +281,13 @@ class SettingsCog(commands.Cog):
 
         db.set_guild_setting(interaction.guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE, str(resolved.id))
         await interaction.response.send_message(
-            f"✅ Rôle à vérifier défini : {resolved.mention}. Il sera retiré après `/link` validé.",
+            f"✅ Rôle à vérifier défini : {resolved.mention}. Il sera retiré après vérification validée.",
             ephemeral=True,
         )
 
     @app_commands.command(
         name="setdofusconfig",
-        description="Définit la guilde et le serveur attendus pour /link",
+        description="Définit la guilde et le serveur attendus pour la vérification",
     )
     @app_commands.describe(
         guilde="Nom exact de la guilde Dofus dans /whoami",
@@ -368,12 +368,12 @@ class SettingsCog(commands.Cog):
         )
         embed.add_field(
             name="Rôle membre vérifié",
-            value=_role_mention(db.SETTING_VERIFIED_MEMBER_ROLE, "*(non défini — /link ne donne pas de rôle)*"),
+            value=_role_mention(db.SETTING_VERIFIED_MEMBER_ROLE, "*(non défini — la vérification ne donne pas de rôle)*"),
             inline=False,
         )
         embed.add_field(
             name="Rôle à vérifier",
-            value=_role_mention(db.SETTING_UNVERIFIED_MEMBER_ROLE, "*(non défini — /link ne retire pas de rôle)*"),
+            value=_role_mention(db.SETTING_UNVERIFIED_MEMBER_ROLE, "*(non défini — la vérification ne retire pas de rôle)*"),
             inline=False,
         )
         embed.add_field(
