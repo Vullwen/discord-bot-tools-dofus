@@ -20,6 +20,7 @@ def test_help_embed_lists_main_commands():
     for command in (
         "/help",
         "/ping",
+        "/stuff",
         "/raid",
         "/list_raids",
         "/ban_raid",

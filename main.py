@@ -48,6 +48,7 @@ COGS = [
     "cogs.verification",
     "cogs.absence",
     "cogs.rolemenu",
+    "cogs.stuff",
 ]
 
 

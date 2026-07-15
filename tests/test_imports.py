@@ -11,6 +11,7 @@ def test_import_cogs():
     import cogs.verification  # noqa: F401
     import cogs.absence  # noqa: F401
     import cogs.rolemenu  # noqa: F401
+    import cogs.stuff  # noqa: F401
 
 
 def test_import_modules():
@@ -20,3 +21,5 @@ def test_import_modules():
     import utils.embeds  # noqa: F401
     import utils.perms  # noqa: F401
     import utils.verification  # noqa: F401
+    import utils.stuff_card  # noqa: F401
+    import utils.stuff_capture  # noqa: F401
