@@ -88,10 +88,10 @@ Vérification Dofus :
 
 - `/link personnage [serveur]` — crée un salon privé avec le membre, le bot et les
   organisateurs. Le bot donne un code à recopier en chat guilde après `/whoami`
-  et `/time`, puis analyse le screenshot par OCR.
+  et `/time`, puis analyse le screenshot.
 - `/mychars` — liste tes personnages Dofus vérifiés.
 - `/findchar personnage` — retrouve le Discord lié à un personnage.
-- Si l'OCR reconnaît le code, le pseudo, le serveur, la guilde et le message en
+- Si l'analyse reconnaît le code, le pseudo, le serveur, la guilde et le message en
   chat guilde, le bot valide automatiquement. Sinon les organisateurs ont des
   boutons **Valider** / **Refuser** dans le salon privé.
 

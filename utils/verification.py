@@ -1,4 +1,4 @@
-"""OCR et scoring des captures de vérification Dofus."""
+"""Analyse et scoring des captures de vérification Dofus."""
 from __future__ import annotations
 
 import io
@@ -55,22 +55,19 @@ def _code_present(text: str, code: str) -> bool:
     return compact_code(code) in compact_code(text)
 
 
-def _has_whoami_line(text: str, character_name: str, server: str, guild_name: str) -> bool:
+def _has_whoami_block(text: str, character_name: str, server: str, guild_name: str) -> bool:
     character = normalize_text(character_name)
     expected_server = normalize_text(server)
     expected_guild = normalize_text(guild_name)
-    for line in text.splitlines():
-        normalized = normalize_text(line)
-        if (
-            "se trouve" in normalized
-            and "serveur" in normalized
-            and "guilde" in normalized
-            and character in normalized
-            and expected_server in normalized
-            and expected_guild in normalized
-        ):
-            return True
-    return False
+    normalized = normalize_text(text)
+    return (
+        "se trouve" in normalized
+        and "serveur" in normalized
+        and "guilde" in normalized
+        and character in normalized
+        and expected_server in normalized
+        and expected_guild in normalized
+    )
 
 
 def _has_guild_chat_line(text: str, character_name: str, code: str) -> bool:
@@ -78,9 +75,15 @@ def _has_guild_chat_line(text: str, character_name: str, code: str) -> bool:
     expected_code = compact_code(code)
     for line in text.splitlines():
         normalized = normalize_text(line)
-        if "guilde" not in normalized or character not in normalized:
+        if character not in normalized or expected_code not in compact_code(line):
             continue
-        if expected_code in compact_code(line):
+        if "guilde" in normalized:
+            return True
+        # Dofus peut afficher le message courant sans préfixe "(Guilde)".
+        # On refuse en revanche les lignes explicitement marquées groupe/équipe/etc.
+        if re.search(r"\((?!guilde\))[^)]*\)", normalized):
+            continue
+        if re.search(rf"\b{re.escape(character)}\s*:", normalized):
             return True
     return False
 
@@ -111,7 +114,7 @@ def evaluate_ocr_text(
     character_ok = _contains(normalized, character_name)
     server_ok = _contains(normalized, server)
     guild_ok = _contains(normalized, guild_name)
-    whoami_ok = _has_whoami_line(text, character_name, server, guild_name)
+    whoami_ok = _has_whoami_block(text, character_name, server, guild_name)
     guild_chat_ok = _has_guild_chat_line(text, character_name, code)
     time_ok = _has_time_line(text)
 
@@ -121,7 +124,7 @@ def evaluate_ocr_text(
         (server_ok, 15, "serveur trouvé"),
         (guild_ok, 20, "guilde trouvée"),
         (whoami_ok, 10, "ligne /whoami reconnue"),
-        (guild_chat_ok, 15, "message en chat guilde reconnu"),
+        (guild_chat_ok, 15, "message avec le code reconnu"),
         (time_ok, 5, "ligne /time reconnue"),
     )
     for ok, points, reason in checks:

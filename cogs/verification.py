@@ -1,4 +1,4 @@
-"""Vérification des personnages Dofus par ticket privé + OCR."""
+"""Vérification des personnages Dofus par ticket privé + analyse d'image."""
 from __future__ import annotations
 
 import asyncio
@@ -273,12 +273,12 @@ class VerificationCog(commands.Cog):
         request,
         attachment: discord.Attachment,
     ) -> None:
-        status_message = await channel.send("Analyse OCR en cours...")
+        status_message = await channel.send("Analyse en cours...")
         try:
             data = await attachment.read()
             ocr_text = await asyncio.to_thread(extract_text_from_image_bytes, data)
         except Exception as exc:
-            logger.warning("OCR échoué pour request %s: %s", request["id"], exc)
+            logger.warning("Analyse image échouée pour request %s: %s", request["id"], exc)
             await status_message.edit(content="Impossible de lire cette image. Essaie un screenshot plus net.")
             return
 
@@ -302,7 +302,7 @@ class VerificationCog(commands.Cog):
         if result.status == "needs_review":
             await status_message.edit(
                 content=(
-                    "L'OCR a trouvé le code mais il manque des éléments sûrs. "
+                    "L'analyse a trouvé le code mais il manque des éléments sûrs. "
                     "Un organisateur peut valider ou refuser ci-dessous."
                 ),
                 view=ManualReviewView(self, request["id"]),
@@ -322,7 +322,7 @@ class VerificationCog(commands.Cog):
         embed = discord.Embed(
             title="Vérification à relire",
             description=(
-                f"Score OCR : **{result.score}/110**\n"
+                f"Score d'analyse : **{result.score}/110**\n"
                 f"Perso : **{request['character_name']}**\n"
                 f"Serveur : **{request['server']}**\n"
                 f"Code : `{request['code']}`"
@@ -331,7 +331,7 @@ class VerificationCog(commands.Cog):
         )
         if result.reasons:
             embed.add_field(name="Éléments reconnus", value="\n".join(result.reasons), inline=False)
-        embed.add_field(name="Texte OCR", value=f"```text\n{preview}\n```", inline=False)
+        embed.add_field(name="Texte détecté", value=f"```text\n{preview}\n```", inline=False)
         return embed
 
     async def manual_review(
@@ -382,7 +382,7 @@ class VerificationCog(commands.Cog):
             verified_at=now_paris(),
         )
         role_report = await self._grant_verified_role(channel, request)
-        score = f" Score OCR : **{result.score}/110**." if result else ""
+        score = f" Score d'analyse : **{result.score}/110**." if result else ""
         await channel.send(
             f"Validation OK pour **{request['character_name']}** ({request['server']}).{score}\n"
             f"{role_report}\n"

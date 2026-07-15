@@ -22,7 +22,27 @@ def test_evaluate_ocr_text_validates_expected_dofus_lines():
 
     assert result.status == "validated"
     assert "code unique trouvé" in result.reasons
-    assert "message en chat guilde reconnu" in result.reasons
+    assert "message avec le code reconnu" in result.reasons
+
+
+def test_evaluate_ocr_text_validates_wrapped_whoami_and_plain_code_line():
+    text = """
+    [10:07] ccpp#4778 (Vullwan) se trouve en Île de Grobe sur le
+    serveur Dakal. Guilde [Bagarres et Belettes]
+    [10:07] 15 Joullier 656 - 10:07
+    [10:07] Vullwan : BEB-901932
+    """
+
+    result = evaluate_ocr_text(
+        text,
+        code="BEB-901932",
+        character_name="Vullwan",
+        server="Dakal",
+        guild_name="Bagarres et Belettes",
+    )
+
+    assert result.status == "validated"
+    assert result.score == 110
 
 
 def test_evaluate_ocr_text_needs_review_when_context_is_partial():
