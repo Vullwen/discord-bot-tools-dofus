@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from io import BytesIO
+import re
 
 import discord
 from discord.ext import commands
 
 from utils.stuff_capture import capture_dofusbook_page
 from utils.stuff_card import build_stuff_fallback_card, parse_dofusbook_url
+
+
+DOFUSBOOK_LINK_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:dofusbook\.net|d-bk\.net)/\S+",
+    re.IGNORECASE,
+)
+TRAILING_URL_PUNCTUATION = ".,;:!?)>]}"
 
 
 class StuffCog(commands.Cog):
@@ -27,21 +35,43 @@ class StuffCog(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        screenshot, reason = await capture_dofusbook_page(stuff_link.url)
-        if screenshot is not None:
-            file = discord.File(BytesIO(screenshot), filename="stuff-dofusbook.png")
-            await interaction.followup.send(file=file)
+        content, file = await _build_stuff_response(stuff_link)
+        await interaction.followup.send(content=content, file=file)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if message.author.bot or not message.content:
             return
 
-        card = build_stuff_fallback_card(stuff_link, reason)
-        file = discord.File(card, filename="stuff-dofusbook.png")
-        await interaction.followup.send(
-            content=(
-                "Je n'ai pas pu lire Dofusbook directement, "
-                "mais j'ai genere une carte depuis le lien."
-            ),
-            file=file,
-        )
+        match = DOFUSBOOK_LINK_RE.search(message.content)
+        if match is None:
+            return
+
+        try:
+            stuff_link = parse_dofusbook_url(_clean_detected_url(match.group(0)))
+        except ValueError:
+            return
+
+        async with message.channel.typing():
+            content, file = await _build_stuff_response(stuff_link)
+            await message.reply(content=content, file=file, mention_author=False)
+
+
+async def _build_stuff_response(stuff_link):
+    screenshot, reason = await capture_dofusbook_page(stuff_link.url)
+    if screenshot is not None:
+        return None, discord.File(BytesIO(screenshot), filename="stuff-dofusbook.png")
+
+    card = build_stuff_fallback_card(stuff_link, reason)
+    return (
+        "Je n'ai pas pu lire Dofusbook directement, "
+        "mais j'ai genere une carte depuis le lien.",
+        discord.File(card, filename="stuff-dofusbook.png"),
+    )
+
+
+def _clean_detected_url(url: str) -> str:
+    return url.rstrip(TRAILING_URL_PUNCTUATION)
 
 
 async def setup(bot: commands.Bot):
