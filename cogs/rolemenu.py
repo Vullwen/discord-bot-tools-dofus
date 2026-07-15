@@ -542,7 +542,7 @@ class RoleMenuCog(commands.Cog):
             await interaction.response.send_message(f"Impossible d'utiliser {role.mention}: {reason}.", ephemeral=True)
             return
         style_value = style.value if style else "secondary"
-        db.add_role_menu_component(
+        button_id = db.add_role_menu_component(
             menu_id=menu_id,
             component_type="button",
             label=_clean_text(label, max_len=80) or role.name[:80],
@@ -552,7 +552,10 @@ class RoleMenuCog(commands.Cog):
             exclusive=exclusive,
         )
         await self._refresh_menu(menu_id)
-        await interaction.response.send_message(f"✅ Bouton ajouté pour {role.mention}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ Bouton **#{button_id}** ajouté pour {role.mention}.",
+            ephemeral=True,
+        )
 
     @rolemenu.command(name="edit_button", description="Modifie un bouton de rôle")
     @app_commands.describe(
@@ -726,7 +729,7 @@ class RoleMenuCog(commands.Cog):
         if not ok:
             await interaction.response.send_message(f"Impossible d'utiliser {role.mention}: {reason}.", ephemeral=True)
             return
-        db.add_role_menu_option(
+        option_id = db.add_role_menu_option(
             component_id=select_id,
             role_id=role.id,
             label=_clean_text(label, max_len=100) or role.name[:100],
@@ -734,7 +737,10 @@ class RoleMenuCog(commands.Cog):
             emoji=_clean_text(emoji, max_len=80),
         )
         await self._refresh_menu(component["menu_id"])
-        await interaction.response.send_message(f"✅ Option ajoutée pour {role.mention}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ Option **#{option_id}** ajoutée pour {role.mention}.",
+            ephemeral=True,
+        )
 
     @rolemenu.command(name="edit_option", description="Modifie une option d'un select")
     @app_commands.describe(
@@ -839,6 +845,48 @@ class RoleMenuCog(commands.Cog):
                 f"#{menu['id']} · <#{menu['channel_id']}> · message `{menu['message_id'] or 'non posté'}` · {menu['title']}"
             )
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    @rolemenu.command(name="inspect", description="Liste les IDs des boutons/selects/options d'un menu")
+    @app_commands.describe(menu_id="ID du menu à inspecter")
+    async def inspect(self, interaction: discord.Interaction, menu_id: int) -> None:
+        menu = await self._get_menu_for_admin(interaction, menu_id)
+        if menu is None or interaction.guild is None:
+            return
+
+        lines = [
+            f"Menu **#{menu['id']}** · <#{menu['channel_id']}> · `{menu['title']}`",
+            "",
+        ]
+        components = db.list_role_menu_components(menu_id)
+        if not components:
+            lines.append("Aucun bouton/select configuré.")
+        for component in components:
+            if component["component_type"] == "button":
+                role = interaction.guild.get_role(component["role_id"]) if component["role_id"] else None
+                role_text = role.mention if role else f"`{component['role_id']}`"
+                lines.append(
+                    f"Button **#{component['id']}** · {component['label']} · {role_text} · "
+                    f"style `{component['style'] or 'secondary'}` · exclusive `{bool(component['exclusive'])}`"
+                )
+                continue
+
+            lines.append(
+                f"Select **#{component['id']}** · {component['placeholder']} · "
+                f"min/max `{component['min_values']}/{component['max_values']}` · "
+                f"exclusive `{bool(component['exclusive'])}`"
+            )
+            options = db.list_role_menu_options(component["id"])
+            if not options:
+                lines.append("  aucune option")
+            for option in options:
+                role = interaction.guild.get_role(option["role_id"])
+                role_text = role.mention if role else f"`{option['role_id']}`"
+                lines.append(f"  Option **#{option['id']}** · {option['label']} · {role_text}")
+
+        text = "\n".join(lines)
+        if len(text) > 1900:
+            text = text[:1890] + "\n…"
+        await interaction.response.send_message(text, ephemeral=True)
 
     @rolemenu.command(name="import_config", description="Crée un menu complet depuis une configuration JSON")
     @app_commands.describe(
