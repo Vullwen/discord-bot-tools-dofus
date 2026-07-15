@@ -34,6 +34,15 @@ def _clean_text(value: Optional[str], *, max_len: int) -> Optional[str]:
     return value[:max_len]
 
 
+def _clean_multiline_text(value: Optional[str], *, max_len: int) -> Optional[str]:
+    value = (value or "").replace("\r\n", "\n").replace("\r", "\n")
+    value = value.replace("\\n", "\n").replace("\\t", "    ")
+    value = value.strip("\n")
+    if not value.strip():
+        return None
+    return value[:max_len]
+
+
 def _parse_color(value: Optional[str]) -> int:
     raw = (value or "").strip()
     if not raw:
@@ -178,6 +187,36 @@ class RoleMenuView(discord.ui.View):
             button_count += 1
             if button_count % 5 == 0:
                 button_row += 1
+
+
+class EmbedDescriptionModal(discord.ui.Modal):
+    def __init__(self, cog: "RoleMenuCog", menu: Any):
+        super().__init__(title=f"Description menu #{menu['id']}")
+        self.cog = cog
+        self.menu_id = menu["id"]
+        self.description_input = discord.ui.TextInput(
+            label="Description de l'embed",
+            style=discord.TextStyle.paragraph,
+            default=menu["description"] or "",
+            required=False,
+            max_length=4000,
+            placeholder="Tu peux utiliser des retours à la ligne, indentation, listes, etc.",
+        )
+        self.add_item(self.description_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        menu = await self.cog._get_menu_for_admin(interaction, self.menu_id)
+        if menu is None:
+            return
+        db.update_role_menu(
+            self.menu_id,
+            description=_clean_multiline_text(self.description_input.value, max_len=4096),
+        )
+        await self.cog._refresh_menu(self.menu_id)
+        await interaction.response.send_message(
+            f"✅ Description du menu **#{self.menu_id}** mise à jour.",
+            ephemeral=True,
+        )
 
 
 class RoleMenuCog(commands.Cog):
@@ -396,7 +435,7 @@ class RoleMenuCog(commands.Cog):
             guild_id=interaction.guild.id,
             channel_id=channel.id,
             title=_clean_text(titre, max_len=256) or "Rôles",
-            description=_clean_text(description, max_len=4096),
+            description=_clean_multiline_text(description, max_len=4096),
             color=color,
             footer=_clean_text(footer, max_len=2048),
             image_url=_clean_text(image, max_len=2048),
@@ -440,7 +479,7 @@ class RoleMenuCog(commands.Cog):
         if titre is not None:
             fields["title"] = _clean_text(titre, max_len=256) or "Rôles"
         if description is not None:
-            fields["description"] = _clean_text(description, max_len=4096)
+            fields["description"] = _clean_multiline_text(description, max_len=4096)
         if couleur is not None:
             try:
                 fields["color"] = _parse_color(couleur)
@@ -456,6 +495,14 @@ class RoleMenuCog(commands.Cog):
         db.update_role_menu(menu_id, **fields)
         await self._refresh_menu(menu_id)
         await interaction.response.send_message(f"✅ Embed du menu **#{menu_id}** mis à jour.", ephemeral=True)
+
+    @rolemenu.command(name="edit_description", description="Ouvre un éditeur multiline pour la description")
+    @app_commands.describe(menu_id="ID du menu")
+    async def edit_description(self, interaction: discord.Interaction, menu_id: int) -> None:
+        menu = await self._get_menu_for_admin(interaction, menu_id)
+        if menu is None:
+            return
+        await interaction.response.send_modal(EmbedDescriptionModal(self, menu))
 
     @rolemenu.command(name="add_button", description="Ajoute un bouton de rôle")
     @app_commands.describe(
@@ -507,6 +554,62 @@ class RoleMenuCog(commands.Cog):
         await self._refresh_menu(menu_id)
         await interaction.response.send_message(f"✅ Bouton ajouté pour {role.mention}.", ephemeral=True)
 
+    @rolemenu.command(name="edit_button", description="Modifie un bouton de rôle")
+    @app_commands.describe(
+        button_id="ID du bouton",
+        role="Nouveau rôle à ajouter/retirer",
+        label="Nouveau texte du bouton",
+        emoji="Nouvel emoji du bouton",
+        style="primary, secondary, success ou danger",
+        exclusive="Retire les autres rôles configurés sur ce menu avant d'ajouter celui-ci",
+    )
+    @app_commands.choices(
+        style=[
+            app_commands.Choice(name="primary", value="primary"),
+            app_commands.Choice(name="secondary", value="secondary"),
+            app_commands.Choice(name="success", value="success"),
+            app_commands.Choice(name="danger", value="danger"),
+        ]
+    )
+    async def edit_button(
+        self,
+        interaction: discord.Interaction,
+        button_id: int,
+        role: Optional[discord.Role] = None,
+        label: Optional[str] = None,
+        emoji: Optional[str] = None,
+        style: Optional[app_commands.Choice[str]] = None,
+        exclusive: Optional[bool] = None,
+    ) -> None:
+        component = db.get_role_menu_component(button_id)
+        if component is None or component["component_type"] != "button":
+            await interaction.response.send_message("Bouton introuvable.", ephemeral=True)
+            return
+        menu = await self._get_menu_for_admin(interaction, component["menu_id"])
+        if menu is None or interaction.guild is None:
+            return
+
+        fields: dict[str, Any] = {}
+        if role is not None:
+            ok, reason = _role_is_assignable(interaction.guild, role)
+            if not ok:
+                await interaction.response.send_message(f"Impossible d'utiliser {role.mention}: {reason}.", ephemeral=True)
+                return
+            fields["role_id"] = role.id
+            if label is None:
+                fields["label"] = role.name[:80]
+        if label is not None:
+            fields["label"] = _clean_text(label, max_len=80) or component["label"]
+        if emoji is not None:
+            fields["emoji"] = _clean_text(emoji, max_len=80)
+        if style is not None:
+            fields["style"] = _style_name(style.value)
+        if exclusive is not None:
+            fields["exclusive"] = 1 if exclusive else 0
+        db.update_role_menu_component(button_id, **fields)
+        await self._refresh_menu(component["menu_id"])
+        await interaction.response.send_message(f"✅ Bouton **#{button_id}** mis à jour.", ephemeral=True)
+
     @rolemenu.command(name="add_select", description="Ajoute un menu select vide")
     @app_commands.describe(
         menu_id="ID du menu",
@@ -546,6 +649,50 @@ class RoleMenuCog(commands.Cog):
             f"✅ Select **#{component_id}** ajouté. Ajoute ses rôles avec `/rolemenu add_option`.",
             ephemeral=True,
         )
+
+    @rolemenu.command(name="edit_select", description="Modifie un menu select")
+    @app_commands.describe(
+        select_id="ID du select",
+        placeholder="Nouveau texte affiché dans le select",
+        min_values="Nouveau nombre minimum de choix",
+        max_values="Nouveau nombre maximum de choix",
+        exclusive="Retire les rôles non sélectionnés dans ce select",
+    )
+    async def edit_select(
+        self,
+        interaction: discord.Interaction,
+        select_id: int,
+        placeholder: Optional[str] = None,
+        min_values: Optional[int] = None,
+        max_values: Optional[int] = None,
+        exclusive: Optional[bool] = None,
+    ) -> None:
+        component = db.get_role_menu_component(select_id)
+        if component is None or component["component_type"] != "select":
+            await interaction.response.send_message("Select introuvable.", ephemeral=True)
+            return
+        menu = await self._get_menu_for_admin(interaction, component["menu_id"])
+        if menu is None:
+            return
+
+        next_min = component["min_values"] if min_values is None else min_values
+        next_max = component["max_values"] if max_values is None else max_values
+        if not 0 <= next_min <= next_max <= MAX_SELECT_OPTIONS:
+            await interaction.response.send_message("Valeurs invalides: utilise 0 <= min <= max <= 25.", ephemeral=True)
+            return
+
+        fields: dict[str, Any] = {}
+        if placeholder is not None:
+            fields["placeholder"] = _clean_text(placeholder, max_len=150) or component["placeholder"]
+        if min_values is not None:
+            fields["min_values"] = min_values
+        if max_values is not None:
+            fields["max_values"] = max_values
+        if exclusive is not None:
+            fields["exclusive"] = 1 if exclusive else 0
+        db.update_role_menu_component(select_id, **fields)
+        await self._refresh_menu(component["menu_id"])
+        await interaction.response.send_message(f"✅ Select **#{select_id}** mis à jour.", ephemeral=True)
 
     @rolemenu.command(name="add_option", description="Ajoute un rôle dans un select")
     @app_commands.describe(
@@ -588,6 +735,54 @@ class RoleMenuCog(commands.Cog):
         )
         await self._refresh_menu(component["menu_id"])
         await interaction.response.send_message(f"✅ Option ajoutée pour {role.mention}.", ephemeral=True)
+
+    @rolemenu.command(name="edit_option", description="Modifie une option d'un select")
+    @app_commands.describe(
+        option_id="ID de l'option",
+        role="Nouveau rôle proposé",
+        label="Nouveau libellé affiché",
+        description="Nouvelle description courte",
+        emoji="Nouvel emoji",
+    )
+    async def edit_option(
+        self,
+        interaction: discord.Interaction,
+        option_id: int,
+        role: Optional[discord.Role] = None,
+        label: Optional[str] = None,
+        description: Optional[str] = None,
+        emoji: Optional[str] = None,
+    ) -> None:
+        option = db.get_role_menu_option(option_id)
+        if option is None:
+            await interaction.response.send_message("Option introuvable.", ephemeral=True)
+            return
+        component = db.get_role_menu_component(option["component_id"])
+        if component is None:
+            await interaction.response.send_message("Select introuvable.", ephemeral=True)
+            return
+        menu = await self._get_menu_for_admin(interaction, component["menu_id"])
+        if menu is None or interaction.guild is None:
+            return
+
+        fields: dict[str, Any] = {}
+        if role is not None:
+            ok, reason = _role_is_assignable(interaction.guild, role)
+            if not ok:
+                await interaction.response.send_message(f"Impossible d'utiliser {role.mention}: {reason}.", ephemeral=True)
+                return
+            fields["role_id"] = role.id
+            if label is None:
+                fields["label"] = role.name[:100]
+        if label is not None:
+            fields["label"] = _clean_text(label, max_len=100) or option["label"]
+        if description is not None:
+            fields["description"] = _clean_text(description, max_len=100)
+        if emoji is not None:
+            fields["emoji"] = _clean_text(emoji, max_len=80)
+        db.update_role_menu_option(option_id, **fields)
+        await self._refresh_menu(component["menu_id"])
+        await interaction.response.send_message(f"✅ Option **#{option_id}** mise à jour.", ephemeral=True)
 
     @rolemenu.command(name="remove_component", description="Supprime un bouton ou un select")
     async def remove_component(self, interaction: discord.Interaction, component_id: int) -> None:

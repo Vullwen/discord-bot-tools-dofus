@@ -227,6 +227,12 @@ def test_role_menus_components_and_options(tmp_path):
     assert db.get_role_menu_option(option_id)["label"] == "Cra"
     assert db.list_role_menu_options(select_id)[0]["role_id"] == 456
 
+    db.update_role_menu_component(button_id, label="PvP", style="danger", exclusive=1)
+    db.update_role_menu_option(option_id, label="Iop", description="Dégâts mêlée")
+    assert db.get_role_menu_component(button_id)["label"] == "PvP"
+    assert db.get_role_menu_component(button_id)["exclusive"] == 1
+    assert db.get_role_menu_option(option_id)["description"] == "Dégâts mêlée"
+
     db.delete_role_menu_component(select_id)
     assert db.list_role_menu_options(select_id) == []
 

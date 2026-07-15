@@ -961,6 +961,17 @@ def get_role_menu_component(component_id: int) -> Optional[sqlite3.Row]:
     ).fetchone()
 
 
+def update_role_menu_component(component_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    assignments = ", ".join(f"{col} = ?" for col in fields)
+    _db().execute(
+        f"UPDATE role_menu_components SET {assignments} WHERE id = ?",
+        (*fields.values(), component_id),
+    )
+    _db().commit()
+
+
 def list_role_menu_components(menu_id: int) -> list[sqlite3.Row]:
     rows = _db().execute(
         "SELECT * FROM role_menu_components WHERE menu_id = ? ORDER BY position, id",
@@ -1008,6 +1019,17 @@ def get_role_menu_option(option_id: int) -> Optional[sqlite3.Row]:
     return _db().execute(
         "SELECT * FROM role_menu_options WHERE id = ?", (option_id,)
     ).fetchone()
+
+
+def update_role_menu_option(option_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    assignments = ", ".join(f"{col} = ?" for col in fields)
+    _db().execute(
+        f"UPDATE role_menu_options SET {assignments} WHERE id = ?",
+        (*fields.values(), option_id),
+    )
+    _db().commit()
 
 
 def list_role_menu_options(component_id: int) -> list[sqlite3.Row]:
