@@ -6,8 +6,8 @@ from io import BytesIO
 from PIL import Image
 
 
-VIEWPORT = {"width": 1540, "height": 830}
-CAPTURE_CLIP = {"x": 70, "y": 132, "width": 1470, "height": 690}
+VIEWPORT = {"width": 1540, "height": 920}
+CAPTURE_CLIP = {"x": 70, "y": 206, "width": 1470, "height": 690}
 TOP_PADDING = 12
 CAPTURE_BACKGROUND = "#241f1b"
 
@@ -62,6 +62,7 @@ async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
                     pass
                 await asyncio.sleep(2)
                 await _dismiss_consent_dialog(page)
+                await _hide_ad_overlays(page)
                 await asyncio.sleep(1)
 
                 title = await page.title()
@@ -69,6 +70,7 @@ async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
                 if any(marker in title or marker in body_text for marker in BLOCKED_MARKERS):
                     return None, "Dofusbook a bloque la capture automatique."
 
+                await _hide_ad_overlays(page)
                 image = await page.screenshot(type="png", clip=CAPTURE_CLIP)
                 return _add_top_padding(image), None
             finally:
@@ -89,6 +91,54 @@ async def _dismiss_consent_dialog(page) -> None:
             return
         except Exception:
             continue
+
+
+async def _hide_ad_overlays(page) -> None:
+    await page.add_style_tag(
+        content="""
+            iframe,
+            ins.adsbygoogle,
+            [id*="google"],
+            [id*="ads"],
+            [id*="advert"],
+            [class*="google"],
+            [class*="ads"],
+            [class*="advert"],
+            [style*="position: fixed"] {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
+        """
+    )
+    await page.evaluate(
+        """
+        () => {
+            const candidates = [
+                ...document.querySelectorAll('iframe, ins.adsbygoogle'),
+                ...document.querySelectorAll(
+                    '[id*="google"], [id*="ads"], [id*="advert"], ' +
+                    '[class*="google"], [class*="ads"], [class*="advert"]'
+                ),
+            ];
+
+            for (const element of document.querySelectorAll('body *')) {
+                const style = window.getComputedStyle(element);
+                if (style.position !== 'fixed') continue;
+
+                const box = element.getBoundingClientRect();
+                const isFloatingAd = box.width > 120 && box.height > 80;
+                if (isFloatingAd) candidates.push(element);
+            }
+
+            for (const element of candidates) {
+                element.style.setProperty('display', 'none', 'important');
+                element.style.setProperty('visibility', 'hidden', 'important');
+            }
+        }
+        """
+    )
 
 
 def _add_top_padding(image: bytes) -> bytes:
