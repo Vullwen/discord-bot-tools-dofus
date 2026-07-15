@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Optional
 
 import discord
@@ -15,6 +17,8 @@ from discord.ext import commands
 import db
 from config import DOFUS_GUILD_NAME, DOFUS_SERVER
 from utils.perms import is_bot_admin, is_raid_organizer
+
+JOBS_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "assets" / "dofus" / "jobs" / "manifest.json"
 
 _CHANNEL_LABEL = {
     db.SETTING_RAIDS_CHANNEL: "Salon des raids",
@@ -38,6 +42,23 @@ def _resolve_role(guild: discord.Guild, role_ref: str) -> Optional[discord.Role]
     normalized = raw.lstrip("@").casefold()
     matches = [role for role in guild.roles if role.name.casefold() == normalized]
     return matches[0] if len(matches) == 1 else None
+
+
+def _parse_color(value: Optional[str]) -> discord.Color:
+    raw = (value or "").strip()
+    if not raw:
+        return discord.Color.default()
+    raw = raw.removeprefix("#").removeprefix("0x")
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", raw):
+        raise ValueError("Couleur invalide. Utilise un hex du type #2ecc71.")
+    return discord.Color(int(raw, 16))
+
+
+def _load_job_role_names(prefix: Optional[str] = None) -> list[str]:
+    prefix = prefix or ""
+    with JOBS_MANIFEST_PATH.open("r", encoding="utf-8") as fh:
+        jobs = json.load(fh)
+    return [f"{prefix}{job['name_fr']}" for job in jobs]
 
 
 class SettingsCog(commands.Cog):
@@ -162,6 +183,89 @@ class SettingsCog(commands.Cog):
             "la configuration admin du bot.",
             ephemeral=True,
         )
+
+    @app_commands.command(
+        name="createjobroles",
+        description="Crée un rôle Discord pour chaque métier Dofus",
+    )
+    @app_commands.describe(
+        prefix="Préfixe optionnel, ex: Métier - ",
+        couleur="Couleur hex optionnelle, ex: #2ecc71",
+        mentionable="Autorise la mention des rôles créés",
+        afficher_separement="Affiche les rôles séparément dans la liste des membres",
+    )
+    async def createjobroles(
+        self,
+        interaction: discord.Interaction,
+        prefix: Optional[str] = None,
+        couleur: Optional[str] = None,
+        mentionable: bool = False,
+        afficher_separement: bool = False,
+    ) -> None:
+        if not is_bot_admin(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        me = guild.me
+        if me is None and self.bot.user is not None:
+            me = guild.get_member(self.bot.user.id)
+        permissions = getattr(me, "guild_permissions", None)
+        if not getattr(permissions, "manage_roles", False):
+            await interaction.response.send_message(
+                "Il me manque la permission Discord `Gérer les rôles`.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            color = _parse_color(couleur)
+            role_names = _load_job_role_names(prefix)
+        except (OSError, KeyError, json.JSONDecodeError) as exc:
+            await interaction.response.send_message(
+                f"Impossible de lire la liste des métiers: `{type(exc).__name__}`.",
+                ephemeral=True,
+            )
+            return
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        existing = {role.name.casefold(): role for role in guild.roles}
+        created: list[str] = []
+        skipped: list[str] = []
+        failed: list[str] = []
+
+        for role_name in role_names:
+            if role_name.casefold() in existing:
+                skipped.append(role_name)
+                continue
+            try:
+                role = await guild.create_role(
+                    name=role_name,
+                    color=color,
+                    hoist=afficher_separement,
+                    mentionable=mentionable,
+                    reason=f"Création rôles métiers Dofus par {interaction.user}",
+                )
+                existing[role.name.casefold()] = role
+                created.append(role.name)
+            except discord.DiscordException:
+                failed.append(role_name)
+
+        parts = [
+            f"✅ Créés: **{len(created)}**",
+            f"↪️ Déjà existants: **{len(skipped)}**",
+        ]
+        if failed:
+            parts.append(f"⚠️ Échecs: **{len(failed)}** ({', '.join(failed[:8])})")
+        if created:
+            parts.append("Rôles créés: " + ", ".join(created[:22]))
+        await interaction.followup.send("\n".join(parts), ephemeral=True)
 
     @app_commands.command(
         name="setraidnotifyrole",

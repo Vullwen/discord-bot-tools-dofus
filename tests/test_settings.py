@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import db
-from cogs.settings import _CHANNEL_LABEL, _resolve_role
+from cogs.settings import _CHANNEL_LABEL, _load_job_role_names, _resolve_role
 
 
 def _guild(*roles):
@@ -51,3 +51,11 @@ def test_bot_admin_role_setting_exists():
 
 def test_unverified_role_setting_exists():
     assert db.SETTING_UNVERIFIED_MEMBER_ROLE == "unverified_member_role"
+
+
+def test_load_job_role_names_from_manifest():
+    names = _load_job_role_names()
+    assert len(names) == 22
+    assert "Bûcheron" in names
+    assert "Éleveur" in names
+    assert _load_job_role_names("Métier - ")[0] == "Métier - Bûcheron"
