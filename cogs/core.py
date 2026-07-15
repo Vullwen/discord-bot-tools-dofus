@@ -62,6 +62,16 @@ def _help_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
+        name="Menus de rôles",
+        value=(
+            "`/rolemenu create` : crée un panneau de rôles\n"
+            "`/rolemenu add_button` : ajoute un bouton de rôle\n"
+            "`/rolemenu add_select` puis `/rolemenu add_option` : ajoute un menu select\n"
+            "`/rolemenu import_config` : crée un panneau complet depuis du JSON"
+        ),
+        inline=False,
+    )
+    embed.add_field(
         name="Admin",
         value="`/sync` : resync les commandes\n`/reload` : recharge un cog",
         inline=False,

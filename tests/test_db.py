@@ -185,6 +185,52 @@ def test_tickets(tmp_path):
     assert db.get_ticket_by_channel(111)["closed"] == 1
 
 
+def test_role_menus_components_and_options(tmp_path):
+    _fresh(tmp_path)
+    menu_id = db.create_role_menu(
+        guild_id=2,
+        channel_id=111,
+        title="Choisis tes rôles",
+        description="Prends ce qui te correspond.",
+        color=0x2ECC71,
+        footer="Modifiable à tout moment",
+        image_url=None,
+        thumbnail_url=None,
+        created_by=5,
+    )
+    db.update_role_menu(menu_id, message_id=999)
+    button_id = db.add_role_menu_component(
+        menu_id=menu_id,
+        component_type="button",
+        label="Raid",
+        style="primary",
+        role_id=123,
+    )
+    select_id = db.add_role_menu_component(
+        menu_id=menu_id,
+        component_type="select",
+        placeholder="Classes",
+        min_values=0,
+        max_values=2,
+    )
+    option_id = db.add_role_menu_option(
+        component_id=select_id,
+        role_id=456,
+        label="Cra",
+        description="Dégâts distance",
+    )
+
+    menu = db.get_role_menu_by_message(999)
+    assert menu["id"] == menu_id
+    assert [row["id"] for row in db.list_role_menu_components(menu_id)] == [button_id, select_id]
+    assert db.get_role_menu_component(button_id)["role_id"] == 123
+    assert db.get_role_menu_option(option_id)["label"] == "Cra"
+    assert db.list_role_menu_options(select_id)[0]["role_id"] == 456
+
+    db.delete_role_menu_component(select_id)
+    assert db.list_role_menu_options(select_id) == []
+
+
 def test_absences_search_and_cleanup(tmp_path):
     _fresh(tmp_path)
     a1 = db.create_absence(

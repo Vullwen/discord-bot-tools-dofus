@@ -131,6 +131,50 @@ def init(db_path: str = DB_PATH) -> None:
             verified_by     INTEGER,
             UNIQUE (guild_id, server, character_name)
         );
+
+        CREATE TABLE IF NOT EXISTS role_menus (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id        INTEGER NOT NULL,
+            channel_id      INTEGER NOT NULL,
+            message_id      INTEGER UNIQUE,
+            title           TEXT NOT NULL,
+            description     TEXT,
+            color           INTEGER,
+            footer          TEXT,
+            image_url       TEXT,
+            thumbnail_url   TEXT,
+            created_by      INTEGER NOT NULL,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS role_menu_components (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            menu_id         INTEGER NOT NULL,
+            component_type  TEXT NOT NULL,
+            label           TEXT,
+            placeholder     TEXT,
+            min_values      INTEGER NOT NULL DEFAULT 0,
+            max_values      INTEGER NOT NULL DEFAULT 1,
+            exclusive       INTEGER NOT NULL DEFAULT 0,
+            style           TEXT,
+            emoji           TEXT,
+            role_id         INTEGER,
+            position        INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(menu_id) REFERENCES role_menus(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS role_menu_options (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            component_id    INTEGER NOT NULL,
+            role_id         INTEGER NOT NULL,
+            label           TEXT NOT NULL,
+            description     TEXT,
+            emoji           TEXT,
+            position        INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(component_id, role_id),
+            FOREIGN KEY(component_id) REFERENCES role_menu_components(id) ON DELETE CASCADE
+        );
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
@@ -785,6 +829,197 @@ def close_ticket(channel_id: int) -> None:
     _db().execute(
         "UPDATE tickets SET closed = 1 WHERE channel_id = ?", (channel_id,)
     )
+    _db().commit()
+
+
+# ---------------------------------------------------------------------- role menus
+
+
+def create_role_menu(
+    *,
+    guild_id: int,
+    channel_id: int,
+    title: str,
+    description: Optional[str],
+    color: Optional[int],
+    footer: Optional[str],
+    image_url: Optional[str],
+    thumbnail_url: Optional[str],
+    created_by: int,
+) -> int:
+    now = _now_iso()
+    cur = _db().execute(
+        """
+        INSERT INTO role_menus
+            (guild_id, channel_id, title, description, color, footer,
+             image_url, thumbnail_url, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            guild_id,
+            channel_id,
+            title,
+            description,
+            color,
+            footer,
+            image_url,
+            thumbnail_url,
+            created_by,
+            now,
+            now,
+        ),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_role_menu(menu_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute("SELECT * FROM role_menus WHERE id = ?", (menu_id,)).fetchone()
+
+
+def get_role_menu_by_message(message_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM role_menus WHERE message_id = ?", (message_id,)
+    ).fetchone()
+
+
+def list_role_menus(guild_id: Optional[int] = None) -> list[sqlite3.Row]:
+    if guild_id is None:
+        rows = _db().execute("SELECT * FROM role_menus ORDER BY id DESC").fetchall()
+    else:
+        rows = _db().execute(
+            "SELECT * FROM role_menus WHERE guild_id = ? ORDER BY id DESC",
+            (guild_id,),
+        ).fetchall()
+    return list(rows)
+
+
+def update_role_menu(menu_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = _now_iso()
+    assignments = ", ".join(f"{col} = ?" for col in fields)
+    _db().execute(
+        f"UPDATE role_menus SET {assignments} WHERE id = ?",
+        (*fields.values(), menu_id),
+    )
+    _db().commit()
+
+
+def delete_role_menu(menu_id: int) -> None:
+    _db().execute("DELETE FROM role_menus WHERE id = ?", (menu_id,))
+    _db().commit()
+
+
+def add_role_menu_component(
+    *,
+    menu_id: int,
+    component_type: str,
+    label: Optional[str] = None,
+    placeholder: Optional[str] = None,
+    min_values: int = 0,
+    max_values: int = 1,
+    exclusive: bool = False,
+    style: Optional[str] = None,
+    emoji: Optional[str] = None,
+    role_id: Optional[int] = None,
+) -> int:
+    row = _db().execute(
+        "SELECT COALESCE(MAX(position), -1) + 1 AS next_position "
+        "FROM role_menu_components WHERE menu_id = ?",
+        (menu_id,),
+    ).fetchone()
+    position = row["next_position"] if row else 0
+    cur = _db().execute(
+        """
+        INSERT INTO role_menu_components
+            (menu_id, component_type, label, placeholder, min_values, max_values,
+             exclusive, style, emoji, role_id, position)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            menu_id,
+            component_type,
+            label,
+            placeholder,
+            min_values,
+            max_values,
+            1 if exclusive else 0,
+            style,
+            emoji,
+            role_id,
+            position,
+        ),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_role_menu_component(component_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM role_menu_components WHERE id = ?", (component_id,)
+    ).fetchone()
+
+
+def list_role_menu_components(menu_id: int) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        "SELECT * FROM role_menu_components WHERE menu_id = ? ORDER BY position, id",
+        (menu_id,),
+    ).fetchall()
+    return list(rows)
+
+
+def delete_role_menu_component(component_id: int) -> None:
+    _db().execute("DELETE FROM role_menu_components WHERE id = ?", (component_id,))
+    _db().commit()
+
+
+def add_role_menu_option(
+    *,
+    component_id: int,
+    role_id: int,
+    label: str,
+    description: Optional[str] = None,
+    emoji: Optional[str] = None,
+) -> int:
+    row = _db().execute(
+        "SELECT COALESCE(MAX(position), -1) + 1 AS next_position "
+        "FROM role_menu_options WHERE component_id = ?",
+        (component_id,),
+    ).fetchone()
+    position = row["next_position"] if row else 0
+    cur = _db().execute(
+        """
+        INSERT INTO role_menu_options
+            (component_id, role_id, label, description, emoji, position)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(component_id, role_id) DO UPDATE SET
+            label = excluded.label,
+            description = excluded.description,
+            emoji = excluded.emoji
+        """,
+        (component_id, role_id, label, description, emoji, position),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_role_menu_option(option_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM role_menu_options WHERE id = ?", (option_id,)
+    ).fetchone()
+
+
+def list_role_menu_options(component_id: int) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        "SELECT * FROM role_menu_options WHERE component_id = ? ORDER BY position, id",
+        (component_id,),
+    ).fetchall()
+    return list(rows)
+
+
+def delete_role_menu_option(option_id: int) -> None:
+    _db().execute("DELETE FROM role_menu_options WHERE id = ?", (option_id,))
     _db().commit()
 
 

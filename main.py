@@ -47,6 +47,7 @@ COGS = [
     "cogs.ticket",
     "cogs.verification",
     "cogs.absence",
+    "cogs.rolemenu",
 ]
 
 
