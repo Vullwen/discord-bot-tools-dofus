@@ -41,8 +41,8 @@ def _help_embed() -> discord.Embed:
     embed.add_field(
         name="Vérification Dofus",
         value=(
-            "`/stuff render` : genere une image depuis un lien Dofusbook\n"
             "`/stuff refresh` : regenere le dernier stuff Dofusbook recent du salon\n"
+            "Lien Dofusbook poste : genere automatiquement une image du stuff\n"
             "`/mychars` : liste tes personnages vérifiés\n"
             "`/chars` : liste les personnages vérifiés d'un membre\n"
             "`/find` : retrouve le Discord lié à un personnage"

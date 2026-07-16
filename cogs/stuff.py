@@ -30,23 +30,6 @@ class StuffCog(commands.Cog):
         self.bot = bot
 
     @stuff.command(
-        name="render",
-        description="Genere une image a partir d'un lien Dofusbook",
-    )
-    @app_commands.describe(lien="Lien dofusbook.net ou d-bk.net du stuff")
-    async def render(self, interaction: discord.Interaction, lien: str):
-        try:
-            stuff_link = parse_dofusbook_url(lien)
-        except ValueError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
-            return
-
-        await interaction.response.defer(thinking=True)
-
-        content, file = await _build_stuff_response(stuff_link)
-        await interaction.followup.send(content=content, file=file)
-
-    @stuff.command(
         name="refresh",
         description="Regénere le dernier stuff Dofusbook récent du salon",
     )
