@@ -84,6 +84,14 @@ Tickets :
 - Le créateur du ticket et les organisateurs peuvent ajouter des membres ou fermer
   le salon.
 
+Marché :
+
+- Dans le forum marché, chaque nouveau post reçoit automatiquement les boutons
+  **Mettre le prix** et **Vente finalisée**.
+- Seul l'OP peut définir le prix en kamas. L'OP ou un admin peut finaliser la
+  vente ; le post est alors renommé avec le préfixe `[finalisé]` puis verrouillé
+  et archivé.
+
 Vérification Dofus :
 
 - Les commandes de liaison `/link` et `/unlink` sont désactivées pour le moment.
@@ -138,6 +146,8 @@ Voir `.env.example` pour la liste complète. Les principales :
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
 - `REMINDER_DELETE_HOURS` — délai de suppression des messages de rappel/raid
   après publication ou heure prévue (2 par défaut).
+- `MARKET_FORUM_CHANNEL_ID` — ID du forum marché. Si vide, le bot détecte un
+  forum nommé `le marché` / `marché`.
 - `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour la vérification
   (`Bagarres et Belettes` par défaut, surchargeable par `/setdofusconfig`).
 - `DOFUS_SERVER` — serveur Dofus par défaut (`Dakal` par défaut, surchargeable par

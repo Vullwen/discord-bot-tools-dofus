@@ -12,6 +12,7 @@ def test_import_cogs():
     import cogs.absence  # noqa: F401
     import cogs.rolemenu  # noqa: F401
     import cogs.stuff  # noqa: F401
+    import cogs.market  # noqa: F401
 
 
 def test_import_modules():

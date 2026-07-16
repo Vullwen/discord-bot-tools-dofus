@@ -35,6 +35,9 @@ def _parse_channel_id(raw: str) -> int:
 # Vide = on utilise le salon où la commande /raid a été invoquée.
 RAIDS_CHANNEL_ID = _parse_channel_id(os.getenv("RAIDS_CHANNEL_ID", ""))
 
+# Forum du marché. Vide = détection par nom du salon ("le marché", "marché").
+MARKET_FORUM_CHANNEL_ID = _parse_channel_id(os.getenv("MARKET_FORUM_CHANNEL_ID", ""))
+
 def _parse_hours(raw: str) -> list[int]:
     hours = []
     for chunk in raw.split(","):

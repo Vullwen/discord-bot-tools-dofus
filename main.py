@@ -49,6 +49,7 @@ COGS = [
     "cogs.absence",
     "cogs.rolemenu",
     "cogs.stuff",
+    "cogs.market",
 ]
 
 
