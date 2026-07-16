@@ -87,10 +87,10 @@ Tickets :
 Marché :
 
 - Dans le forum marché, chaque nouveau post reçoit automatiquement les boutons
-  **Mettre le prix** et **Vente finalisée**.
-- Seul l'OP peut définir le prix en kamas. L'OP ou un admin peut finaliser la
-  vente ; le post est alors renommé avec le préfixe `[finalisé]` puis verrouillé
-  et archivé.
+  **Mettre le prix** et **Clôturer la vente**.
+- Seul l'OP peut définir le prix en kamas. L'OP ou un admin peut clôturer la
+  vente en choisissant **Vente échouée**, **Vente guilde** ou **Vente HDV** ;
+  le post est alors renommé, verrouillé et archivé.
 
 Vérification Dofus :
 

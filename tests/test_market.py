@@ -35,9 +35,13 @@ class FakeUser:
 class FakeResponse:
     def __init__(self):
         self.messages = []
+        self.modals = []
 
     async def send_message(self, content=None, **kwargs):
         self.messages.append((content, kwargs))
+
+    async def send_modal(self, modal):
+        self.modals.append(modal)
 
 
 class FakeInteraction:
@@ -134,14 +138,50 @@ async def test_non_op_cannot_set_price(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_op_can_finalize_sale(monkeypatch):
+async def test_op_can_prompt_close_choices(monkeypatch):
+    thread = FakeThread(owner_id=10)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.prompt_close_sale(interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    assert content == "Choisis comment clôturer cette vente :"
+    assert kwargs["ephemeral"] is True
+    assert kwargs["view"] is not None
+
+
+@pytest.mark.asyncio
+async def test_op_can_close_sale_as_guild_sale(monkeypatch):
     thread = FakeThread(name="Gelano - 1 500 000 kamas", owner_id=10)
     cog = market.MarketCog(FakeBot(channel=thread))
     interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
 
-    await cog.finalize_sale(interaction)
+    await cog.close_sale(interaction, "guild")
 
-    assert thread.name == "[finalisé] Gelano - 1 500 000 kamas"
+    assert thread.name == "[vente guilde] Gelano - 1 500 000 kamas"
+    assert thread.archived is True
+    assert thread.locked is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("failed", "[vente échouée] Gelano"),
+        ("hdv", "[vente hdv] Gelano"),
+    ],
+)
+async def test_close_sale_statuses_rename_and_lock(monkeypatch, status, expected):
+    thread = FakeThread(name="Gelano", owner_id=10)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.close_sale(interaction, status)
+
+    assert thread.name == expected
     assert thread.archived is True
     assert thread.locked is True

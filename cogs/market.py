@@ -1,7 +1,7 @@
 """Gestion du forum marché.
 
 Quand un nouveau post est créé dans le forum marché, le bot ajoute un petit
-message de gestion avec deux boutons : définir le prix et finaliser la vente.
+message de gestion avec deux boutons : définir le prix et clôturer la vente.
 """
 from __future__ import annotations
 
@@ -21,8 +21,13 @@ logger = logging.getLogger("beb-raid.market")
 
 MARKET_FORUM_NAMES = {"le marche", "marche", "le-marché", "marché", "market"}
 PRICE_SUFFIX_RE = re.compile(r"\s+-\s+[\d ]+\s+kamas?$", re.IGNORECASE)
-FINALIZED_PREFIX_RE = re.compile(r"^\s*\[finalis[ée]?\]\s*", re.IGNORECASE)
+STATUS_PREFIX_RE = re.compile(r"^\s*\[(?:finalis[ée]?|vente échouée|vente guilde|vente hdv)\]\s*", re.IGNORECASE)
 MAX_THREAD_NAME_LENGTH = 100
+SALE_CLOSE_CHOICES = {
+    "failed": {"label": "Vente échouée", "prefix": "[vente échouée]", "style": discord.ButtonStyle.danger},
+    "guild": {"label": "Vente guilde", "prefix": "[vente guilde]", "style": discord.ButtonStyle.success},
+    "hdv": {"label": "Vente HDV", "prefix": "[vente hdv]", "style": discord.ButtonStyle.primary},
+}
 
 
 def _normalize_name(value: str) -> str:
@@ -36,7 +41,7 @@ def _format_kamas(value: int) -> str:
 
 
 def _base_sale_name(name: str) -> str:
-    without_status = FINALIZED_PREFIX_RE.sub("", name).strip()
+    without_status = STATUS_PREFIX_RE.sub("", name).strip()
     without_price = PRICE_SUFFIX_RE.sub("", without_status).strip()
     return without_price or "Vente"
 
@@ -50,9 +55,9 @@ def _with_price(name: str, price: int) -> str:
     return f"{base}{suffix}"
 
 
-def _finalized_name(name: str) -> str:
-    base = FINALIZED_PREFIX_RE.sub("", name).strip() or "Vente"
-    prefix = "[finalisé] "
+def _closed_name(name: str, status: str) -> str:
+    base = STATUS_PREFIX_RE.sub("", name).strip() or "Vente"
+    prefix = f"{SALE_CLOSE_CHOICES[status]['prefix']} "
     max_base_len = MAX_THREAD_NAME_LENGTH - len(prefix)
     if len(base) > max_base_len:
         base = base[:max_base_len].rstrip()
@@ -111,7 +116,20 @@ class _SetPriceButton(discord.ui.Button):
         await interaction.response.send_modal(MarketPriceModal(self.cog, control_message_id))
 
 
-class _FinalizeSaleButton(discord.ui.Button):
+class _CloseSaleButton(discord.ui.Button):
+    def __init__(self, cog: "MarketCog"):
+        super().__init__(
+            label="✅ Clôturer la vente",
+            style=discord.ButtonStyle.success,
+            custom_id="bebraid:market:close",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.prompt_close_sale(interaction)
+
+
+class _LegacyFinalizeSaleButton(discord.ui.Button):
     def __init__(self, cog: "MarketCog"):
         super().__init__(
             label="✅ Vente finalisée",
@@ -121,14 +139,38 @@ class _FinalizeSaleButton(discord.ui.Button):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self.cog.finalize_sale(interaction)
+        await self.cog.prompt_close_sale(interaction)
+
+
+class _CloseChoiceButton(discord.ui.Button):
+    def __init__(self, cog: "MarketCog", status: str):
+        choice = SALE_CLOSE_CHOICES[status]
+        super().__init__(label=choice["label"], style=choice["style"])
+        self.cog = cog
+        self.status = status
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.close_sale(interaction, self.status)
+
+
+class MarketCloseChoiceView(discord.ui.View):
+    def __init__(self, cog: "MarketCog"):
+        super().__init__(timeout=300)
+        for status in SALE_CLOSE_CHOICES:
+            self.add_item(_CloseChoiceButton(cog, status))
+
+
+class MarketLegacyPostView(discord.ui.View):
+    def __init__(self, cog: "MarketCog"):
+        super().__init__(timeout=None)
+        self.add_item(_LegacyFinalizeSaleButton(cog))
 
 
 class MarketPostView(discord.ui.View):
     def __init__(self, cog: "MarketCog"):
         super().__init__(timeout=None)
         self.add_item(_SetPriceButton(cog))
-        self.add_item(_FinalizeSaleButton(cog))
+        self.add_item(_CloseSaleButton(cog))
 
 
 class MarketCog(commands.Cog):
@@ -137,6 +179,7 @@ class MarketCog(commands.Cog):
 
     async def cog_load(self) -> None:
         self.bot.add_view(MarketPostView(self))
+        self.bot.add_view(MarketLegacyPostView(self))
         logger.info("MarketCog prêt")
 
     def is_market_thread(self, channel) -> bool:
@@ -156,7 +199,7 @@ class MarketCog(commands.Cog):
         owner_id = getattr(interaction.channel, "owner_id", None)
         return owner_id is not None and interaction.user.id == owner_id
 
-    def can_finalize(self, interaction: discord.Interaction) -> bool:
+    def can_close(self, interaction: discord.Interaction) -> bool:
         return self.is_op(interaction) or is_bot_admin(interaction)
 
     @commands.Cog.listener()
@@ -194,21 +237,38 @@ class MarketCog(commands.Cog):
         await self._edit_control_message(thread, control_message_id, price_label)
         await interaction.response.send_message(f"Prix défini : **{price_label} kamas**.", ephemeral=True)
 
-    async def finalize_sale(self, interaction: discord.Interaction) -> None:
+    async def prompt_close_sale(self, interaction: discord.Interaction) -> None:
+        if not self.is_market_thread(interaction.channel):
+            await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
+            return
+        if not self.can_close(interaction):
+            await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer la vente.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "Choisis comment clôturer cette vente :",
+            view=MarketCloseChoiceView(self),
+            ephemeral=True,
+        )
+
+    async def close_sale(self, interaction: discord.Interaction, status: str) -> None:
         thread = interaction.channel
+        if status not in SALE_CLOSE_CHOICES:
+            await interaction.response.send_message("Choix de clôture invalide.", ephemeral=True)
+            return
         if not self.is_market_thread(thread):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
-        if not self.can_finalize(interaction):
-            await interaction.response.send_message("Seuls l'OP et les admins peuvent finaliser la vente.", ephemeral=True)
+        if not self.can_close(interaction):
+            await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer la vente.", ephemeral=True)
             return
 
+        label = SALE_CLOSE_CHOICES[status]["label"]
         try:
             await thread.edit(
-                name=_finalized_name(thread.name),
+                name=_closed_name(thread.name, status),
                 archived=True,
                 locked=True,
-                reason=f"Vente finalisée par {interaction.user}",
+                reason=f"{label} par {interaction.user}",
             )
         except discord.Forbidden:
             await interaction.response.send_message(
@@ -217,11 +277,11 @@ class MarketCog(commands.Cog):
             )
             return
         except discord.DiscordException as exc:
-            logger.warning("Finalisation marché échouée pour %s: %s", thread.id, exc)
-            await interaction.response.send_message("Impossible de finaliser ce post.", ephemeral=True)
+            logger.warning("Clôture marché échouée pour %s: %s", thread.id, exc)
+            await interaction.response.send_message("Impossible de clôturer ce post.", ephemeral=True)
             return
 
-        await interaction.response.send_message("Vente finalisée, post clôturé.", ephemeral=True)
+        await interaction.response.send_message(f"{label} : post clôturé.", ephemeral=True)
 
     def _control_content(self, price_label: Optional[str] = None) -> str:
         price_text = f"**Prix :** {price_label} kamas" if price_label else "**Prix :** non renseigné"
