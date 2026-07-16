@@ -34,13 +34,12 @@ class StuffCog(commands.Cog):
         description="Regénere le dernier stuff Dofusbook récent du salon",
     )
     async def refresh(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(thinking=True)
 
         channel = interaction.channel
         if channel is None or not hasattr(channel, "history"):
             await interaction.followup.send(
                 "Je ne peux pas lire l'historique de ce salon.",
-                ephemeral=True,
             )
             return
 
@@ -49,18 +48,16 @@ class StuffCog(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send(
                 "Il me manque l'accès à l'historique de ce salon.",
-                ephemeral=True,
             )
             return
 
         if source_message is None or stuff_link is None:
             await interaction.followup.send(
                 "Aucun lien Dofusbook récent trouvé dans ce salon.",
-                ephemeral=True,
             )
             return
 
-        deleted = await _delete_previous_stuff_replies(
+        await _delete_previous_stuff_images(
             channel,
             source_message.id,
             getattr(self.bot.user, "id", None),
@@ -68,16 +65,7 @@ class StuffCog(commands.Cog):
 
         async with channel.typing():
             content, file = await _build_stuff_response(stuff_link)
-            await source_message.reply(
-                content=content,
-                file=file,
-                mention_author=False,
-            )
-
-        await interaction.followup.send(
-            f"Stuff rafraichi ({deleted} ancienne image supprimee).",
-            ephemeral=True,
-        )
+            await interaction.followup.send(content=content, file=file)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -118,7 +106,7 @@ async def _find_recent_stuff_message(channel) -> tuple[discord.Message | None, S
     return None, None
 
 
-async def _delete_previous_stuff_replies(
+async def _delete_previous_stuff_images(
     channel,
     source_message_id: int,
     bot_user_id: int | None,
@@ -128,11 +116,10 @@ async def _delete_previous_stuff_replies(
 
     deleted = 0
     async for message in channel.history(limit=RECENT_HISTORY_LIMIT):
-        if message.author.id != bot_user_id:
-            continue
+        if message.id == source_message_id:
+            break
 
-        reference = getattr(message, "reference", None)
-        if getattr(reference, "message_id", None) != source_message_id:
+        if message.author.id != bot_user_id:
             continue
 
         if not _looks_like_stuff_response(message):
