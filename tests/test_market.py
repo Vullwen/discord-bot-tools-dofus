@@ -192,7 +192,21 @@ async def test_op_can_set_price_and_thread_is_renamed(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_non_op_cannot_set_price(monkeypatch):
+async def test_admin_can_set_price(monkeypatch):
+    thread = FakeThread(name="Dofus turquoise", owner_id=10)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    user = FakeUser(99)
+    interaction = FakeInteraction(user=user, guild=type("Guild", (), {"owner_id": 99, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.set_price(interaction, 1500000, None)
+
+    assert thread.name == "Dofus turquoise - 1 500 000 kamas"
+    assert interaction.response.messages[0][0] == "Prix défini : **1 500 000 kamas**."
+
+
+@pytest.mark.asyncio
+async def test_non_op_non_admin_cannot_set_price(monkeypatch):
     thread = FakeThread(owner_id=10)
     cog = market.MarketCog(FakeBot(channel=thread))
     interaction = FakeInteraction(user=FakeUser(99), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
@@ -201,7 +215,7 @@ async def test_non_op_cannot_set_price(monkeypatch):
     await cog.set_price(interaction, 1500000, None)
 
     assert thread.name == "Gelano"
-    assert interaction.response.messages[0][0] == "Seul l'OP peut modifier le prix."
+    assert interaction.response.messages[0][0] == "Seuls l'OP et les admins peuvent utiliser ce bouton."
 
 
 @pytest.mark.asyncio

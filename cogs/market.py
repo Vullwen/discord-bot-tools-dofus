@@ -113,8 +113,8 @@ class _SetPriceButton(discord.ui.Button):
         if not self.cog.is_market_thread(interaction.channel):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
-        if not self.cog.is_op(interaction):
-            await interaction.response.send_message("Seul l'OP peut modifier le prix.", ephemeral=True)
+        if not self.cog.can_manage_post(interaction):
+            await interaction.response.send_message("Seuls l'OP et les admins peuvent utiliser ce bouton.", ephemeral=True)
             return
         control_message_id = getattr(getattr(interaction, "message", None), "id", None)
         await interaction.response.send_modal(MarketPriceModal(self.cog, control_message_id))
@@ -210,7 +210,7 @@ class MarketCog(commands.Cog):
         owner_id = getattr(interaction.channel, "owner_id", None)
         return owner_id is not None and interaction.user.id == owner_id
 
-    def can_close(self, interaction: discord.Interaction) -> bool:
+    def can_manage_post(self, interaction: discord.Interaction) -> bool:
         return self.is_op(interaction) or is_bot_admin(interaction)
 
     @commands.Cog.listener()
@@ -239,8 +239,8 @@ class MarketCog(commands.Cog):
         if not self.is_market_thread(thread):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
-        if not self.is_op(interaction):
-            await interaction.response.send_message("Seul l'OP peut modifier le prix.", ephemeral=True)
+        if not self.can_manage_post(interaction):
+            await interaction.response.send_message("Seuls l'OP et les admins peuvent utiliser ce bouton.", ephemeral=True)
             return
 
         price_label = _format_kamas(price)
@@ -259,7 +259,7 @@ class MarketCog(commands.Cog):
         if not self.is_market_thread(interaction.channel):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
-        if not self.can_close(interaction):
+        if not self.can_manage_post(interaction):
             await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer la vente.", ephemeral=True)
             return
         await interaction.response.send_message(
@@ -276,7 +276,7 @@ class MarketCog(commands.Cog):
         if not self.is_market_thread(thread):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
-        if not self.can_close(interaction):
+        if not self.can_manage_post(interaction):
             await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer la vente.", ephemeral=True)
             return
 
