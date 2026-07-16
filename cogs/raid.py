@@ -19,7 +19,6 @@ from discord.ext import commands
 
 import db
 from config import (
-    PARIS,
     RAID_DEFAULT_HOUR,
     RAID_HOURS,
     RAID_NAMES,
@@ -1506,7 +1505,7 @@ class RaidCog(commands.Cog):
                 logger.warning("Rappel #%d : message salon échoué: %s", raid_id, exc)
 
         db.set_raid_state(raid_id, STATE_REMINDED)
-        logger.info("Rappel #%d envoyé à %d/%d participant(s)", raid_id, sent, len(participants))
+        logger.info("Rappel #%d envoyé à %d/%d participant(s)", raid_id, sent, len(confirmed_uids))
 
     async def _mark_done(self, raid_id: int) -> None:
         raid = db.get_raid(raid_id)

@@ -5,7 +5,7 @@ Aucune dépendance Discord ni DB : testable unitairement.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Iterable, Mapping, Optional
+from typing import Iterable, Mapping
 
 # États possibles du cycle de vie d'un raid.
 STATE_CHOOSING_RAID = "choosing_raid"  # sondage choix du raid en cours
