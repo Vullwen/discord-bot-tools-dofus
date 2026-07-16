@@ -47,13 +47,23 @@ beb_raid/
 │   ├── admin.py         #   /sync /reload
 │   ├── settings.py      #   /setchannel /showconfig
 │   ├── raid.py          #   ★ cœur métier : sondages, planif, rappels
-│   └── ticket.py        #   boutons des tickets privés existants
+│   ├── ticket.py        #   boutons des tickets privés existants
+│   ├── verification.py  #   vérification Dofus par salon privé + OCR
+│   ├── absence.py       #   déclarations, recherche et kick AFK
+│   ├── rolemenu.py      #   panneaux de rôles persistants
+│   ├── stuff.py         #   refresh Dofusbook
+│   └── market.py        #   forum marché + clôture automatique
 ├── utils/               # Logique pure (testable sans Discord)
 │   ├── dates.py         #   parsing de dates/heures (Paris)
 │   ├── poll.py          #   états, dépouillement, formatage
 │   ├── embeds.py        #   builders d'embeds Discord
-│   └── perms.py         #   permissions : rôle organisateur (raid/ticket)
+│   ├── perms.py         #   permissions : rôle organisateur/admin bot
+│   ├── names.py         #   normalisation des noms
+│   ├── stuff_card.py    #   rendu image des stuffs
+│   ├── stuff_capture.py #   capture Dofusbook via navigateur
+│   └── verification.py  #   parsing OCR de vérification Dofus
 ├── data/                # SQLite (monté en volume, gitignoré)
+├── COMMANDS.md          # Catalogue commandes + nomenclature cible
 └── tests/               # pytest
 ```
 
@@ -68,7 +78,7 @@ préfixe), charge les cogs, sync les slash commands.
 - `sync_commands()` — sync slash commands : guilde ciblée si `DISCORD_GUILD_ID`, sinon global + nettoyage des copies de guilde.
 - `on_ready()` — log + `sync_commands()` + activité « watching les raids ».
 - `on_app_command_error(interaction, error)` — handler centralisé : log + message user-friendly éphémère.
-- `main()` — vérifie `DISCORD_TOKEN`, charge `COGS = [core, admin, settings, raid, ticket]`, démarre.
+- `main()` — vérifie `DISCORD_TOKEN`, charge `COGS`, démarre.
 - Liste **`COGS`** = ordre de chargement des cogs.
 
 ---
@@ -100,7 +110,13 @@ Constantes globales : `DISCORD_TOKEN`, `DISCORD_GUILD_ID`, `BOT_NAME`, `LOG_LEVE
 Connexion globale, `row_factory=Row`, `CREATE TABLE IF NOT EXISTS`, WAL, FK ON.
 Datetimes stockés en **ISO aware**, dates en `YYYY-MM-DD`.
 
-**Tables :** `raids`, `votes`, `participants`, `tickets`, `guild_settings`.
+**Tables :** `raids`, `votes`, `participants`, `tickets`, `guild_settings`,
+`absences`, `raid_bans`, `verification_requests`, `dofus_characters`,
+`role_menus`, `role_menu_components`, `role_menu_options`, `market_posts`.
+
+Des index idempotents sont créés au démarrage pour les lectures fréquentes :
+raids actifs/cleanup, votes par raid/type/choix, participants par statut, bans
+actifs, vérifications en attente, absences à nettoyer et posts marché inactifs.
 
 > Schéma `raids` : `id, name, date, poll_duration_seconds, poll_close_hour, created_by, guild_id,
 > channel_id, state, raid_poll_message_id, hour_poll_message_id,
@@ -145,6 +161,17 @@ Datetimes stockés en **ISO aware**, dates en `YYYY-MM-DD`.
 
 ### Tests
 - `reset_for_tests(db_path)` — ferme + rouvre sur une BDD de test.
+
+---
+
+## 4bis. `COMMANDS.md` — Catalogue des commandes
+
+Référence utilisateur/maintenance des slash commands :
+
+- commandes actuelles classées par domaine ;
+- règles de nommage ;
+- nomenclature cible sans underscores (`/raids list`, `/config show`, etc.) ;
+- optimisations prioritaires pour la suite.
 
 ---
 

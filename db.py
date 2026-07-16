@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from datetime import datetime
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from config import DB_PATH
 
@@ -185,6 +185,46 @@ def init(db_path: str = DB_PATH) -> None:
             closed_at           TEXT,
             close_status        TEXT
         );
+
+        CREATE INDEX IF NOT EXISTS idx_raids_state_id
+            ON raids(state, id);
+        CREATE INDEX IF NOT EXISTS idx_raids_reminder_message
+            ON raids(reminder_message_id);
+        CREATE INDEX IF NOT EXISTS idx_raids_cleanup_messages
+            ON raids(state, scheduled_at);
+
+        CREATE INDEX IF NOT EXISTS idx_votes_raid_kind_choice
+            ON votes(raid_id, kind, choice);
+        CREATE INDEX IF NOT EXISTS idx_votes_raid_user_kind
+            ON votes(raid_id, user_id, kind);
+
+        CREATE INDEX IF NOT EXISTS idx_participants_raid_status_joined
+            ON participants(raid_id, status, joined_at);
+        CREATE INDEX IF NOT EXISTS idx_participants_raid_level
+            ON participants(raid_id, level_group);
+
+        CREATE INDEX IF NOT EXISTS idx_raid_bans_guild_until
+            ON raid_bans(guild_id, banned_until, user_id);
+        CREATE INDEX IF NOT EXISTS idx_verification_pending_user
+            ON verification_requests(guild_id, discord_id, status, expires_at);
+        CREATE INDEX IF NOT EXISTS idx_dofus_characters_user_active
+            ON dofus_characters(guild_id, discord_id, active, is_main, character_name);
+        CREATE INDEX IF NOT EXISTS idx_dofus_characters_lookup
+            ON dofus_characters(guild_id, active, character_name);
+
+        CREATE INDEX IF NOT EXISTS idx_role_menus_guild_id
+            ON role_menus(guild_id, id);
+        CREATE INDEX IF NOT EXISTS idx_role_menu_components_menu_position
+            ON role_menu_components(menu_id, position, id);
+        CREATE INDEX IF NOT EXISTS idx_role_menu_options_component_position
+            ON role_menu_options(component_id, position, id);
+
+        CREATE INDEX IF NOT EXISTS idx_absences_cleanup
+            ON absences(public_deleted_at, end_date, id);
+        CREATE INDEX IF NOT EXISTS idx_absences_search
+            ON absences(guild_id, public_deleted_at, end_date, start_date, id);
+        CREATE INDEX IF NOT EXISTS idx_market_posts_inactive
+            ON market_posts(closed_at, last_activity_at);
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).

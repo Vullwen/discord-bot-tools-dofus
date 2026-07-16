@@ -39,9 +39,11 @@ le premier joueur en attente est promu automatiquement et reçoit un MP.
 
 ## Commandes
 
+La référence complète et la nomenclature cible sont dans `COMMANDS.md`.
+
 Général :
 
-- `/help` — affiche l'aide du bot (admin).
+- `/help` — affiche l'aide du bot.
 - `/ping` — vérifie que le bot répond.
 
 Raids :
@@ -94,6 +96,11 @@ Marché :
 - Après 30 jours sans activité, le post est automatiquement clôturé en
   **Vente échouée** et l'OP reçoit un MP.
 
+Stuff Dofusbook :
+
+- `/stuff refresh` — régénère le dernier stuff Dofusbook récent du salon.
+- Un lien Dofusbook posté dans un salon génère automatiquement une image du stuff.
+
 Vérification Dofus :
 
 - Les commandes de liaison `/link` et `/unlink` sont désactivées pour le moment.
@@ -110,14 +117,27 @@ Configuration (organisateur) :
 
 - `/setchannel` — salons des raids, de l'admin raids, des absences et des motifs admin.
 - `/setchannel` permet aussi de définir le forum marché.
+- `/setbotadminrole` — rôle donnant les droits admin du bot.
 - `/setraidrole` — rôle autorisé à créer et gérer les raids : ID, mention copiée
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
   ou nom exact (vide = pas de mention).
+- `/setbaserole` — rôle remis après `/absence kick`.
 - `/setmemberrole` — rôle donné automatiquement après une vérification Dofus réussie.
 - `/setunverifiedrole` — rôle "à vérifier" retiré automatiquement après une vérification réussie.
 - `/setdofusconfig` — nom de guilde et serveur attendus dans les screenshots de vérification.
 - `/showconfig` — affiche la config du serveur.
+
+Menus de rôles :
+
+- `/rolemenu create` — crée un panneau de rôles.
+- `/rolemenu edit_embed` et `/rolemenu edit_description` — modifient le contenu de l'embed.
+- `/rolemenu add_button`, `/rolemenu edit_button`, `/rolemenu add_select`,
+  `/rolemenu edit_select`, `/rolemenu add_option`, `/rolemenu edit_option` et
+  `/rolemenu move_option` — gèrent les composants.
+- `/rolemenu remove_component` et `/rolemenu remove_option` — suppriment un composant ou une option.
+- `/rolemenu list`, `/rolemenu inspect`, `/rolemenu refresh`, `/rolemenu export`,
+  `/rolemenu copy` et `/rolemenu import_config` — exploitent, dupliquent ou restaurent les panneaux.
 
 ## Rôles
 

@@ -16,13 +16,12 @@ def _help_embed() -> discord.Embed:
     embed.add_field(
         name="Raids",
         value=(
-            "`/raid` : crée un raid\n"
+            "`/raid` : crée un raid ou un sondage\n"
             "`/list_raids` : liste les raids actifs\n"
-            "`/ban_raid` : interdit temporairement les votes et inscriptions\n"
-            "`/unban_raid` : retire un ban raid\n"
-            "`/show_bans` : liste les bans raid actifs\n"
             "`/cancel_raid` : annule un raid\n"
-            "`/force_close` : clôture un sondage"
+            "`/force_close` : clôture un sondage\n"
+            "`/ban_raid` / `/unban_raid` : gère les bans raid\n"
+            "`/show_bans` : liste les bans actifs"
         ),
         inline=False,
     )
@@ -39,10 +38,16 @@ def _help_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
+        name="Stuff Dofusbook",
+        value=(
+            "`/stuff refresh` : régénère le dernier stuff Dofusbook récent du salon\n"
+            "Lien Dofusbook posté : génère automatiquement une image du stuff"
+        ),
+        inline=False,
+    )
+    embed.add_field(
         name="Vérification Dofus",
         value=(
-            "`/stuff refresh` : regenere le dernier stuff Dofusbook recent du salon\n"
-            "Lien Dofusbook poste : genere automatiquement une image du stuff\n"
             "`/mychars` : liste tes personnages vérifiés\n"
             "`/chars` : liste les personnages vérifiés d'un membre\n"
             "`/find` : retrouve le Discord lié à un personnage"
@@ -53,12 +58,10 @@ def _help_embed() -> discord.Embed:
         name="Configuration",
         value=(
             "`/setchannel` : configure les salons\n"
-            "`/setbotadminrole` : configure le rôle admin bot\n"
-            "`/setraidrole` : configure le rôle organisateur\n"
-            "`/setraidnotifyrole` : configure le rôle de notification\n"
+            "`/setbotadminrole` / `/setraidrole` : configure les droits bot/raid\n"
+            "`/setraidnotifyrole` : configure le rôle de notification raid\n"
             "`/setbaserole` : configure le rôle remis avec `/absence kick`\n"
-            "`/setmemberrole` : configure le rôle donné après vérification\n"
-            "`/setunverifiedrole` : configure le rôle retiré après vérification\n"
+            "`/setmemberrole` / `/setunverifiedrole` : configure les rôles de vérification\n"
             "`/setdofusconfig` : configure guilde/serveur Dofus pour la vérification\n"
             "`/showconfig` : affiche la configuration"
         ),
@@ -68,15 +71,13 @@ def _help_embed() -> discord.Embed:
         name="Menus de rôles",
         value=(
             "`/rolemenu create` : crée un panneau de rôles\n"
-            "`/rolemenu edit_description` : édite la description en multiline\n"
-            "`/rolemenu add_button` : ajoute un bouton de rôle\n"
-            "`/rolemenu edit_button` : modifie un bouton existant\n"
-            "`/rolemenu add_select` puis `/rolemenu add_option` : ajoute un menu select\n"
-            "`/rolemenu edit_select` / `edit_option` / `move_option` : modifie les selects/options\n"
-            "`/rolemenu inspect` : liste les IDs à utiliser pour éditer\n"
-            "`/rolemenu export` : récupère le JSON d'un panneau existant\n"
-            "`/rolemenu copy` : duplique un panneau dans un salon\n"
-            "`/rolemenu import_config` : crée un panneau complet depuis du JSON"
+            "`/rolemenu edit_embed` / `edit_description` : édite l'embed\n"
+            "`/rolemenu add_button` / `edit_button` : gère les boutons\n"
+            "`/rolemenu add_select` / `edit_select` : gère les selects\n"
+            "`/rolemenu add_option` / `edit_option` / `move_option` : gère les options\n"
+            "`/rolemenu remove_component` / `remove_option` : supprime un élément\n"
+            "`/rolemenu list` / `inspect` / `refresh` : exploite les panneaux\n"
+            "`/rolemenu export` / `import_config` / `copy` : duplique ou restaure"
         ),
         inline=False,
     )

@@ -28,6 +28,23 @@ def test_create_and_get(tmp_path):
     assert raid["poll_duration_seconds"] == 3600
 
 
+def test_hot_path_indexes_are_created(tmp_path):
+    _fresh(tmp_path)
+    rows = db._db().execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index'"
+    ).fetchall()
+    index_names = {row["name"] for row in rows}
+
+    for name in (
+        "idx_raids_state_id",
+        "idx_votes_raid_kind_choice",
+        "idx_participants_raid_status_joined",
+        "idx_absences_search",
+        "idx_market_posts_inactive",
+    ):
+        assert name in index_names
+
+
 def test_votes_changeable_and_counts(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(
