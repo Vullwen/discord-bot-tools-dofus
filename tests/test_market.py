@@ -77,13 +77,24 @@ class FakeInteraction:
 
 
 class FakeThread:
-    def __init__(self, *, thread_id=123, name="Gelano", owner_id=10, parent_name="le marché", parent_id=456, guild=None):
+    def __init__(
+        self,
+        *,
+        thread_id=123,
+        name="Gelano",
+        owner_id=10,
+        parent_name="le marché",
+        parent_id=456,
+        guild=None,
+        tags=(),
+    ):
         self.id = thread_id
         self.name = name
         self.owner_id = owner_id
         self.parent_id = parent_id
         self.parent = type("Parent", (), {"name": parent_name})()
         self.guild = guild
+        self.applied_tags = [SimpleNamespace(name=tag) for tag in tags]
         self.jump_url = f"https://discord.test/channels/{self.id}"
         self.sent = []
         self.edits = []
@@ -130,6 +141,19 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
     assert "Prix" in thread.sent[0].content
     assert thread.sent[0].view is not None
     assert db.get_market_post(thread.id)["control_message_id"] == thread.sent[0].id
+
+
+@pytest.mark.asyncio
+async def test_buy_thread_gets_buy_controls(monkeypatch):
+    thread = FakeThread(guild=SimpleNamespace(id=2), tags=["achat"])
+    cog = market.MarketCog(FakeBot(channel=thread))
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.on_thread_create(thread)
+
+    labels = [item.label for item in thread.sent[0].view.children]
+    assert "✅ Clôturer l'achat" in labels
+    assert "gérer l'achat" in thread.sent[0].content
 
 
 @pytest.mark.asyncio
@@ -234,6 +258,21 @@ async def test_op_can_prompt_close_choices(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_buy_post_prompts_buy_close_choices(monkeypatch):
+    thread = FakeThread(owner_id=10, tags=["achat"])
+    cog = market.MarketCog(FakeBot(channel=thread))
+    interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.prompt_close_sale(interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    labels = [item.label for item in kwargs["view"].children]
+    assert content == "Choisis comment clôturer cet achat :"
+    assert labels == ["Achat échoué", "Achat guilde", "Achat HDV"]
+
+
+@pytest.mark.asyncio
 async def test_op_can_close_sale_as_guild_sale(monkeypatch):
     thread = FakeThread(name="Gelano - 1 500 000 kamas", owner_id=10)
     cog = market.MarketCog(FakeBot(channel=thread))
@@ -243,6 +282,20 @@ async def test_op_can_close_sale_as_guild_sale(monkeypatch):
     await cog.close_sale(interaction, "guild")
 
     assert thread.name == "[vente guilde] Gelano - 1 500 000 kamas"
+    assert thread.archived is True
+    assert thread.locked is True
+
+
+@pytest.mark.asyncio
+async def test_buy_post_close_uses_buy_prefix(monkeypatch):
+    thread = FakeThread(name="Dofus turquoise - 1 500 000 kamas", owner_id=10, tags=["achat"])
+    cog = market.MarketCog(FakeBot(channel=thread))
+    interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.close_sale(interaction, "hdv")
+
+    assert thread.name == "[achat hdv] Dofus turquoise - 1 500 000 kamas"
     assert thread.archived is True
     assert thread.locked is True
 

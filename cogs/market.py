@@ -1,7 +1,7 @@
 """Gestion du forum marché.
 
 Quand un nouveau post est créé dans le forum marché, le bot ajoute un petit
-message de gestion avec deux boutons : définir le prix et clôturer la vente.
+message de gestion avec deux boutons : définir le prix et clôturer l'annonce.
 """
 from __future__ import annotations
 
@@ -23,14 +23,37 @@ logger = logging.getLogger("beb-raid.market")
 
 MARKET_FORUM_NAMES = {"le marche", "marche", "le-marché", "marché", "market"}
 PRICE_SUFFIX_RE = re.compile(r"\s+-\s+[\d ]+\s+kamas?$", re.IGNORECASE)
-STATUS_PREFIX_RE = re.compile(r"^\s*\[(?:finalis[ée]?|vente échouée|vente guilde|vente hdv)\]\s*", re.IGNORECASE)
+STATUS_PREFIX_RE = re.compile(
+    r"^\s*\[(?:finalis[ée]?|vente échouée|vente guilde|vente hdv|achat échoué|achat guilde|achat hdv)\]\s*",
+    re.IGNORECASE,
+)
 MAX_THREAD_NAME_LENGTH = 100
 MARKET_INACTIVITY_DAYS = 30
 MARKET_INACTIVITY_CHECK_SECONDS = 60 * 60
-SALE_CLOSE_CHOICES = {
-    "failed": {"label": "Vente échouée", "prefix": "[vente échouée]", "style": discord.ButtonStyle.danger},
-    "guild": {"label": "Vente guilde", "prefix": "[vente guilde]", "style": discord.ButtonStyle.success},
-    "hdv": {"label": "Vente HDV", "prefix": "[vente hdv]", "style": discord.ButtonStyle.primary},
+MARKET_OPERATIONS = {
+    "sale": {
+        "tag": "vente",
+        "noun": "vente",
+        "object": "la vente",
+        "title": "Vente",
+        "failed_label": "Vente échouée",
+        "close_label": "✅ Clôturer la vente",
+        "prompt": "Choisis comment clôturer cette vente :",
+    },
+    "buy": {
+        "tag": "achat",
+        "noun": "achat",
+        "object": "l'achat",
+        "title": "Achat",
+        "failed_label": "Achat échoué",
+        "close_label": "✅ Clôturer l'achat",
+        "prompt": "Choisis comment clôturer cet achat :",
+    },
+}
+CLOSE_STATUSES = {
+    "failed": {"suffix": "échouée", "buy_suffix": "échoué", "style": discord.ButtonStyle.danger},
+    "guild": {"suffix": "guilde", "buy_suffix": "guilde", "style": discord.ButtonStyle.success},
+    "hdv": {"suffix": "HDV", "buy_suffix": "HDV", "style": discord.ButtonStyle.primary},
 }
 
 
@@ -44,24 +67,45 @@ def _format_kamas(value: int) -> str:
     return f"{value:,}".replace(",", " ")
 
 
-def _base_sale_name(name: str) -> str:
+def _market_operation(thread) -> str:
+    tag_names = {
+        _normalize_name(getattr(tag, "name", ""))
+        for tag in getattr(thread, "applied_tags", []) or []
+    }
+    if MARKET_OPERATIONS["buy"]["tag"] in tag_names:
+        return "buy"
+    return "sale"
+
+
+def _choice_label(operation: str, status: str) -> str:
+    config = MARKET_OPERATIONS[operation]
+    status_config = CLOSE_STATUSES[status]
+    suffix = status_config["buy_suffix"] if operation == "buy" else status_config["suffix"]
+    return f"{config['title']} {suffix}"
+
+
+def _choice_prefix(operation: str, status: str) -> str:
+    return f"[{_choice_label(operation, status).lower()}]"
+
+
+def _base_sale_name(name: str, operation: str = "sale") -> str:
     without_status = STATUS_PREFIX_RE.sub("", name).strip()
     without_price = PRICE_SUFFIX_RE.sub("", without_status).strip()
-    return without_price or "Vente"
+    return without_price or MARKET_OPERATIONS[operation]["title"]
 
 
-def _with_price(name: str, price: int) -> str:
+def _with_price(name: str, price: int, operation: str = "sale") -> str:
     suffix = f" - {_format_kamas(price)} kamas"
     max_base_len = MAX_THREAD_NAME_LENGTH - len(suffix)
-    base = _base_sale_name(name)
+    base = _base_sale_name(name, operation)
     if len(base) > max_base_len:
         base = base[:max_base_len].rstrip()
     return f"{base}{suffix}"
 
 
-def _closed_name(name: str, status: str) -> str:
-    base = STATUS_PREFIX_RE.sub("", name).strip() or "Vente"
-    prefix = f"{SALE_CLOSE_CHOICES[status]['prefix']} "
+def _closed_name(name: str, status: str, operation: str = "sale") -> str:
+    base = STATUS_PREFIX_RE.sub("", name).strip() or MARKET_OPERATIONS[operation]["title"]
+    prefix = f"{_choice_prefix(operation, status)} "
     max_base_len = MAX_THREAD_NAME_LENGTH - len(prefix)
     if len(base) > max_base_len:
         base = base[:max_base_len].rstrip()
@@ -121,9 +165,9 @@ class _SetPriceButton(discord.ui.Button):
 
 
 class _CloseSaleButton(discord.ui.Button):
-    def __init__(self, cog: "MarketCog"):
+    def __init__(self, cog: "MarketCog", operation: str = "sale"):
         super().__init__(
-            label="✅ Clôturer la vente",
+            label=MARKET_OPERATIONS[operation]["close_label"],
             style=discord.ButtonStyle.success,
             custom_id="bebraid:market:close",
         )
@@ -147,9 +191,9 @@ class _LegacyFinalizeSaleButton(discord.ui.Button):
 
 
 class _CloseChoiceButton(discord.ui.Button):
-    def __init__(self, cog: "MarketCog", status: str):
-        choice = SALE_CLOSE_CHOICES[status]
-        super().__init__(label=choice["label"], style=choice["style"])
+    def __init__(self, cog: "MarketCog", status: str, operation: str):
+        choice = CLOSE_STATUSES[status]
+        super().__init__(label=_choice_label(operation, status), style=choice["style"])
         self.cog = cog
         self.status = status
 
@@ -158,10 +202,10 @@ class _CloseChoiceButton(discord.ui.Button):
 
 
 class MarketCloseChoiceView(discord.ui.View):
-    def __init__(self, cog: "MarketCog"):
+    def __init__(self, cog: "MarketCog", operation: str):
         super().__init__(timeout=300)
-        for status in SALE_CLOSE_CHOICES:
-            self.add_item(_CloseChoiceButton(cog, status))
+        for status in CLOSE_STATUSES:
+            self.add_item(_CloseChoiceButton(cog, status, operation))
 
 
 class MarketLegacyPostView(discord.ui.View):
@@ -171,10 +215,10 @@ class MarketLegacyPostView(discord.ui.View):
 
 
 class MarketPostView(discord.ui.View):
-    def __init__(self, cog: "MarketCog"):
+    def __init__(self, cog: "MarketCog", operation: str = "sale"):
         super().__init__(timeout=None)
         self.add_item(_SetPriceButton(cog))
-        self.add_item(_CloseSaleButton(cog))
+        self.add_item(_CloseSaleButton(cog, operation))
 
 
 class MarketCog(commands.Cog):
@@ -245,7 +289,8 @@ class MarketCog(commands.Cog):
 
         price_label = _format_kamas(price)
         try:
-            await thread.edit(name=_with_price(thread.name, price), reason=f"Prix marché défini par {interaction.user}")
+            operation = _market_operation(thread)
+            await thread.edit(name=_with_price(thread.name, price, operation), reason=f"Prix marché défini par {interaction.user}")
         except discord.DiscordException as exc:
             logger.warning("Renommage prix marché échoué pour %s: %s", thread.id, exc)
             await interaction.response.send_message("Impossible de renommer le post avec le prix.", ephemeral=True)
@@ -260,30 +305,32 @@ class MarketCog(commands.Cog):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
         if not self.can_manage_post(interaction):
-            await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer la vente.", ephemeral=True)
+            await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer cette annonce.", ephemeral=True)
             return
+        operation = _market_operation(interaction.channel)
         await interaction.response.send_message(
-            "Choisis comment clôturer cette vente :",
-            view=MarketCloseChoiceView(self),
+            MARKET_OPERATIONS[operation]["prompt"],
+            view=MarketCloseChoiceView(self, operation),
             ephemeral=True,
         )
 
     async def close_sale(self, interaction: discord.Interaction, status: str) -> None:
         thread = interaction.channel
-        if status not in SALE_CLOSE_CHOICES:
+        if status not in CLOSE_STATUSES:
             await interaction.response.send_message("Choix de clôture invalide.", ephemeral=True)
             return
         if not self.is_market_thread(thread):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
         if not self.can_manage_post(interaction):
-            await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer la vente.", ephemeral=True)
+            await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer cette annonce.", ephemeral=True)
             return
 
-        label = SALE_CLOSE_CHOICES[status]["label"]
+        operation = _market_operation(thread)
+        label = _choice_label(operation, status)
         try:
             await thread.edit(
-                name=_closed_name(thread.name, status),
+                name=_closed_name(thread.name, status, operation),
                 archived=True,
                 locked=True,
                 reason=f"{label} par {interaction.user}",
@@ -327,7 +374,8 @@ class MarketCog(commands.Cog):
                 db.set_market_post_control_message(thread.id, existing_id)
                 return
             try:
-                message = await thread.send(content=self._control_content(), view=MarketPostView(self))
+                operation = _market_operation(thread)
+                message = await thread.send(content=self._control_content(operation), view=MarketPostView(self, operation))
             except discord.DiscordException as exc:
                 logger.warning("Impossible de poster les boutons marché dans %s: %s", thread.id, exc)
                 return
@@ -424,11 +472,12 @@ class MarketCog(commands.Cog):
         if thread is None:
             db.mark_market_post_closed(post["thread_id"], "missing", now_paris())
             return
-        label = SALE_CLOSE_CHOICES["failed"]["label"]
+        operation = _market_operation(thread)
+        label = _choice_label(operation, "failed")
         original_name = thread.name
         try:
             await thread.edit(
-                name=_closed_name(thread.name, "failed"),
+                name=_closed_name(thread.name, "failed", operation),
                 archived=True,
                 locked=True,
                 reason=f"{label} automatique après {MARKET_INACTIVITY_DAYS} jours d'inactivité",
@@ -459,20 +508,22 @@ class MarketCog(commands.Cog):
             return
         link = getattr(thread, "jump_url", None)
         suffix = f"\n{link}" if link else ""
+        operation = _market_operation(thread)
+        failed_label = MARKET_OPERATIONS[operation]["failed_label"].lower()
         try:
             await user.send(
                 content=(
                     f"Ton post marché **{thread_name}** a été clôturé automatiquement "
-                    f"en **vente échouée** après {MARKET_INACTIVITY_DAYS} jours sans activité."
+                    f"en **{failed_label}** après {MARKET_INACTIVITY_DAYS} jours sans activité."
                     f"{suffix}"
                 )
             )
         except discord.DiscordException as exc:
             logger.info("MP clôture marché échoué pour %s: %s", owner_id, exc)
 
-    def _control_content(self, price_label: Optional[str] = None) -> str:
+    def _control_content(self, operation: str = "sale", price_label: Optional[str] = None) -> str:
         price_text = f"**Prix :** {price_label} kamas" if price_label else "**Prix :** non renseigné"
-        return f"{price_text}\nOP : utilise les boutons ci-dessous pour gérer la vente."
+        return f"{price_text}\nOP/admin : utilise les boutons ci-dessous pour gérer {MARKET_OPERATIONS[operation]['object']}."
 
     async def _edit_control_message(
         self,
@@ -484,7 +535,8 @@ class MarketCog(commands.Cog):
             return
         try:
             message = await thread.fetch_message(control_message_id)
-            await message.edit(content=self._control_content(price_label), view=MarketPostView(self))
+            operation = _market_operation(thread)
+            await message.edit(content=self._control_content(operation, price_label), view=MarketPostView(self, operation))
         except discord.DiscordException as exc:
             logger.info("Message de contrôle marché non mis à jour dans %s: %s", thread.id, exc)
 
