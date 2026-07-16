@@ -181,6 +181,7 @@ class MarketCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._cleanup_task: Optional[asyncio.Task] = None
+        self._control_sends: set[int] = set()
 
     async def cog_load(self) -> None:
         self.bot.add_view(MarketPostView(self))
@@ -217,11 +218,7 @@ class MarketCog(commands.Cog):
         if not self.is_market_thread(thread):
             return
         self._record_activity(thread)
-        try:
-            await thread.send(content=self._control_content(), view=MarketPostView(self))
-            logger.info("Boutons marché postés dans le thread %s", thread.id)
-        except discord.DiscordException as exc:
-            logger.warning("Impossible de poster les boutons marché dans %s: %s", thread.id, exc)
+        await self._ensure_control_message(thread)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -230,6 +227,7 @@ class MarketCog(commands.Cog):
         channel = getattr(message, "channel", None)
         if self.is_market_thread(channel):
             self._record_activity(channel)
+            await self._ensure_control_message(channel)
 
     async def set_price(
         self,
@@ -316,9 +314,52 @@ class MarketCog(commands.Cog):
             last_activity_at=now_paris(),
         )
 
+    async def _ensure_control_message(self, thread: discord.Thread) -> None:
+        if thread.id in self._control_sends:
+            return
+        post = db.get_market_post(thread.id)
+        if post is not None and (post["closed_at"] or post["control_message_id"]):
+            return
+        self._control_sends.add(thread.id)
+        try:
+            existing_id = await self._find_existing_control_message(thread)
+            if existing_id is not None:
+                db.set_market_post_control_message(thread.id, existing_id)
+                return
+            try:
+                message = await thread.send(content=self._control_content(), view=MarketPostView(self))
+            except discord.DiscordException as exc:
+                logger.warning("Impossible de poster les boutons marché dans %s: %s", thread.id, exc)
+                return
+            db.set_market_post_control_message(thread.id, message.id)
+            logger.info("Boutons marché postés dans le thread %s", thread.id)
+        finally:
+            self._control_sends.discard(thread.id)
+
+    async def _find_existing_control_message(self, thread: discord.Thread) -> Optional[int]:
+        history = getattr(thread, "history", None)
+        if history is None:
+            return None
+        try:
+            async for message in history(limit=20):
+                if self._message_has_market_controls(message):
+                    return message.id
+        except discord.DiscordException as exc:
+            logger.info("Historique marché non lisible dans %s: %s", thread.id, exc)
+        return None
+
+    def _message_has_market_controls(self, message: discord.Message) -> bool:
+        for row in getattr(message, "components", None) or []:
+            for component in getattr(row, "children", []) or []:
+                custom_id = getattr(component, "custom_id", None)
+                if custom_id and custom_id.startswith("bebraid:market:"):
+                    return True
+        return False
+
     async def _inactive_cleanup_loop(self) -> None:
         try:
             await self.bot.wait_until_ready()
+            await self._bootstrap_active_market_threads()
             while not self.bot.is_closed():
                 try:
                     await self._close_inactive_posts_once()
@@ -327,6 +368,51 @@ class MarketCog(commands.Cog):
                 await asyncio.sleep(MARKET_INACTIVITY_CHECK_SECONDS)
         except asyncio.CancelledError:
             raise
+
+    async def _bootstrap_active_market_threads(self) -> None:
+        count = 0
+        for guild in getattr(self.bot, "guilds", []) or []:
+            seen: set[int] = set()
+            for forum in self._market_forums_for_guild(guild):
+                for thread in getattr(forum, "threads", []) or []:
+                    if thread.id in seen:
+                        continue
+                    seen.add(thread.id)
+                    if not self.is_market_thread(thread):
+                        continue
+                    self._record_activity(thread)
+                    await self._ensure_control_message(thread)
+                    count += 1
+            for thread in getattr(guild, "threads", []) or []:
+                if thread.id in seen:
+                    continue
+                seen.add(thread.id)
+                if not self.is_market_thread(thread):
+                    continue
+                self._record_activity(thread)
+                await self._ensure_control_message(thread)
+                count += 1
+        if count:
+            logger.info("%d post(s) marché actif(s) vérifié(s)", count)
+
+    def _market_forums_for_guild(self, guild: discord.Guild) -> list[discord.ForumChannel]:
+        configured_id = db.get_guild_setting_int(guild.id, db.SETTING_MARKET_FORUM_CHANNEL)
+        channel_ids = [configured_id] if configured_id else []
+        if MARKET_FORUM_CHANNEL_ID and MARKET_FORUM_CHANNEL_ID not in channel_ids:
+            channel_ids.append(MARKET_FORUM_CHANNEL_ID)
+        forums: list[discord.ForumChannel] = []
+        for channel_id in channel_ids:
+            channel = guild.get_channel(channel_id) or self.bot.get_channel(channel_id)
+            if isinstance(channel, discord.ForumChannel):
+                forums.append(channel)
+        if forums:
+            return forums
+        return [
+            channel
+            for channel in getattr(guild, "channels", []) or []
+            if isinstance(channel, discord.ForumChannel)
+            and _normalize_name(getattr(channel, "name", "")) in {_normalize_name(name) for name in MARKET_FORUM_NAMES}
+        ]
 
     async def _close_inactive_posts_once(self) -> None:
         cutoff = now_paris() - timedelta(days=MARKET_INACTIVITY_DAYS)

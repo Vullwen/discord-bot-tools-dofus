@@ -110,9 +110,17 @@ class FakeThread:
         return self._messages[message_id]
 
 
+class FakeMessage:
+    def __init__(self, *, channel, author=None, message_id=42, components=None):
+        self.channel = channel
+        self.author = author or SimpleNamespace(bot=False)
+        self.id = message_id
+        self.components = components or []
+
+
 @pytest.mark.asyncio
 async def test_new_market_thread_gets_control_buttons(monkeypatch):
-    thread = FakeThread()
+    thread = FakeThread(guild=SimpleNamespace(id=2))
     cog = market.MarketCog(FakeBot(channel=thread))
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
 
@@ -121,6 +129,42 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
     assert len(thread.sent) == 1
     assert "Prix" in thread.sent[0].content
     assert thread.sent[0].view is not None
+    assert db.get_market_post(thread.id)["control_message_id"] == thread.sent[0].id
+
+
+@pytest.mark.asyncio
+async def test_market_message_backfills_missing_control_buttons(monkeypatch):
+    guild = SimpleNamespace(id=2)
+    thread = FakeThread(name="Bouclier", owner_id=10, guild=guild)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.on_message(FakeMessage(channel=thread))
+    await cog.on_message(FakeMessage(channel=thread))
+
+    assert len(thread.sent) == 1
+    assert db.get_market_post(thread.id)["control_message_id"] == thread.sent[0].id
+
+
+@pytest.mark.asyncio
+async def test_existing_market_controls_are_recorded_without_duplicate(monkeypatch):
+    guild = SimpleNamespace(id=2)
+    thread = FakeThread(name="Cape", owner_id=10, guild=guild)
+    component = SimpleNamespace(custom_id="bebraid:market:close")
+    row = SimpleNamespace(children=[component])
+    existing = FakeMessage(channel=thread, message_id=777, components=[row])
+
+    async def history(*, limit):
+        yield existing
+
+    thread.history = history
+    cog = market.MarketCog(FakeBot(channel=thread))
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.on_message(FakeMessage(channel=thread))
+
+    assert thread.sent == []
+    assert db.get_market_post(thread.id)["control_message_id"] == 777
 
 
 def test_configured_market_forum_channel_takes_priority(tmp_path, monkeypatch):

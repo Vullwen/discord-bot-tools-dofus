@@ -181,6 +181,7 @@ def init(db_path: str = DB_PATH) -> None:
             guild_id            INTEGER NOT NULL,
             owner_id            INTEGER NOT NULL,
             last_activity_at    TEXT NOT NULL,
+            control_message_id  INTEGER,
             closed_at           TEXT,
             close_status        TEXT
         );
@@ -196,6 +197,7 @@ def init(db_path: str = DB_PATH) -> None:
     _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
     _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
     _migrate("ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'")
+    _migrate("ALTER TABLE market_posts ADD COLUMN control_message_id INTEGER")
     # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
     _conn.execute(
         "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
@@ -1223,6 +1225,21 @@ def upsert_market_post(
         WHERE market_posts.closed_at IS NULL
         """,
         (thread_id, guild_id, owner_id, last_activity_at.isoformat()),
+    )
+    _db().commit()
+
+
+def get_market_post(thread_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM market_posts WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+
+
+def set_market_post_control_message(thread_id: int, message_id: int) -> None:
+    _db().execute(
+        "UPDATE market_posts SET control_message_id = ? WHERE thread_id = ? AND closed_at IS NULL",
+        (message_id, thread_id),
     )
     _db().commit()
 
