@@ -57,12 +57,6 @@ class StuffCog(commands.Cog):
             )
             return
 
-        await _delete_previous_stuff_images(
-            channel,
-            source_message.id,
-            getattr(self.bot.user, "id", None),
-        )
-
         async with channel.typing():
             content, file = await _build_stuff_response(stuff_link)
             await interaction.followup.send(content=content, file=file)
@@ -106,34 +100,6 @@ async def _find_recent_stuff_message(channel) -> tuple[discord.Message | None, S
     return None, None
 
 
-async def _delete_previous_stuff_images(
-    channel,
-    source_message_id: int,
-    bot_user_id: int | None,
-) -> int:
-    if bot_user_id is None:
-        return 0
-
-    deleted = 0
-    async for message in channel.history(limit=RECENT_HISTORY_LIMIT):
-        if message.id == source_message_id:
-            break
-
-        if message.author.id != bot_user_id:
-            continue
-
-        if not _looks_like_stuff_response(message):
-            continue
-
-        try:
-            await message.delete()
-            deleted += 1
-        except discord.HTTPException:
-            continue
-
-    return deleted
-
-
 def _extract_stuff_link(content: str) -> StuffLink | None:
     match = DOFUSBOOK_LINK_RE.search(content)
     if match is None:
@@ -143,13 +109,6 @@ def _extract_stuff_link(content: str) -> StuffLink | None:
         return parse_dofusbook_url(_clean_detected_url(match.group(0)))
     except ValueError:
         return None
-
-
-def _looks_like_stuff_response(message: discord.Message) -> bool:
-    return any(
-        attachment.filename == STUFF_IMAGE_FILENAME
-        for attachment in message.attachments
-    )
 
 
 def _clean_detected_url(url: str) -> str:
