@@ -9,7 +9,7 @@ class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @discord.app_commands.command(name="sync", description="Resync des slash commands")
+    @discord.app_commands.command(name="sync", description="Synchronise les slash commands")
     async def sync(self, interaction: discord.Interaction):
         if not is_bot_admin(interaction):
             await interaction.response.send_message("Permission refusee.", ephemeral=True)
@@ -35,7 +35,7 @@ class AdminCog(commands.Cog):
             ephemeral=True,
         )
 
-    @discord.app_commands.command(name="reload", description="Reload un cog")
+    @discord.app_commands.command(name="reload", description="Recharge un cog")
     @discord.app_commands.describe(cog="Nom du cog (ex: cogs.core)")
     async def reload(self, interaction: discord.Interaction, cog: str):
         if not is_bot_admin(interaction):

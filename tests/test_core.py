@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cogs.core import CoreCog, _help_embed
+from cogs.core import HELP_SECTIONS, CoreCog, _help_embed
 
 
 class _FakeResponse:
@@ -37,6 +37,15 @@ def test_help_embed_lists_main_commands():
         "/showconfig",
     ):
         assert command in text
+
+
+def test_help_sections_are_unique_and_rendered():
+    embed = _help_embed()
+    section_names = [name for name, _entries in HELP_SECTIONS]
+
+    assert len(section_names) == len(set(section_names))
+    assert [field.name for field in embed.fields] == section_names
+    assert all(entries for _name, entries in HELP_SECTIONS)
 
 
 @pytest.mark.asyncio

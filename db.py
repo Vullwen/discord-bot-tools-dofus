@@ -186,6 +186,34 @@ def init(db_path: str = DB_PATH) -> None:
             close_status        TEXT
         );
 
+        """
+    )
+    # Migrations : colonnes ajoutées a posteriori (idempotent).
+    _migrate("ALTER TABLE raids ADD COLUMN fixed_hour INTEGER")
+    _migrate("ALTER TABLE raids ADD COLUMN fixed_time TEXT")
+    _migrate("ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER")
+    _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
+    _migrate("ALTER TABLE raids ADD COLUMN poll_hours TEXT")
+    _migrate("ALTER TABLE raids ADD COLUMN poll_close_hour INTEGER")
+    _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
+    _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
+    _migrate("ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'")
+    _migrate("ALTER TABLE market_posts ADD COLUMN control_message_id INTEGER")
+    # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
+    _conn.execute(
+        "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
+        "WHERE fixed_hour IS NOT NULL AND fixed_time IS NULL"
+    )
+    # Backfill : joined_at des anciens participants (ordre FIFO arbitraire entre eux).
+    _conn.execute("UPDATE participants SET joined_at = ? WHERE joined_at IS NULL", (_now_iso(),))
+    _create_indexes()
+    _conn.commit()
+
+
+def _create_indexes() -> None:
+    """Crée les index après les migrations, car certains ciblent des colonnes migrées."""
+    _db().executescript(
+        """
         CREATE INDEX IF NOT EXISTS idx_raids_state_id
             ON raids(state, id);
         CREATE INDEX IF NOT EXISTS idx_raids_reminder_message
@@ -227,25 +255,6 @@ def init(db_path: str = DB_PATH) -> None:
             ON market_posts(closed_at, last_activity_at);
         """
     )
-    # Migrations : colonnes ajoutées a posteriori (idempotent).
-    _migrate("ALTER TABLE raids ADD COLUMN fixed_hour INTEGER")
-    _migrate("ALTER TABLE raids ADD COLUMN fixed_time TEXT")
-    _migrate("ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER")
-    _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
-    _migrate("ALTER TABLE raids ADD COLUMN poll_hours TEXT")
-    _migrate("ALTER TABLE raids ADD COLUMN poll_close_hour INTEGER")
-    _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
-    _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
-    _migrate("ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'")
-    _migrate("ALTER TABLE market_posts ADD COLUMN control_message_id INTEGER")
-    # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
-    _conn.execute(
-        "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
-        "WHERE fixed_hour IS NOT NULL AND fixed_time IS NULL"
-    )
-    # Backfill : joined_at des anciens participants (ordre FIFO arbitraire entre eux).
-    _conn.execute("UPDATE participants SET joined_at = ? WHERE joined_at IS NULL", (_now_iso(),))
-    _conn.commit()
 
 
 def _migrate(ddl: str) -> None:
