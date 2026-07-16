@@ -41,6 +41,10 @@ def test_channel_labels_include_raid_admin_channel():
     assert _CHANNEL_LABEL[db.SETTING_RAID_ADMIN_CHANNEL] == "Salon admin raids"
 
 
+def test_channel_labels_include_market_forum_channel():
+    assert _CHANNEL_LABEL[db.SETTING_MARKET_FORUM_CHANNEL] == "Forum marché"
+
+
 def test_base_role_setting_exists():
     assert db.SETTING_BASE_ROLE == "base_member_role"
 

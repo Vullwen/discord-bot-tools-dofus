@@ -13,6 +13,7 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
+import db
 from config import MARKET_FORUM_CHANNEL_ID
 from utils.perms import is_bot_admin
 
@@ -141,6 +142,11 @@ class MarketCog(commands.Cog):
     def is_market_thread(self, channel) -> bool:
         if not isinstance(channel, discord.Thread):
             return False
+        guild = getattr(channel, "guild", None)
+        if guild is not None:
+            configured_id = db.get_guild_setting_int(guild.id, db.SETTING_MARKET_FORUM_CHANNEL)
+            if configured_id:
+                return channel.parent_id == configured_id
         if MARKET_FORUM_CHANNEL_ID:
             return channel.parent_id == MARKET_FORUM_CHANNEL_ID
         parent_name = getattr(getattr(channel, "parent", None), "name", "")

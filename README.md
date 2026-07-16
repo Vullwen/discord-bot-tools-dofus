@@ -107,6 +107,7 @@ Vérification Dofus :
 Configuration (organisateur) :
 
 - `/setchannel` — salons des raids, de l'admin raids, des absences et des motifs admin.
+- `/setchannel` permet aussi de définir le forum marché.
 - `/setraidrole` — rôle autorisé à créer et gérer les raids : ID, mention copiée
   ou nom exact (vide = permission Administrateur Discord).
 - `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
@@ -146,8 +147,8 @@ Voir `.env.example` pour la liste complète. Les principales :
 - `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
 - `REMINDER_DELETE_HOURS` — délai de suppression des messages de rappel/raid
   après publication ou heure prévue (2 par défaut).
-- `MARKET_FORUM_CHANNEL_ID` — ID du forum marché. Si vide, le bot détecte un
-  forum nommé `le marché` / `marché`.
+- `MARKET_FORUM_CHANNEL_ID` — ID du forum marché en fallback. En priorité,
+  configure le forum via `/setchannel`.
 - `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour la vérification
   (`Bagarres et Belettes` par défaut, surchargeable par `/setdofusconfig`).
 - `DOFUS_SERVER` — serveur Dofus par défaut (`Dakal` par défaut, surchargeable par

@@ -22,6 +22,7 @@ _CHANNEL_LABEL = {
     db.SETTING_ABSENCE_PANEL_CHANNEL: "Salon panel absences",
     db.SETTING_ABSENCE_CHANNEL: "Salon absence",
     db.SETTING_ABSENCE_ADMIN_CHANNEL: "Salon admin absences",
+    db.SETTING_MARKET_FORUM_CHANNEL: "Forum marché",
 }
 
 
@@ -56,6 +57,7 @@ class SettingsCog(commands.Cog):
             app_commands.Choice(name="Salon panel absences", value=db.SETTING_ABSENCE_PANEL_CHANNEL),
             app_commands.Choice(name="Salon absence", value=db.SETTING_ABSENCE_CHANNEL),
             app_commands.Choice(name="Salon admin absences", value=db.SETTING_ABSENCE_ADMIN_CHANNEL),
+            app_commands.Choice(name="Forum marché", value=db.SETTING_MARKET_FORUM_CHANNEL),
         ]
     )
     async def setchannel(
@@ -394,6 +396,7 @@ class SettingsCog(commands.Cog):
             value=_mention(db.SETTING_ABSENCE_ADMIN_CHANNEL),
             inline=False,
         )
+        embed.add_field(name="Forum marché", value=_mention(db.SETTING_MARKET_FORUM_CHANNEL), inline=False)
         embed.add_field(
             name="Rôle admin bot",
             value=_role_mention(db.SETTING_BOT_ADMIN_ROLE, "*(non défini — ADMIN_IDS/propriétaire/Administrateur)*"),

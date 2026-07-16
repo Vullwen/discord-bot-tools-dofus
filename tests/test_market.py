@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+import db
 from cogs import market
 
 
@@ -47,12 +50,13 @@ class FakeInteraction:
 
 
 class FakeThread:
-    def __init__(self, *, name="Gelano", owner_id=10, parent_name="le marché"):
+    def __init__(self, *, name="Gelano", owner_id=10, parent_name="le marché", parent_id=456, guild=None):
         self.id = 123
         self.name = name
         self.owner_id = owner_id
-        self.parent_id = 456
+        self.parent_id = parent_id
         self.parent = type("Parent", (), {"name": parent_name})()
+        self.guild = guild
         self.sent = []
         self.edits = []
         self._messages = {}
@@ -89,6 +93,17 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
     assert len(thread.sent) == 1
     assert "Prix" in thread.sent[0].content
     assert thread.sent[0].view is not None
+
+
+def test_configured_market_forum_channel_takes_priority(tmp_path, monkeypatch):
+    db.init(str(tmp_path / "market.sqlite"))
+    guild = SimpleNamespace(id=2)
+    db.set_guild_setting(guild.id, db.SETTING_MARKET_FORUM_CHANNEL, "999")
+    thread = FakeThread(parent_name="autre forum", parent_id=999, guild=guild)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    assert cog.is_market_thread(thread) is True
 
 
 @pytest.mark.asyncio

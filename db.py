@@ -1149,6 +1149,8 @@ SETTING_ABSENCE_PANEL_CHANNEL = "absence_panel_channel"
 SETTING_ABSENCE_CHANNEL = "absence_channel"
 # Salon admin où sont envoyés les motifs d'absence.
 SETTING_ABSENCE_ADMIN_CHANNEL = "absence_admin_channel"
+# Forum où sont créés les posts du marché.
+SETTING_MARKET_FORUM_CHANNEL = "market_forum_channel"
 # Rôle Discord qui donne les droits admin bot. Vide = ADMIN_IDS/proprio/admin Discord.
 SETTING_BOT_ADMIN_ROLE = "bot_admin_role"
 # Rôle Discord autorisé à créer/gérer les raids (et tickets). Vide = admins seulement.
