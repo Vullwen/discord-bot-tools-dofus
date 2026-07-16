@@ -91,6 +91,8 @@ Marché :
 - Seul l'OP peut définir le prix en kamas. L'OP ou un admin peut clôturer la
   vente en choisissant **Vente échouée**, **Vente guilde** ou **Vente HDV** ;
   le post est alors renommé, verrouillé et archivé.
+- Après 30 jours sans activité, le post est automatiquement clôturé en
+  **Vente échouée** et l'OP reçoit un MP.
 
 Vérification Dofus :
 

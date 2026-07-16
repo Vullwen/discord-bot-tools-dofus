@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -9,17 +10,35 @@ from cogs import market
 
 
 @pytest.fixture(autouse=True)
-def market_name_detection(monkeypatch):
+def market_name_detection(monkeypatch, tmp_path):
     monkeypatch.setattr(market, "MARKET_FORUM_CHANNEL_ID", 0)
+    db.reset_for_tests(str(tmp_path / "market.sqlite"))
 
 
 class FakeBot:
-    def __init__(self, *, channel=None):
+    def __init__(self, *, channel=None, users=()):
         self.channel = channel
+        self.users = {user.id: user for user in users}
         self.added_views = []
 
     def add_view(self, view, message_id=None):
         self.added_views.append((view, message_id))
+
+    def get_channel(self, channel_id):
+        return self.channel if getattr(self.channel, "id", None) == channel_id else None
+
+    async def fetch_channel(self, channel_id):
+        return self.get_channel(channel_id)
+
+    def get_user(self, user_id):
+        return self.users.get(user_id)
+
+    async def fetch_user(self, user_id):
+        user = self.users.get(user_id)
+        if user is None:
+            user = FakeUser(user_id)
+            self.users[user_id] = user
+        return user
 
 
 class FakeUser:
@@ -27,9 +46,13 @@ class FakeUser:
         self.id = user_id
         self.display_name = f"user-{user_id}"
         self.name = self.display_name
+        self.dms = []
 
     def __str__(self):
         return self.display_name
+
+    async def send(self, *, content=None, embed=None, view=None):
+        self.dms.append((content, {"embed": embed, "view": view}))
 
 
 class FakeResponse:
@@ -54,13 +77,14 @@ class FakeInteraction:
 
 
 class FakeThread:
-    def __init__(self, *, name="Gelano", owner_id=10, parent_name="le marché", parent_id=456, guild=None):
-        self.id = 123
+    def __init__(self, *, thread_id=123, name="Gelano", owner_id=10, parent_name="le marché", parent_id=456, guild=None):
+        self.id = thread_id
         self.name = name
         self.owner_id = owner_id
         self.parent_id = parent_id
         self.parent = type("Parent", (), {"name": parent_name})()
         self.guild = guild
+        self.jump_url = f"https://discord.test/channels/{self.id}"
         self.sent = []
         self.edits = []
         self._messages = {}
@@ -100,7 +124,6 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
 
 
 def test_configured_market_forum_channel_takes_priority(tmp_path, monkeypatch):
-    db.init(str(tmp_path / "market.sqlite"))
     guild = SimpleNamespace(id=2)
     db.set_guild_setting(guild.id, db.SETTING_MARKET_FORUM_CHANNEL, "999")
     thread = FakeThread(parent_name="autre forum", parent_id=999, guild=guild)
@@ -185,3 +208,28 @@ async def test_close_sale_statuses_rename_and_lock(monkeypatch, status, expected
     assert thread.name == expected
     assert thread.archived is True
     assert thread.locked is True
+
+
+@pytest.mark.asyncio
+async def test_inactive_market_post_is_closed_and_owner_notified(monkeypatch):
+    guild = SimpleNamespace(id=2)
+    owner = FakeUser(10)
+    thread = FakeThread(name="Anneau rare", owner_id=owner.id, guild=guild)
+    bot = FakeBot(channel=thread, users=[owner])
+    cog = market.MarketCog(bot)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+    db.upsert_market_post(
+        thread_id=thread.id,
+        guild_id=guild.id,
+        owner_id=owner.id,
+        last_activity_at=market.now_paris() - timedelta(days=31),
+    )
+
+    await cog._close_inactive_posts_once()
+
+    assert thread.name == "[vente échouée] Anneau rare"
+    assert thread.archived is True
+    assert thread.locked is True
+    assert owner.dms
+    assert "30 jours sans activité" in owner.dms[0][0]
+    assert db.list_inactive_market_posts(market.now_paris()) == []

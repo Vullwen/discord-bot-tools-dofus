@@ -175,6 +175,15 @@ def init(db_path: str = DB_PATH) -> None:
             UNIQUE(component_id, role_id),
             FOREIGN KEY(component_id) REFERENCES role_menu_components(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS market_posts (
+            thread_id           INTEGER PRIMARY KEY,
+            guild_id            INTEGER NOT NULL,
+            owner_id            INTEGER NOT NULL,
+            last_activity_at    TEXT NOT NULL,
+            closed_at           TEXT,
+            close_status        TEXT
+        );
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
@@ -1190,6 +1199,55 @@ def get_guild_setting_int(guild_id: int, key: str) -> Optional[int]:
     if value and value.lstrip("-").isdigit():
         return int(value)
     return None
+
+
+# ------------------------------------------------------------------------- market
+
+
+def upsert_market_post(
+    *,
+    thread_id: int,
+    guild_id: int,
+    owner_id: int,
+    last_activity_at: datetime,
+) -> None:
+    _db().execute(
+        """
+        INSERT INTO market_posts
+            (thread_id, guild_id, owner_id, last_activity_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(thread_id) DO UPDATE SET
+            guild_id = excluded.guild_id,
+            owner_id = excluded.owner_id,
+            last_activity_at = excluded.last_activity_at
+        WHERE market_posts.closed_at IS NULL
+        """,
+        (thread_id, guild_id, owner_id, last_activity_at.isoformat()),
+    )
+    _db().commit()
+
+
+def list_inactive_market_posts(cutoff: datetime) -> list[sqlite3.Row]:
+    return _db().execute(
+        """
+        SELECT * FROM market_posts
+        WHERE closed_at IS NULL AND last_activity_at <= ?
+        ORDER BY last_activity_at ASC
+        """,
+        (cutoff.isoformat(),),
+    ).fetchall()
+
+
+def mark_market_post_closed(thread_id: int, status: str, closed_at: datetime) -> None:
+    _db().execute(
+        """
+        UPDATE market_posts
+        SET closed_at = ?, close_status = ?
+        WHERE thread_id = ?
+        """,
+        (closed_at.isoformat(), status, thread_id),
+    )
+    _db().commit()
 
 
 # ----------------------------------------------------------------- helpers tests

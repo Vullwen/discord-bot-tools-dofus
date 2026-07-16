@@ -5,16 +5,18 @@ message de gestion avec deux boutons : définir le prix et clôturer la vente.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import unicodedata
+from datetime import timedelta
 from typing import Optional
 
 import discord
 from discord.ext import commands
 
 import db
-from config import MARKET_FORUM_CHANNEL_ID
+from config import MARKET_FORUM_CHANNEL_ID, now_paris
 from utils.perms import is_bot_admin
 
 logger = logging.getLogger("beb-raid.market")
@@ -23,6 +25,8 @@ MARKET_FORUM_NAMES = {"le marche", "marche", "le-marché", "marché", "market"}
 PRICE_SUFFIX_RE = re.compile(r"\s+-\s+[\d ]+\s+kamas?$", re.IGNORECASE)
 STATUS_PREFIX_RE = re.compile(r"^\s*\[(?:finalis[ée]?|vente échouée|vente guilde|vente hdv)\]\s*", re.IGNORECASE)
 MAX_THREAD_NAME_LENGTH = 100
+MARKET_INACTIVITY_DAYS = 30
+MARKET_INACTIVITY_CHECK_SECONDS = 60 * 60
 SALE_CLOSE_CHOICES = {
     "failed": {"label": "Vente échouée", "prefix": "[vente échouée]", "style": discord.ButtonStyle.danger},
     "guild": {"label": "Vente guilde", "prefix": "[vente guilde]", "style": discord.ButtonStyle.success},
@@ -176,11 +180,17 @@ class MarketPostView(discord.ui.View):
 class MarketCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._cleanup_task: Optional[asyncio.Task] = None
 
     async def cog_load(self) -> None:
         self.bot.add_view(MarketPostView(self))
         self.bot.add_view(MarketLegacyPostView(self))
+        self._cleanup_task = asyncio.create_task(self._inactive_cleanup_loop())
         logger.info("MarketCog prêt")
+
+    async def cog_unload(self) -> None:
+        if self._cleanup_task is not None:
+            self._cleanup_task.cancel()
 
     def is_market_thread(self, channel) -> bool:
         if not isinstance(channel, discord.Thread):
@@ -206,11 +216,20 @@ class MarketCog(commands.Cog):
     async def on_thread_create(self, thread: discord.Thread) -> None:
         if not self.is_market_thread(thread):
             return
+        self._record_activity(thread)
         try:
             await thread.send(content=self._control_content(), view=MarketPostView(self))
             logger.info("Boutons marché postés dans le thread %s", thread.id)
         except discord.DiscordException as exc:
             logger.warning("Impossible de poster les boutons marché dans %s: %s", thread.id, exc)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if getattr(getattr(message, "author", None), "bot", False):
+            return
+        channel = getattr(message, "channel", None)
+        if self.is_market_thread(channel):
+            self._record_activity(channel)
 
     async def set_price(
         self,
@@ -234,6 +253,7 @@ class MarketCog(commands.Cog):
             await interaction.response.send_message("Impossible de renommer le post avec le prix.", ephemeral=True)
             return
 
+        self._record_activity(thread)
         await self._edit_control_message(thread, control_message_id, price_label)
         await interaction.response.send_message(f"Prix défini : **{price_label} kamas**.", ephemeral=True)
 
@@ -281,7 +301,88 @@ class MarketCog(commands.Cog):
             await interaction.response.send_message("Impossible de clôturer ce post.", ephemeral=True)
             return
 
+        db.mark_market_post_closed(thread.id, status, now_paris())
         await interaction.response.send_message(f"{label} : post clôturé.", ephemeral=True)
+
+    def _record_activity(self, thread: discord.Thread) -> None:
+        guild = getattr(thread, "guild", None)
+        owner_id = getattr(thread, "owner_id", None)
+        if guild is None or owner_id is None:
+            return
+        db.upsert_market_post(
+            thread_id=thread.id,
+            guild_id=guild.id,
+            owner_id=owner_id,
+            last_activity_at=now_paris(),
+        )
+
+    async def _inactive_cleanup_loop(self) -> None:
+        try:
+            await self.bot.wait_until_ready()
+            while not self.bot.is_closed():
+                try:
+                    await self._close_inactive_posts_once()
+                except Exception as exc:
+                    logger.exception("Cleanup inactivité marché échoué: %s", exc)
+                await asyncio.sleep(MARKET_INACTIVITY_CHECK_SECONDS)
+        except asyncio.CancelledError:
+            raise
+
+    async def _close_inactive_posts_once(self) -> None:
+        cutoff = now_paris() - timedelta(days=MARKET_INACTIVITY_DAYS)
+        for post in db.list_inactive_market_posts(cutoff):
+            await self._close_inactive_post(post)
+
+    async def _close_inactive_post(self, post) -> None:
+        thread = await self._get_thread(post["thread_id"])
+        if thread is None:
+            db.mark_market_post_closed(post["thread_id"], "missing", now_paris())
+            return
+        label = SALE_CLOSE_CHOICES["failed"]["label"]
+        original_name = thread.name
+        try:
+            await thread.edit(
+                name=_closed_name(thread.name, "failed"),
+                archived=True,
+                locked=True,
+                reason=f"{label} automatique après {MARKET_INACTIVITY_DAYS} jours d'inactivité",
+            )
+        except discord.DiscordException as exc:
+            logger.warning("Clôture automatique marché échouée pour %s: %s", post["thread_id"], exc)
+            return
+        db.mark_market_post_closed(post["thread_id"], "failed_inactive", now_paris())
+        await self._notify_inactive_owner(post["owner_id"], original_name, thread)
+
+    async def _get_thread(self, thread_id: int) -> Optional[discord.Thread]:
+        thread = self.bot.get_channel(thread_id)
+        if thread is None:
+            try:
+                thread = await self.bot.fetch_channel(thread_id)
+            except discord.NotFound:
+                return None
+            except discord.DiscordException as exc:
+                logger.warning("Post marché %s introuvable: %s", thread_id, exc)
+                return None
+        return thread if isinstance(thread, discord.Thread) else None
+
+    async def _notify_inactive_owner(self, owner_id: int, thread_name: str, thread: discord.Thread) -> None:
+        try:
+            user = self.bot.get_user(owner_id) or await self.bot.fetch_user(owner_id)
+        except discord.DiscordException as exc:
+            logger.info("MP marché impossible, utilisateur %s introuvable: %s", owner_id, exc)
+            return
+        link = getattr(thread, "jump_url", None)
+        suffix = f"\n{link}" if link else ""
+        try:
+            await user.send(
+                content=(
+                    f"Ton post marché **{thread_name}** a été clôturé automatiquement "
+                    f"en **vente échouée** après {MARKET_INACTIVITY_DAYS} jours sans activité."
+                    f"{suffix}"
+                )
+            )
+        except discord.DiscordException as exc:
+            logger.info("MP clôture marché échoué pour %s: %s", owner_id, exc)
 
     def _control_content(self, price_label: Optional[str] = None) -> str:
         price_text = f"**Prix :** {price_label} kamas" if price_label else "**Prix :** non renseigné"
