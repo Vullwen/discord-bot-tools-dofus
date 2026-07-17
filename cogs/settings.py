@@ -2,6 +2,7 @@
 
 - /config channel : configure les salons et forums utilises par le bot.
 - /config role : configure les roles utilises par le bot.
+- /config guild : configure le nom de guilde Dofus attendu.
 - /config dofus : configure la verification Dofus.
 - /config show : affiche la configuration courante de la guilde.
 """
@@ -174,13 +175,13 @@ class SettingsCog(commands.Cog):
     @config.command(name="dofus", description="Définit la guilde et le serveur attendus pour la vérification")
     @app_commands.describe(
         guilde="Nom exact de la guilde Dofus dans /whoami",
-        serveur="Serveur Dofus par défaut",
+        serveur="Serveur Dofus par défaut (optionnel)",
     )
     async def config_dofus(
         self,
         interaction: discord.Interaction,
         guilde: str,
-        serveur: str,
+        serveur: Optional[str] = None,
     ) -> None:
         if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
@@ -188,10 +189,48 @@ class SettingsCog(commands.Cog):
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
-        db.set_guild_setting(interaction.guild.id, db.SETTING_DOFUS_GUILD_NAME, guilde.strip())
-        db.set_guild_setting(interaction.guild.id, db.SETTING_DOFUS_SERVER, serveur.strip())
+
+        guild_name = guilde.strip()
+        server_name = serveur.strip() if serveur is not None else None
+        if not guild_name:
+            await interaction.response.send_message("Le nom de guilde ne peut pas être vide.", ephemeral=True)
+            return
+        if serveur is not None and not server_name:
+            await interaction.response.send_message("Le serveur ne peut pas être vide.", ephemeral=True)
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_DOFUS_GUILD_NAME, guild_name)
+        if server_name is not None:
+            db.set_guild_setting(interaction.guild.id, db.SETTING_DOFUS_SERVER, server_name)
+
+        server_label = server_name or db.get_guild_setting(interaction.guild.id, db.SETTING_DOFUS_SERVER) or DOFUS_SERVER
         await interaction.response.send_message(
-            f"✅ Vérification Dofus configurée : guilde **{guilde.strip()}**, serveur **{serveur.strip()}**.",
+            f"✅ Vérification Dofus configurée : guilde **{guild_name}**, serveur **{server_label}**.",
+            ephemeral=True,
+        )
+
+    @config.command(name="guild", description="Définit le nom de guilde Dofus attendu")
+    @app_commands.describe(nom="Nom exact de la guilde Dofus dans /whoami")
+    async def config_guild(
+        self,
+        interaction: discord.Interaction,
+        nom: str,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        guild_name = nom.strip()
+        if not guild_name:
+            await interaction.response.send_message("Le nom de guilde ne peut pas être vide.", ephemeral=True)
+            return
+
+        db.set_guild_setting(interaction.guild.id, db.SETTING_DOFUS_GUILD_NAME, guild_name)
+        await interaction.response.send_message(
+            f"✅ Guilde Dofus configurée : **{guild_name}**.",
             ephemeral=True,
         )
 
@@ -273,7 +312,7 @@ class SettingsCog(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text="Configure avec /config channel, /config role et /config dofus")
+        embed.set_footer(text="Configure avec /config channel, /config role, /config guild et /config dofus")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

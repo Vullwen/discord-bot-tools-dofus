@@ -55,6 +55,7 @@ HELP_SECTIONS = (
         (
             ("`/config channel`", "configure les salons"),
             ("`/config role`", "configure les rôles"),
+            ("`/config guild`", "configure le nom de guilde Dofus"),
             ("`/config dofus`", "configure guilde/serveur Dofus pour la vérification"),
             ("`/config show`", "affiche la configuration"),
         ),

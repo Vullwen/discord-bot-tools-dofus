@@ -68,8 +68,11 @@ Tout passe par `/config`, pour éviter les anciennes commandes éparpillées.
 - `/config channel usage channel` : configure un salon ou forum.
 - `/config role usage [role]` : configure un rôle, ou le désactive si aucun rôle
   n'est donné.
+- `/config guild nom` : règle uniquement le nom de guilde Dofus attendu dans les
+  screenshots.
 - `/config dofus guilde serveur` : règle la guilde et le serveur attendus pour la
-  vérification Dofus.
+  vérification Dofus. Le serveur est optionnel si tu veux seulement changer la
+  guilde.
 - `/config show` : affiche la configuration du serveur.
 
 Usages de `/config channel` :

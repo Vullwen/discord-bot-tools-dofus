@@ -35,6 +35,7 @@ def test_help_embed_lists_main_commands():
         "/absence kick",
         "/config channel",
         "/config role",
+        "/config guild",
         "/config show",
     ):
         assert command in text

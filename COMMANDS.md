@@ -67,7 +67,8 @@ Ce fichier sert de reference pour garder les slash commands lisibles.
 | --- | --- |
 | `/config channel usage channel` | Configure les salons et le forum marche. |
 | `/config role usage [role]` | Configure les roles du bot. |
-| `/config dofus guilde serveur` | Configure guilde et serveur Dofus attendus. |
+| `/config guild nom` | Configure le nom de guilde Dofus attendu. |
+| `/config dofus guilde [serveur]` | Configure guilde et serveur Dofus attendus. |
 | `/config show` | Affiche la configuration serveur. |
 
 Valeurs `usage` de `/config channel` :

@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
+import pytest
+
 import db
-from cogs.settings import _CHANNEL_LABEL, _resolve_role
+from cogs.settings import SettingsCog, _CHANNEL_LABEL, _resolve_role
 
 
 def _guild(*roles):
@@ -55,3 +57,39 @@ def test_bot_admin_role_setting_exists():
 
 def test_unverified_role_setting_exists():
     assert db.SETTING_UNVERIFIED_MEMBER_ROLE == "unverified_member_role"
+
+
+class _FakeResponse:
+    def __init__(self):
+        self.messages = []
+
+    async def send_message(self, content=None, **kwargs):
+        self.messages.append((content, kwargs))
+
+
+@pytest.mark.asyncio
+async def test_config_guild_sets_dofus_guild_name(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.settings.is_raid_organizer", lambda _interaction: True)
+    cog = SettingsCog(SimpleNamespace())
+    interaction = SimpleNamespace(guild=SimpleNamespace(id=2), response=_FakeResponse())
+
+    await SettingsCog.config_guild.callback(cog, interaction, " Les Hiboux ")
+
+    assert db.get_guild_setting(2, db.SETTING_DOFUS_GUILD_NAME) == "Les Hiboux"
+    assert "Les Hiboux" in interaction.response.messages[0][0]
+
+
+@pytest.mark.asyncio
+async def test_config_dofus_can_update_guild_without_overwriting_server(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.settings.is_raid_organizer", lambda _interaction: True)
+    db.set_guild_setting(2, db.SETTING_DOFUS_SERVER, "Tal Kasha")
+    cog = SettingsCog(SimpleNamespace())
+    interaction = SimpleNamespace(guild=SimpleNamespace(id=2), response=_FakeResponse())
+
+    await SettingsCog.config_dofus.callback(cog, interaction, "Les Hiboux", None)
+
+    assert db.get_guild_setting(2, db.SETTING_DOFUS_GUILD_NAME) == "Les Hiboux"
+    assert db.get_guild_setting(2, db.SETTING_DOFUS_SERVER) == "Tal Kasha"
+    assert "Tal Kasha" in interaction.response.messages[0][0]

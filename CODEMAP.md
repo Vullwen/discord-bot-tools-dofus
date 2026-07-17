@@ -45,7 +45,7 @@ beb_raid/
 ├── cogs/                # Modules Discord (1 responsabilité chacun)
 │   ├── core.py          #   /ping
 │   ├── admin.py         #   /sync /reload
-│   ├── settings.py      #   /config channel /config role /config dofus /config show
+│   ├── settings.py      #   /config channel /config role /config guild /config dofus /config show
 │   ├── raid.py          #   ★ cœur métier : sondages, planif, rappels
 │   ├── ticket.py        #   boutons des tickets privés existants
 │   ├── verification.py  #   vérification Dofus par salon privé + OCR
@@ -333,7 +333,8 @@ Support des boutons déjà présents dans les salons privés de ticket.
 ### `cogs/settings.py` — `SettingsCog`
 - `/config channel usage channel` — fixe les salons et le forum marche.
 - `/config role usage role?` — fixe les rôles du bot. Vide = reset/desactivation du role configure.
-- `/config dofus guilde serveur` — fixe la guilde et le serveur attendus pour la verification.
+- `/config guild nom` — fixe le nom de guilde Dofus attendu pour la verification.
+- `/config dofus guilde serveur?` — fixe la guilde et le serveur attendus pour la verification.
 - `/config show` — embed de la config de la guilde.
 
 ### Permissions (`utils/perms.py`)
