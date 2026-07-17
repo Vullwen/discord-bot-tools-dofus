@@ -1,6 +1,7 @@
-# Beb Raid
+# Dofus Raid Bot
 
-Beb Raid est le bot Discord des raids Dofus de la guilde.
+Dofus Raid Bot est un bot Discord pour organiser des raids Dofus sur un serveur
+de guilde.
 
 Il sert surtout à éviter les tableaux bricolés à la main : on crée un raid, les
 gens votent pour l'heure, le bot inscrit les participants, envoie les rappels,
@@ -42,7 +43,7 @@ raids limitent les places ouvertes aux personnages 199-.
 ### Général
 
 - `/help` : affiche l'aide dans Discord.
-- `/ping` : vérifie que Beb Raid répond.
+- `/ping` : vérifie que le bot répond.
 
 ### Raids
 
@@ -109,7 +110,7 @@ le pseudo et les dates.
 - `/find personnage` : retrouve le compte Discord lié à un personnage.
 
 Quand le screenshot contient le bon code, le bon serveur, la bonne guilde et le
-message en chat guilde, Beb Raid valide automatiquement. Sinon, les organisateurs
+message en chat guilde, le bot valide automatiquement. Sinon, les organisateurs
 peuvent valider ou refuser dans le salon privé.
 
 ### Autres modules
@@ -143,7 +144,7 @@ Les valeurs complètes sont dans `.env.example`. Les plus importantes :
 - `DISCORD_GUILD_ID` : serveur utilisé pour une sync rapide des commandes. Vide =
   sync globale.
 - `ADMIN_IDS` : IDs Discord des admins, séparés par des virgules.
-- `BOT_NAME` : nom affiché côté bot. Par défaut : `Beb Raid`.
+- `BOT_NAME` : nom affiché côté bot. Par défaut : `Dofus Raid Bot`.
 - `RAID_NAMES` : raids proposés dans les menus.
 - `RAID_CAPS` : nombre de places par raid, par exemple `Gigalodon:12`.
 - `RAID_LOW_LEVEL_CAPS` : places réservées aux personnages 199-.
@@ -193,7 +194,7 @@ Avec le venv du serveur :
 Dans Docker :
 
 ```bash
-docker compose run --rm --no-deps --entrypoint pytest beb-raid -q
+docker compose run --rm --no-deps --entrypoint pytest dofus-raid-bot -q
 ```
 
 Le projet n'a pas encore de configuration mypy officielle.

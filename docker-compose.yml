@@ -1,7 +1,7 @@
 services:
-  beb-raid:
+  dofus-raid-bot:
     build: .
-    container_name: beb-raid
+    container_name: dofus-raid-bot
     env_file: .env
     volumes:
       - ./data:/app/data

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cogs.core import HELP_SECTIONS, CoreCog, _help_embed
+from cogs.core import BOT_NAME, HELP_SECTIONS, CoreCog, _help_embed
 
 
 class _FakeResponse:
@@ -59,4 +59,4 @@ async def test_help_allows_non_admin():
     content, kwargs = interaction.response.messages[0]
     assert content is None
     assert kwargs["ephemeral"] is True
-    assert kwargs["embed"].title == "Aide Beb Raid"
+    assert kwargs["embed"].title == f"Aide {BOT_NAME}"

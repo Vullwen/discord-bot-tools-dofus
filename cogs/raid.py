@@ -46,7 +46,7 @@ from utils.poll import (
     tied_leaders,
 )
 
-logger = logging.getLogger("beb-raid.raid")
+logger = logging.getLogger("dofus-raid-bot.raid")
 
 LEVEL_199_MINUS = "199_minus"
 LEVEL_200_PLUS = "200_plus"

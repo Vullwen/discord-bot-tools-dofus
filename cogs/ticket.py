@@ -17,7 +17,7 @@ from utils import dates as dates_utils
 from utils import names as names_utils
 from utils.perms import can_manage_ticket, is_raid_organizer
 
-logger = logging.getLogger("beb-raid.ticket")
+logger = logging.getLogger("dofus-raid-bot.ticket")
 
 
 class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):

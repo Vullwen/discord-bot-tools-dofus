@@ -15,7 +15,7 @@ from discord.ext import commands
 import db
 from utils.perms import is_bot_admin
 
-logger = logging.getLogger("beb-raid.rolemenu")
+logger = logging.getLogger("dofus-raid-bot.rolemenu")
 
 DEFAULT_COLOR = 0x2ECC71
 MAX_ACTION_ROWS = 5
@@ -406,7 +406,7 @@ class RoleMenuCog(commands.Cog):
                     if not ok:
                         skipped.append(f"{role.mention} ({reason})")
                         continue
-                    await member.remove_roles(role, reason="Menu de rôles Beb Raid")
+                    await member.remove_roles(role, reason="Menu de rôles")
                     removed.append(role.mention)
 
         for role_id in selected_role_ids:
@@ -419,10 +419,10 @@ class RoleMenuCog(commands.Cog):
                 skipped.append(f"{role.mention} ({reason})")
                 continue
             if toggle and role in member.roles:
-                await member.remove_roles(role, reason="Menu de rôles Beb Raid")
+                await member.remove_roles(role, reason="Menu de rôles")
                 removed.append(role.mention)
             elif role not in member.roles:
-                await member.add_roles(role, reason="Menu de rôles Beb Raid")
+                await member.add_roles(role, reason="Menu de rôles")
                 added.append(role.mention)
 
         await self._send_result(interaction, added, removed, skipped)

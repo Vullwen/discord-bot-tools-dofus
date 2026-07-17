@@ -23,7 +23,7 @@ from config import (
 from utils.perms import is_raid_organizer
 from utils.verification import VerificationResult, evaluate_ocr_text, extract_text_from_image_bytes
 
-logger = logging.getLogger("beb-raid.verification")
+logger = logging.getLogger("dofus-raid-bot.verification")
 
 
 def _setting_or_default(guild_id: int, key: str, default: str) -> str:

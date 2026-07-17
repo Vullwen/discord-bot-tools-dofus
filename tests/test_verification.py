@@ -7,17 +7,17 @@ from utils.verification import evaluate_ocr_text
 
 def test_evaluate_ocr_text_validates_expected_dofus_lines():
     text = """
-    [09:41] ccpp#4778 (Vullwan) se trouve en Île de Grobe sur le serveur Dakal. Guilde [Bagarres et Belettes]
+    [09:41] ccpp#4778 (Vullwan) se trouve en Île de Grobe sur le serveur Dakal. Guilde [Guilde Test]
     [09:41] 15 Joullier 656 - 09:41
-    [09:41] (Guilde) Vullwan:  BEB-492817
+    [09:41] (Guilde) Vullwan:  RAID-492817
     """
 
     result = evaluate_ocr_text(
         text,
-        code="BEB-492817",
+        code="RAID-492817",
         character_name="Vullwan",
         server="Dakal",
-        guild_name="Bagarres et Belettes",
+        guild_name="Guilde Test",
     )
 
     assert result.status == "validated"
@@ -28,17 +28,17 @@ def test_evaluate_ocr_text_validates_expected_dofus_lines():
 def test_evaluate_ocr_text_validates_wrapped_whoami_and_plain_code_line():
     text = """
     [10:07] ccpp#4778 (Vullwan) se trouve en Île de Grobe sur le
-    serveur Dakal. Guilde [Bagarres et Belettes]
+    serveur Dakal. Guilde [Guilde Test]
     [10:07] 15 Joullier 656 - 10:07
-    [10:07] Vullwan : BEB-901932
+    [10:07] Vullwan : RAID-901932
     """
 
     result = evaluate_ocr_text(
         text,
-        code="BEB-901932",
+        code="RAID-901932",
         character_name="Vullwan",
         server="Dakal",
-        guild_name="Bagarres et Belettes",
+        guild_name="Guilde Test",
     )
 
     assert result.status == "validated"
@@ -46,14 +46,14 @@ def test_evaluate_ocr_text_validates_wrapped_whoami_and_plain_code_line():
 
 
 def test_evaluate_ocr_text_needs_review_when_context_is_partial():
-    text = "[09:41] (Guilde) Vullwan: BEB-492817"
+    text = "[09:41] (Guilde) Vullwan: RAID-492817"
 
     result = evaluate_ocr_text(
         text,
-        code="BEB-492817",
+        code="RAID-492817",
         character_name="Vullwan",
         server="Dakal",
-        guild_name="Bagarres et Belettes",
+        guild_name="Guilde Test",
     )
 
     assert result.status == "needs_review"
@@ -61,11 +61,11 @@ def test_evaluate_ocr_text_needs_review_when_context_is_partial():
 
 def test_evaluate_ocr_text_rejects_missing_code():
     result = evaluate_ocr_text(
-        "Vullwan se trouve sur le serveur Dakal. Guilde [Bagarres et Belettes]",
-        code="BEB-492817",
+        "Vullwan se trouve sur le serveur Dakal. Guilde [Guilde Test]",
+        code="RAID-492817",
         character_name="Vullwan",
         server="Dakal",
-        guild_name="Bagarres et Belettes",
+        guild_name="Guilde Test",
     )
 
     assert result.status == "rejected"
@@ -79,7 +79,7 @@ def test_verification_request_and_character_storage(tmp_path):
         channel_id=500,
         character_name="Vullwan",
         server="Dakal",
-        code="BEB-492817",
+        code="RAID-492817",
         expires_at=now_paris() + timedelta(minutes=15),
     )
 

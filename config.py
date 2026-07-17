@@ -11,7 +11,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 _raw_guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
 DISCORD_GUILD_ID = int(_raw_guild_id) if _raw_guild_id.isdigit() else 0
 
-BOT_NAME = os.getenv("BOT_NAME", "Beb Raid")
+BOT_NAME = os.getenv("BOT_NAME", "Dofus Raid Bot")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 ADMIN_IDS = {
@@ -92,9 +92,9 @@ if REMINDER_DELETE_HOURS < 0:
     REMINDER_DELETE_HOURS = 2
 
 # Vérification Dofus par OCR.
-DOFUS_GUILD_NAME = os.getenv("DOFUS_GUILD_NAME", "Bagarres et Belettes").strip()
+DOFUS_GUILD_NAME = os.getenv("DOFUS_GUILD_NAME", "Ma Guilde").strip()
 DOFUS_SERVER = os.getenv("DOFUS_SERVER", "Dakal").strip()
-VERIFICATION_CODE_PREFIX = os.getenv("VERIFICATION_CODE_PREFIX", "BEB").strip().upper() or "BEB"
+VERIFICATION_CODE_PREFIX = os.getenv("VERIFICATION_CODE_PREFIX", "RAID").strip().upper() or "RAID"
 try:
     VERIFICATION_EXPIRES_MINUTES = int(os.getenv("VERIFICATION_EXPIRES_MINUTES", "15"))
 except ValueError:

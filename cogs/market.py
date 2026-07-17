@@ -19,7 +19,7 @@ import db
 from config import MARKET_FORUM_CHANNEL_ID, now_paris
 from utils.perms import is_bot_admin
 
-logger = logging.getLogger("beb-raid.market")
+logger = logging.getLogger("dofus-raid-bot.market")
 
 MARKET_FORUM_NAMES = {"le marche", "marche", "le-marché", "marché", "market"}
 PRICE_SUFFIX_RE = re.compile(r"\s+-\s+[\d ]+\s+kamas?$", re.IGNORECASE)

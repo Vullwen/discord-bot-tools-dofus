@@ -15,7 +15,7 @@ from config import PARIS, now_paris
 from utils import dates as dates_utils
 from utils.perms import is_raid_organizer
 
-logger = logging.getLogger("beb-raid.absence")
+logger = logging.getLogger("dofus-raid-bot.absence")
 
 
 def _user_display(user: discord.abc.User) -> str:

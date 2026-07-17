@@ -20,7 +20,7 @@ _handler.formatter.converter = lambda ts: datetime.fromtimestamp(
 ).timetuple()
 
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO), handlers=[_handler])
-logger = logging.getLogger("beb-raid")
+logger = logging.getLogger("dofus-raid-bot")
 
 intents = discord.Intents.default()
 # Requis pour détecter automatiquement les screenshots postés dans les salons

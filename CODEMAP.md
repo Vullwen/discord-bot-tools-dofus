@@ -352,7 +352,7 @@ Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** d
 |----------|--------|------|
 | `DISCORD_TOKEN` | — | Token du bot (requis) |
 | `DISCORD_GUILD_ID` | — | Sync instantanée sur cette guilde (vide = global) |
-| `BOT_NAME` | `Beb Raid` | Nom |
+| `BOT_NAME` | `Dofus Raid Bot` | Nom |
 | `LOG_LEVEL` | `INFO` | Niveau de log |
 | `ADMIN_IDS` | — | IDs séparés par virgule |
 | `RAID_HOURS` | `14..23` | Créneaux du sondage heure |
@@ -369,9 +369,9 @@ Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** d
 ## 12. Déploiement & tests
 
 ### Docker
-- **Prod** : service `beb-raid` dans `../docker-compose.yml` (projet `bot`), `build: ./beb_raid`,
-  volume `./beb_raid/data:/app/data`. → `docker compose up -d --build beb-raid` depuis `../`.
-- **Standalone** : `./docker-compose.yml` local (projet `beb_raid`).
+- **Prod** : service compose du bot Dofus, `build: ./beb_raid`,
+  volume `./beb_raid/data:/app/data`.
+- **Standalone** : service `dofus-raid-bot` dans `./docker-compose.yml` local.
 - Seul `data/` est monté : **tout changement de code nécessite un rebuild**.
 - `Dockerfile` : `python:3.12-slim`, `pip install requirements.txt`, `python main.py`.
 

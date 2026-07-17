@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands
 
+from config import BOT_NAME
+
 
 HELP_SECTIONS = (
     (
@@ -86,7 +88,7 @@ def _format_help_lines(entries: tuple[tuple[str, str], ...]) -> str:
 
 def _help_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="Aide Beb Raid",
+        title=f"Aide {BOT_NAME}",
         description="Commandes disponibles sur ce serveur.",
         color=0x2ECC71,
     )
