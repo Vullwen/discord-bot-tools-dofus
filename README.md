@@ -1,221 +1,199 @@
-# Discord bot Raids Dofus
+# Beb Raid
 
-Bot Discord pour organiser des raids Dofus (Gigalodon, Jardins Éternels). On crée
-un raid pour une date, les votants choisissent l'heure (et le raid si besoin), un
-rappel part avant, puis les messages du raid se nettoient tout seuls après le raid.
+Beb Raid est le bot Discord des raids Dofus de la guilde.
 
-Python 3.12, discord.py 2.x, SQLite, Docker.
+Il sert surtout à éviter les tableaux bricolés à la main : on crée un raid, les
+gens votent pour l'heure, le bot inscrit les participants, envoie les rappels,
+garde une trace des absences et range les messages quand le raid est passé.
+
+Le projet tourne en Python 3.12 avec discord.py, SQLite et Docker.
+
+## Ce que le bot gère
+
+- Création de raids avec choix du raid, vote d'heure ou horaire fixé directement.
+- Inscriptions, désinscriptions, liste d'attente et limite de places par raid.
+- Rappels avant le raid, en MP et dans le salon.
+- Warns et bans raid pour les personnes qui s'inscrivent puis ne viennent pas.
+- Absences, kick AFK et remise du rôle de base.
+- Vérification Dofus par screenshot.
+- Forum marché avec prix, clôture et archivage.
+- Menus de rôles persistants.
+- Cartes de stuff à partir des liens Dofusbook.
 
 ## Cycle d'un raid
 
-Tout dépend de ce que tu donnes à la création :
+La commande de départ est `/raid start`.
 
-- `/raid start` avec **une heure** (ex. `vendredi 21h`) : le raid est planifié directement,
-  pas de sondage.
-- `/raid start` avec **le raid mais pas d'heure** : un menu te laisse choisir les créneaux
-  à proposer, puis un sondage est lancé. Chacun vote pour les heures qui lui
-  conviennent (plusieurs choix possibles).
-- `/raid start` **sans le raid** : un sondage choisit d'abord le raid, puis l'heure.
+- Avec une heure dans la date, par exemple `vendredi 21h`, le raid est planifié
+  directement.
+- Avec un raid mais sans heure, le bot propose les créneaux à mettre au vote.
+- Sans raid précis, les membres votent d'abord pour le raid, puis pour l'heure.
 
-Ensuite :
+Ensuite, le bot ferme les sondages le jour du raid, à midi par défaut. Les
+votants du créneau gagnant sont inscrits automatiquement. Quand le raid est plein,
+les nouveaux inscrits passent en liste d'attente, et le premier en attente est
+promu si quelqu'un se désinscrit.
 
-- Les sondages se ferment tout seuls le jour du raid (à midi par défaut).
-- Les votants choisissent leur palier (**199-** ou **200+**) avant de voter ou de
-  s'inscrire. Les places 199- sont limitées par raid.
-- Dans un sondage d'heure, les votants du créneau gagnant sont inscrits
-  automatiquement. Le bouton **Dispo toutes les heures** permet de voter tous les
-  créneaux proposés d'un coup, et **Annuler mes heures** retire tous tes votes.
-- Une fois l'heure fixée, les participants peuvent s'inscrire, se désinscrire,
-  voir la liste des participants et rejoindre la liste d'attente si le raid est plein.
-- En cas d'égalité sur l'heure, le créateur reçoit un MP pour départager.
-- Un rappel part en MP aux confirmés quelques minutes avant l'heure prévue, avec
-  un rappel dans le salon.
-- Les messages de rappel et de raid sont supprimés automatiquement après le délai
-  configuré.
+Les joueurs choisissent aussi leur palier `199-` ou `200+`, parce que certains
+raids limitent les places ouvertes aux personnages 199-.
 
-Le nombre de places par raid est limité (`RAID_CAPS`). Une fois complet, les
-nouvelles inscriptions passent en liste d'attente. Si un confirmé se désinscrit,
-le premier joueur en attente est promu automatiquement et reçoit un MP.
+## Commandes utiles
 
-## Commandes
+### Général
 
-La référence complète et la nomenclature cible sont dans `COMMANDS.md`.
+- `/help` : affiche l'aide dans Discord.
+- `/ping` : vérifie que Beb Raid répond.
 
-Général :
+### Raids
 
-- `/help` — affiche l'aide du bot.
-- `/ping` — vérifie que le bot répond.
+- `/raid start date [raid] [cloture] [note]` : crée un raid.
+- `/raid list` : affiche les raids actifs.
+- `/raid cancel raid_id` : annule un raid.
+- `/raid close raid_id` : ferme le sondage en cours tout de suite.
+- `/raid warn user [raison]` : envoie un avertissement raid en MP et le copie dans
+  le salon admin raids.
+- `/raid ban user jours [raison]` : bloque temporairement les votes et inscriptions.
+- `/raid unban user` : retire le ban raid d'un membre.
+- `/raid bans` : liste les bans raid actifs.
 
-Raids :
+Sur les messages de raid, les boutons permettent de voter, s'inscrire, se
+désinscrire, voir les participants, retirer quelqu'un et annuler le raid avec
+confirmation.
 
-- `/raid start date [raid] [cloture] [note]` — crée un raid. `cloture` choisit
-  l'heure de fermeture le jour du raid (ex. `12h` = midi le jour du raid).
-- `/raid list` — raids actifs.
-- `/raid warn user [raison]` — avertit un membre en MP et copie l'avertissement dans le salon admin raids configuré.
-- `/raid ban user jours [raison]` — interdit temporairement à un membre de voter
-  ou de s'inscrire aux raids, avec notification dans le salon admin raids configuré.
-- `/raid unban user` — retire le ban raid d'un membre.
-- `/raid bans` — liste les bans raid actifs.
-- `/raid cancel raid_id` — annule un raid (créateur ou organisateur).
-- `/raid close raid_id` — clôture tout de suite le sondage en cours.
+### Configuration
 
-Sur chaque message de raid, les boutons permettent de voter, s'inscrire, se
-désinscrire, voir les participants, retirer un participant (admin/créateur) et
-annuler le raid avec confirmation.
+Tout passe par `/config`, pour éviter les anciennes commandes éparpillées.
 
-Absences :
+- `/config channel usage channel` : configure un salon ou forum.
+- `/config role usage [role]` : configure un rôle, ou le désactive si aucun rôle
+  n'est donné.
+- `/config dofus guilde serveur` : règle la guilde et le serveur attendus pour la
+  vérification Dofus.
+- `/config show` : affiche la configuration du serveur.
 
-- `/absence declare` — ouvre le formulaire de déclaration d'absence.
-- `/absence panel` — poste le bouton de déclaration dans le salon panel absences configuré.
-- `/absence search [member]` — liste les absences actives ou à venir, sans afficher les motifs.
-- `/absence add member debut fin [motif]` — ajoute une absence pour un membre.
-- `/absence stop member [absence_id]` — stoppe une absence active ou à venir.
-- `/absence kick user` — prévient dans le salon absence et en MP qu'un membre a été
-  kick de la guilde pour AFK, retire ses rôles et remet le rôle de base configuré.
+Usages de `/config channel` :
 
-Le panel et les messages d'absence utilisent deux salons différents : le bouton
-est posté dans le salon panel absences, puis les absences déclarées publient un
-embed public avec pseudo + dates dans le salon absence. Le motif, s'il est
-renseigné, part uniquement dans le salon admin absences. Le message public est
-supprimé automatiquement à minuit après la date de fin ; le message admin est
-conservé.
+- `raids`
+- `raid_admin`
+- `absence_panel`
+- `absence`
+- `absence_admin`
+- `market_forum`
 
-Tickets :
+Usages de `/config role` :
 
-- Les anciens salons privés de ticket peuvent encore utiliser les boutons
-  persistants **Créer ce raid**, **Ajouter un membre** et **Fermer**.
-- Le créateur du ticket et les organisateurs peuvent ajouter des membres ou fermer
-  le salon.
+- `bot_admin`
+- `raid_manager`
+- `raid_notify`
+- `base`
+- `verified_member`
+- `unverified_member`
 
-Marché :
+### Absences
 
-- Dans le forum marché, chaque nouveau post reçoit automatiquement les boutons
-  **Mettre le prix** et **Clôturer la vente** ou **Clôturer l'achat** selon le tag du post.
-- L'OP ou un admin peut définir le prix en kamas et clôturer l'annonce en
-  choisissant **Vente/Achat échoué**, **Vente/Achat guilde** ou **Vente/Achat HDV** ;
-  le post est alors renommé, verrouillé et archivé.
-- Après 30 jours sans activité, le post est automatiquement clôturé en
-  **Vente échouée** ou **Achat échoué** selon son tag, et l'OP reçoit un MP.
+- `/absence declare` : ouvre le formulaire d'absence.
+- `/absence panel` : poste le bouton public de déclaration.
+- `/absence search [member]` : cherche les absences actives ou à venir.
+- `/absence add member debut fin [motif]` : ajoute une absence pour quelqu'un.
+- `/absence stop member [absence_id]` : stoppe une absence.
+- `/absence kick user` : prévient qu'un membre est kick AFK, envoie le MP et remet
+  le rôle de base configuré.
 
-Stuff Dofusbook :
+Les motifs restent dans le salon admin absences. Le message public ne montre que
+le pseudo et les dates.
 
-- `/stuff refresh` — régénère le dernier stuff Dofusbook récent du salon.
-- Un lien Dofusbook posté dans un salon génère automatiquement une image du stuff.
+### Vérification Dofus
 
-Vérification Dofus :
+- `/mychars` : liste tes personnages vérifiés.
+- `/chars membre` : liste les personnages vérifiés d'un membre.
+- `/find personnage` : retrouve le compte Discord lié à un personnage.
 
-- Les commandes de liaison `/link` et `/unlink` sont désactivées pour le moment.
-- `/mychars` — liste tes personnages Dofus vérifiés.
-- `/chars membre` — liste les personnages Dofus vérifiés d'un compte Discord.
-- `/find personnage` — retrouve le Discord lié à un personnage.
-- Si l'analyse reconnaît le code, le pseudo, le serveur, la guilde et le message en
-  chat guilde, le bot valide automatiquement. Sinon les organisateurs ont des
-  boutons **Valider** / **Refuser** dans le salon privé.
-- Après validation, le bot ajoute le rôle membre vérifié, retire le rôle à vérifier
-  si configuré, et renomme le membre Discord avec le pseudo de son personnage main.
+Quand le screenshot contient le bon code, le bon serveur, la bonne guilde et le
+message en chat guilde, Beb Raid valide automatiquement. Sinon, les organisateurs
+peuvent valider ou refuser dans le salon privé.
 
-Configuration (organisateur) :
+### Autres modules
 
-- `/config channel usage channel` — salons des raids, de l'admin raids, des absences, des motifs admin et forum marché.
-- `/config role usage [role]` — rôles admin bot, organisateur, notif raids, base, membre vérifié et à vérifier.
-- `/config dofus guilde serveur` — nom de guilde et serveur attendus dans les screenshots de vérification.
-- `/config show` — affiche la config du serveur.
+- `/stuff refresh` : régénère le dernier stuff Dofusbook trouvé dans le salon.
+- `/rolemenu ...` : crée et maintient les panneaux de rôles.
+- `/sync` : resynchronise les commandes Discord.
+- `/reload cog` : recharge un cog à chaud.
 
-Menus de rôles :
-
-- `/rolemenu create` — crée un panneau de rôles.
-- `/rolemenu edit_embed` et `/rolemenu edit_description` — modifient le contenu de l'embed.
-- `/rolemenu add_button`, `/rolemenu edit_button`, `/rolemenu add_select`,
-  `/rolemenu edit_select`, `/rolemenu add_option`, `/rolemenu edit_option` et
-  `/rolemenu move_option` — gèrent les composants.
-- `/rolemenu remove_component` et `/rolemenu remove_option` — suppriment un composant ou une option.
-- `/rolemenu list`, `/rolemenu inspect`, `/rolemenu refresh`, `/rolemenu export`,
-  `/rolemenu copy` et `/rolemenu import_config` — exploitent, dupliquent ou restaurent les panneaux.
+Le forum marché n'a pas besoin de commande au quotidien : les boutons apparaissent
+sur les posts du forum configuré.
 
 ## Rôles
 
-- **Organisateur** (défini par `/config role usage:raid_manager`) : crée et gère les raids,
-  configure le bot, clôture les sondages, annule, gère les participants et les
-  tickets. Si aucun rôle n'est défini, les membres avec la permission
-  Administrateur Discord sont organisateurs.
-- **Notif raids** (défini par `/config role usage:raid_notify`) : mentionné quand un raid est
-  annoncé. L'attribution aux membres est manuelle (côté Discord).
-- **Créateur du raid** : peut gérer son raid même sans rôle organisateur.
-- **Opener du ticket** : peut gérer son ticket même sans rôle organisateur.
+- `raid_manager` : rôle organisateur. Il peut créer et gérer les raids, configurer
+  le bot, fermer les sondages, annuler et gérer les tickets.
+- `raid_notify` : rôle mentionné à l'annonce d'un nouveau raid.
+- `base` : rôle remis après `/absence kick`.
+- `verified_member` : rôle donné après une vérification Dofus validée.
+- `unverified_member` : rôle retiré après une vérification validée.
+- `bot_admin` : rôle qui donne les droits admin du bot.
 
-## Variables d'environnement (`.env`)
+Si aucun rôle organisateur n'est configuré, les membres avec la permission
+Administrateur Discord gardent la main.
 
-Voir `.env.example` pour la liste complète. Les principales :
+## Configuration `.env`
 
-- `DISCORD_TOKEN` — token du bot (requis).
-- `DISCORD_GUILD_ID` — guilde pour la sync instantanée des commandes (vide =
-  global ; les anciennes copies de guilde sont nettoyées pour éviter les doublons).
-- `ADMIN_IDS` — IDs des admins, séparés par des virgules.
-- `RAID_NAMES` — raids possibles.
-- `RAID_CAPS` — places max par raid (ex. `Gigalodon:12`).
-- `RAID_LOW_LEVEL_CAPS` — places réservées aux personnages 199- par raid
-  (ex. `Gigalodon:2,Jardins Éternels:0`).
-- `RAID_HOURS` — créneaux proposés par défaut dans le sondage d'heure.
-- `RAID_DEFAULT_HOUR` — heure choisie si aucun vote n'est exprimé.
-- `RAID_POLL_CLOSE_HOUR` — heure de clôture auto des sondages, le jour du raid
-  (12 = midi par défaut).
-- `REMINDER_MINUTES` — minutes avant le raid pour le rappel (10 par défaut).
-- `REMINDER_DELETE_HOURS` — délai de suppression des messages de rappel/raid
-  après publication ou heure prévue (2 par défaut).
-- `MARKET_FORUM_CHANNEL_ID` — ID du forum marché en fallback. En priorité,
-  configure le forum via `/config channel`.
-- `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour la vérification
-  (`Bagarres et Belettes` par défaut, surchargeable par `/config dofus`).
-- `DOFUS_SERVER` — serveur Dofus par défaut (`Dakal` par défaut, surchargeable par
-  `/config dofus`).
-- `VERIFICATION_CODE_PREFIX` — préfixe des codes de vérification (`BEB` par défaut).
-- `VERIFICATION_EXPIRES_MINUTES` — durée de validité d'un code de vérification (15 par défaut).
-- `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/config channel`).
-- `DB_PATH` — chemin SQLite (par défaut `/app/data/beb_raid.db` en Docker).
+Les valeurs complètes sont dans `.env.example`. Les plus importantes :
 
-La lecture automatique des screenshots nécessite l'intent Discord **Message
-Content** activé pour le bot dans le Developer Portal.
+- `DISCORD_TOKEN` : token du bot.
+- `DISCORD_GUILD_ID` : serveur utilisé pour une sync rapide des commandes. Vide =
+  sync globale.
+- `ADMIN_IDS` : IDs Discord des admins, séparés par des virgules.
+- `BOT_NAME` : nom affiché côté bot. Par défaut : `Beb Raid`.
+- `RAID_NAMES` : raids proposés dans les menus.
+- `RAID_CAPS` : nombre de places par raid, par exemple `Gigalodon:12`.
+- `RAID_LOW_LEVEL_CAPS` : places réservées aux personnages 199-.
+- `RAID_HOURS` : créneaux proposés par défaut.
+- `RAID_DEFAULT_HOUR` : heure utilisée si personne ne vote.
+- `RAID_POLL_CLOSE_HOUR` : heure de fermeture auto des sondages.
+- `REMINDER_MINUTES` : délai du rappel avant le raid.
+- `REMINDER_DELETE_HOURS` : délai avant suppression des messages de rappel/raid.
+- `MARKET_FORUM_CHANNEL_ID` : forum marché de secours, si `/config channel` n'est
+  pas encore renseigné.
+- `DOFUS_GUILD_NAME` et `DOFUS_SERVER` : valeurs attendues pour la vérification.
+- `DB_PATH` : chemin SQLite.
 
-## Lancement
+La lecture automatique des screenshots demande l'intent Discord **Message
+Content** dans le Developer Portal.
 
-Docker en production, depuis le dossier parent `server/bot` :
+## Lancer le bot
+
+En production, depuis ce dossier :
 
 ```bash
-docker compose up -d --build beb-raid
-docker compose ps beb-raid
-docker compose logs --tail=100 beb-raid
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100
 ```
 
-Le fichier `docker-compose.yml` présent dans ce dossier peut construire l'image,
-mais le conteneur de production `beb-raid` est géré par le Compose parent. Utilise
-donc le dossier parent pour redémarrer le service existant.
-
-Local :
+En local :
 
 ```bash
-cp .env.example .env   # renseigner DISCORD_TOKEN + ADMIN_IDS
+cp .env.example .env
 pip install -r requirements.txt
 python main.py
 ```
 
-Tests :
+## Tests
 
 ```bash
 pytest -q
 ```
 
-Tests dans l'image Docker :
+Avec le venv du serveur :
 
 ```bash
-cd /home/vullwen/server/bot
+.venv/bin/python -m pytest
+```
+
+Dans Docker :
+
+```bash
 docker compose run --rm --no-deps --entrypoint pytest beb-raid -q
 ```
 
-Contrôles utiles :
-
-```bash
-python -m compileall -q .
-ruff check .
-```
-
-Le projet n'a pas encore de configuration `mypy` officielle.
+Le projet n'a pas encore de configuration mypy officielle.
