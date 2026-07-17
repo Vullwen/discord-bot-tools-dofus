@@ -1,7 +1,9 @@
-"""Configuration en Discord du salon des raids.
+"""Configuration Discord du bot.
 
-- /setchannel : définit le salon où arrivent les sondages/embeds des raids
-- /showconfig : affiche la configuration courante de la guilde.
+- /config channel : configure les salons et forums utilises par le bot.
+- /config role : configure les roles utilises par le bot.
+- /config dofus : configure la verification Dofus.
+- /config show : affiche la configuration courante de la guilde.
 """
 from __future__ import annotations
 
@@ -25,6 +27,61 @@ _CHANNEL_LABEL = {
     db.SETTING_MARKET_FORUM_CHANNEL: "Forum marché",
 }
 
+_ROLE_LABEL = {
+    db.SETTING_BOT_ADMIN_ROLE: "Rôle admin bot",
+    db.SETTING_RAID_MANAGER_ROLE: "Rôle organisateur",
+    db.SETTING_RAID_NOTIFY_ROLE: "Rôle notif raids",
+    db.SETTING_BASE_ROLE: "Rôle de base",
+    db.SETTING_VERIFIED_MEMBER_ROLE: "Rôle membre vérifié",
+    db.SETTING_UNVERIFIED_MEMBER_ROLE: "Rôle à vérifier",
+}
+
+_ROLE_RESET_MESSAGE = {
+    db.SETTING_BOT_ADMIN_ROLE: (
+        "✅ Rôle admin bot retiré. Les admins restent ceux de `ADMIN_IDS`, le propriétaire "
+        "du serveur et les membres avec la permission Administrateur."
+    ),
+    db.SETTING_RAID_MANAGER_ROLE: (
+        "✅ Rôle organisateur retiré. Les membres avec la permission Administrateur peuvent "
+        "créer/gérer les raids."
+    ),
+    db.SETTING_RAID_NOTIFY_ROLE: "✅ Mention de raid désactivée (aucun rôle ne sera mentionné).",
+    db.SETTING_BASE_ROLE: "✅ Rôle de base désactivé. `/absence kick` ne modifiera plus les rôles.",
+    db.SETTING_VERIFIED_MEMBER_ROLE: (
+        "✅ Rôle membre vérifié désactivé. La vérification validera les persos sans donner de rôle."
+    ),
+    db.SETTING_UNVERIFIED_MEMBER_ROLE: (
+        "✅ Rôle à vérifier désactivé. La vérification ne retirera aucun rôle automatiquement."
+    ),
+}
+
+_ROLE_SET_DETAIL = {
+    db.SETTING_BOT_ADMIN_ROLE: "Ses détenteurs peuvent gérer la configuration admin du bot.",
+    db.SETTING_RAID_MANAGER_ROLE: "Ses détenteurs peuvent créer/gérer les raids.",
+    db.SETTING_RAID_NOTIFY_ROLE: "Il sera mentionné à l'annonce de chaque nouveau raid.",
+    db.SETTING_BASE_ROLE: "`/absence kick` retirera les autres rôles et remettra celui-ci.",
+    db.SETTING_VERIFIED_MEMBER_ROLE: "Il sera donné après vérification validée.",
+    db.SETTING_UNVERIFIED_MEMBER_ROLE: "Il sera retiré après vérification validée.",
+}
+
+_CHANNEL_CHOICES = [
+    app_commands.Choice(name="raids", value=db.SETTING_RAIDS_CHANNEL),
+    app_commands.Choice(name="raid_admin", value=db.SETTING_RAID_ADMIN_CHANNEL),
+    app_commands.Choice(name="absence_panel", value=db.SETTING_ABSENCE_PANEL_CHANNEL),
+    app_commands.Choice(name="absence", value=db.SETTING_ABSENCE_CHANNEL),
+    app_commands.Choice(name="absence_admin", value=db.SETTING_ABSENCE_ADMIN_CHANNEL),
+    app_commands.Choice(name="market_forum", value=db.SETTING_MARKET_FORUM_CHANNEL),
+]
+
+_ROLE_CHOICES = [
+    app_commands.Choice(name="bot_admin", value=db.SETTING_BOT_ADMIN_ROLE),
+    app_commands.Choice(name="raid_manager", value=db.SETTING_RAID_MANAGER_ROLE),
+    app_commands.Choice(name="raid_notify", value=db.SETTING_RAID_NOTIFY_ROLE),
+    app_commands.Choice(name="base", value=db.SETTING_BASE_ROLE),
+    app_commands.Choice(name="verified_member", value=db.SETTING_VERIFIED_MEMBER_ROLE),
+    app_commands.Choice(name="unverified_member", value=db.SETTING_UNVERIFIED_MEMBER_ROLE),
+]
+
 
 def _resolve_role(guild: discord.Guild, role_ref: str) -> Optional[discord.Role]:
     raw = (role_ref or "").strip()
@@ -41,29 +98,28 @@ def _resolve_role(guild: discord.Guild, role_ref: str) -> Optional[discord.Role]
     return matches[0] if len(matches) == 1 else None
 
 
+def _can_set_role(interaction: discord.Interaction, key: str) -> bool:
+    if key == db.SETTING_BOT_ADMIN_ROLE:
+        return is_bot_admin(interaction)
+    return is_raid_organizer(interaction)
+
+
 class SettingsCog(commands.Cog):
+    config = app_commands.Group(name="config", description="Configuration du bot")
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="setchannel", description="Définit un salon du bot")
+    @config.command(name="channel", description="Définit un salon du bot")
     @app_commands.describe(
-        setting="Ce que tu veux configurer",
-        channel="Le salon à utiliser",
+        usage="Ce que tu veux configurer",
+        channel="Le salon ou forum à utiliser",
     )
-    @app_commands.choices(
-        setting=[
-            app_commands.Choice(name="Salon des raids", value=db.SETTING_RAIDS_CHANNEL),
-            app_commands.Choice(name="Salon admin raids", value=db.SETTING_RAID_ADMIN_CHANNEL),
-            app_commands.Choice(name="Salon panel absences", value=db.SETTING_ABSENCE_PANEL_CHANNEL),
-            app_commands.Choice(name="Salon absence", value=db.SETTING_ABSENCE_CHANNEL),
-            app_commands.Choice(name="Salon admin absences", value=db.SETTING_ABSENCE_ADMIN_CHANNEL),
-            app_commands.Choice(name="Forum marché", value=db.SETTING_MARKET_FORUM_CHANNEL),
-        ]
-    )
-    async def setchannel(
+    @app_commands.choices(usage=_CHANNEL_CHOICES)
+    async def config_channel(
         self,
         interaction: discord.Interaction,
-        setting: app_commands.Choice[str],
+        usage: app_commands.Choice[str],
         channel: discord.abc.GuildChannel,
     ) -> None:
         if not is_raid_organizer(interaction):
@@ -73,26 +129,26 @@ class SettingsCog(commands.Cog):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
 
-        db.set_guild_setting(interaction.guild.id, setting.value, str(channel.id))
-        label = _CHANNEL_LABEL.get(setting.value, setting.value)
+        db.set_guild_setting(interaction.guild.id, usage.value, str(channel.id))
+        label = _CHANNEL_LABEL.get(usage.value, usage.value)
         await interaction.response.send_message(
             f"✅ {label} défini sur {channel.mention}.",
             ephemeral=True,
         )
 
-    @app_commands.command(
-        name="setraidrole",
-        description="Définit le rôle autorisé à créer/gérer les raids",
-    )
+    @config.command(name="role", description="Définit un rôle du bot")
     @app_commands.describe(
-        role="ID, mention ou nom exact du rôle (vide = permission Administrateur Discord)",
+        usage="Ce que tu veux configurer",
+        role="Rôle à utiliser (vide = désactive/reset ce rôle configuré)",
     )
-    async def setraidrole(
+    @app_commands.choices(usage=_ROLE_CHOICES)
+    async def config_role(
         self,
         interaction: discord.Interaction,
-        role: Optional[str] = None,
+        usage: app_commands.Choice[str],
+        role: Optional[discord.Role] = None,
     ) -> None:
-        if not is_raid_organizer(interaction):
+        if not _can_set_role(interaction, usage.value):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         if interaction.guild is None:
@@ -100,245 +156,27 @@ class SettingsCog(commands.Cog):
             return
 
         if role is None:
-            db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_MANAGER_ROLE, "")
+            db.set_guild_setting(interaction.guild.id, usage.value, "")
             await interaction.response.send_message(
-                "✅ Rôle organisateur retiré. Les membres avec la permission Administrateur peuvent créer/gérer les raids.",
+                _ROLE_RESET_MESSAGE.get(usage.value, "✅ Rôle désactivé."),
                 ephemeral=True,
             )
             return
 
-        resolved = _resolve_role(interaction.guild, role)
-        if resolved is None:
-            await interaction.response.send_message(
-                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
-                ephemeral=True,
-            )
-            return
-
-        db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_MANAGER_ROLE, str(resolved.id))
+        db.set_guild_setting(interaction.guild.id, usage.value, str(role.id))
+        label = _ROLE_LABEL.get(usage.value, "Rôle")
+        detail = _ROLE_SET_DETAIL.get(usage.value, "")
         await interaction.response.send_message(
-            f"✅ Rôle organisateur défini : {resolved.mention}. Ses détenteurs peuvent "
-            f"créer/gérer les raids.",
+            f"✅ {label} défini : {role.mention}. {detail}".strip(),
             ephemeral=True,
         )
 
-    @app_commands.command(
-        name="setbotadminrole",
-        description="Définit le rôle qui donne les droits admin du bot",
-    )
-    @app_commands.describe(
-        role="ID, mention ou nom exact du rôle (vide = désactive ce rôle admin bot)",
-    )
-    async def setbotadminrole(
-        self,
-        interaction: discord.Interaction,
-        role: Optional[str] = None,
-    ) -> None:
-        if not is_bot_admin(interaction):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
-            return
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
-            return
-
-        if role is None:
-            db.set_guild_setting(interaction.guild.id, db.SETTING_BOT_ADMIN_ROLE, "")
-            await interaction.response.send_message(
-                "✅ Rôle admin bot retiré. Les admins restent ceux de `ADMIN_IDS`, le propriétaire "
-                "du serveur et les membres avec la permission Administrateur.",
-                ephemeral=True,
-            )
-            return
-
-        resolved = _resolve_role(interaction.guild, role)
-        if resolved is None:
-            await interaction.response.send_message(
-                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
-                ephemeral=True,
-            )
-            return
-
-        db.set_guild_setting(interaction.guild.id, db.SETTING_BOT_ADMIN_ROLE, str(resolved.id))
-        await interaction.response.send_message(
-            f"✅ Rôle admin bot défini : {resolved.mention}. Ses détenteurs peuvent gérer "
-            "la configuration admin du bot.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="setraidnotifyrole",
-        description="Définit le rôle mentionné à chaque nouveau raid",
-    )
-    @app_commands.describe(
-        role="ID, mention ou nom exact du rôle (vide = désactive la mention)",
-    )
-    async def setraidnotifyrole(
-        self,
-        interaction: discord.Interaction,
-        role: Optional[str] = None,
-    ) -> None:
-        if not is_raid_organizer(interaction):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
-            return
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
-            return
-
-        if role is None:
-            db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_NOTIFY_ROLE, "")
-            await interaction.response.send_message(
-                "✅ Mention de raid désactivée (aucun rôle ne sera mentionné).",
-                ephemeral=True,
-            )
-            return
-
-        resolved = _resolve_role(interaction.guild, role)
-        if resolved is None:
-            await interaction.response.send_message(
-                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
-                ephemeral=True,
-            )
-            return
-
-        db.set_guild_setting(interaction.guild.id, db.SETTING_RAID_NOTIFY_ROLE, str(resolved.id))
-        await interaction.response.send_message(
-            f"✅ Rôle notif défini : {resolved.mention}. Il sera mentionné à l'annonce de chaque nouveau raid.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="setbaserole",
-        description="Définit le rôle remis après /absence kick",
-    )
-    @app_commands.describe(
-        role="ID, mention ou nom exact du rôle (vide = désactive le changement de rôles)",
-    )
-    async def setbaserole(
-        self,
-        interaction: discord.Interaction,
-        role: Optional[str] = None,
-    ) -> None:
-        if not is_raid_organizer(interaction):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
-            return
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
-            return
-
-        if role is None:
-            db.set_guild_setting(interaction.guild.id, db.SETTING_BASE_ROLE, "")
-            await interaction.response.send_message(
-                "✅ Rôle de base désactivé. `/absence kick` ne modifiera plus les rôles.",
-                ephemeral=True,
-            )
-            return
-
-        resolved = _resolve_role(interaction.guild, role)
-        if resolved is None:
-            await interaction.response.send_message(
-                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
-                ephemeral=True,
-            )
-            return
-
-        db.set_guild_setting(interaction.guild.id, db.SETTING_BASE_ROLE, str(resolved.id))
-        await interaction.response.send_message(
-            f"✅ Rôle de base défini : {resolved.mention}. `/absence kick` retirera les autres rôles "
-            "et remettra celui-ci.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="setmemberrole",
-        description="Définit le rôle donné après vérification Dofus",
-    )
-    @app_commands.describe(
-        role="ID, mention ou nom exact du rôle (vide = désactive l'attribution automatique)",
-    )
-    async def setmemberrole(
-        self,
-        interaction: discord.Interaction,
-        role: Optional[str] = None,
-    ) -> None:
-        if not is_raid_organizer(interaction):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
-            return
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
-            return
-
-        if role is None:
-            db.set_guild_setting(interaction.guild.id, db.SETTING_VERIFIED_MEMBER_ROLE, "")
-            await interaction.response.send_message(
-                "✅ Rôle membre vérifié désactivé. La vérification validera les persos sans donner de rôle.",
-                ephemeral=True,
-            )
-            return
-
-        resolved = _resolve_role(interaction.guild, role)
-        if resolved is None:
-            await interaction.response.send_message(
-                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
-                ephemeral=True,
-            )
-            return
-
-        db.set_guild_setting(interaction.guild.id, db.SETTING_VERIFIED_MEMBER_ROLE, str(resolved.id))
-        await interaction.response.send_message(
-            f"✅ Rôle membre vérifié défini : {resolved.mention}. Il sera donné après vérification validée.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="setunverifiedrole",
-        description="Définit le rôle retiré après vérification Dofus",
-    )
-    @app_commands.describe(
-        role="ID, mention ou nom exact du rôle à vérifier (vide = désactive le retrait automatique)",
-    )
-    async def setunverifiedrole(
-        self,
-        interaction: discord.Interaction,
-        role: Optional[str] = None,
-    ) -> None:
-        if not is_raid_organizer(interaction):
-            await interaction.response.send_message("Permission refusée.", ephemeral=True)
-            return
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
-            return
-
-        if role is None:
-            db.set_guild_setting(interaction.guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE, "")
-            await interaction.response.send_message(
-                "✅ Rôle à vérifier désactivé. La vérification ne retirera aucun rôle automatiquement.",
-                ephemeral=True,
-            )
-            return
-
-        resolved = _resolve_role(interaction.guild, role)
-        if resolved is None:
-            await interaction.response.send_message(
-                "Rôle introuvable. Donne son ID, sa mention copiée (`<@&id>`) ou son nom exact.",
-                ephemeral=True,
-            )
-            return
-
-        db.set_guild_setting(interaction.guild.id, db.SETTING_UNVERIFIED_MEMBER_ROLE, str(resolved.id))
-        await interaction.response.send_message(
-            f"✅ Rôle à vérifier défini : {resolved.mention}. Il sera retiré après vérification validée.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="setdofusconfig",
-        description="Définit la guilde et le serveur attendus pour la vérification",
-    )
+    @config.command(name="dofus", description="Définit la guilde et le serveur attendus pour la vérification")
     @app_commands.describe(
         guilde="Nom exact de la guilde Dofus dans /whoami",
         serveur="Serveur Dofus par défaut",
     )
-    async def setdofusconfig(
+    async def config_dofus(
         self,
         interaction: discord.Interaction,
         guilde: str,
@@ -357,8 +195,8 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="showconfig", description="Affiche la configuration des raids de ce serveur")
-    async def showconfig(self, interaction: discord.Interaction) -> None:
+    @config.command(name="show", description="Affiche la configuration des raids de ce serveur")
+    async def config_show(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
@@ -435,9 +273,7 @@ class SettingsCog(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(
-            text="Configure avec /setchannel, /setbotadminrole, /setraidrole, /setraidnotifyrole, /setbaserole, /setmemberrole, /setunverifiedrole et /setdofusconfig"
-        )
+        embed.set_footer(text="Configure avec /config channel, /config role et /config dofus")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

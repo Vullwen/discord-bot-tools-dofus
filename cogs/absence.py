@@ -404,7 +404,7 @@ class AbsenceCog(commands.Cog):
         public_channels = await self._absence_channels(interaction)
         if not public_channels:
             await interaction.response.send_message(
-                "Aucun salon absence disponible. Configure le salon absence avec `/setchannel`.",
+                "Aucun salon absence disponible. Configure le salon absence avec `/config channel`.",
                 ephemeral=True,
             )
             return
@@ -457,7 +457,7 @@ class AbsenceCog(commands.Cog):
         public_channels = await self._absence_channels(interaction)
         if not public_channels:
             await interaction.response.send_message(
-                "Aucun salon absence disponible. Configure le salon absence avec `/setchannel`.",
+                "Aucun salon absence disponible. Configure le salon absence avec `/config channel`.",
                 ephemeral=True,
             )
             return
@@ -541,7 +541,7 @@ class AbsenceCog(commands.Cog):
         target = await self._configured_channel(interaction.guild, db.SETTING_ABSENCE_PANEL_CHANNEL)
         if target is None:
             await interaction.response.send_message(
-                "Configure d'abord le salon panel absences avec `/setchannel`.",
+                "Configure d'abord le salon panel absences avec `/config channel`.",
                 ephemeral=True,
             )
             return

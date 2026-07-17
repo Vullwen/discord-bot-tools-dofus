@@ -13,7 +13,7 @@
 Bot Discord (discord.py, slash commands, cogs) pour organiser des **raids Dofus**
 (Gigalodon, Jardins Éternels). Flux type :
 
-1. `/raid` → crée un raid.
+1. `/raid start` → crée un raid.
 2. **Sondage choix du raid** (si nom non fourni) → boutons.
 3. **Sondage de l'heure** → boutons (les votants du créneau gagnant sont inscrits).
 4. **Heure décidée** → message de planification + bouton « Je participe ».
@@ -45,7 +45,7 @@ beb_raid/
 ├── cogs/                # Modules Discord (1 responsabilité chacun)
 │   ├── core.py          #   /ping
 │   ├── admin.py         #   /sync /reload
-│   ├── settings.py      #   /setchannel /showconfig
+│   ├── settings.py      #   /config channel /config role /config dofus /config show
 │   ├── raid.py          #   ★ cœur métier : sondages, planif, rappels
 │   ├── ticket.py        #   boutons des tickets privés existants
 │   ├── verification.py  #   vérification Dofus par salon privé + OCR
@@ -217,7 +217,7 @@ Couleurs : `GREEN, GOLD, BLUE, RED, GREY`. `_HOUR_ORDER` = heures en str.
 - `reminder_channel_embed(raid, participants)` — rappel dans le salon.
 - `cancelled_embed(raid)` — raid annulé.
 - `participants_embed(raid, names)` — liste des participants (bouton 👥).
-- `list_embed(rows)` — embed `/list_raids`.
+- `list_embed(rows)` — embed `/raid list`.
 
 ---
 
@@ -292,10 +292,12 @@ Sondages à boutons, planification `asyncio`, rappels MP, replanif au reboot.
 - `_reschedule_all()` — au boot : `add_view` (routage clics) + replanif des tâches depuis la base.
 
 **Slash commands**
-- `/raid date raid? cloture? note?` — crée un raid ; `cloture` = heure le jour du raid (**organisateur** ; defer éphémère).
-- `/list_raids` — embed des raids actifs.
-- `/cancel_raid raid_id` — annule (créateur ou organisateur).
-- `/force_close raid_id` — clôture immédiat (organisateur).
+- `/raid start date raid? cloture? note?` — crée un raid ; `cloture` = heure le jour du raid (**organisateur** ; defer éphémère).
+- `/raid list` — embed des raids actifs.
+- `/raid cancel raid_id` — annule (créateur ou organisateur).
+- `/raid close raid_id` — clôture immédiat (organisateur).
+- `/raid warn user raison?` — avertit un membre par MP et journalise dans le salon admin raids.
+- `/raid ban user jours raison?` / `/raid unban user` / `/raid bans` — gère les bans raid.
 
 ---
 
@@ -329,17 +331,18 @@ Support des boutons déjà présents dans les salons privés de ticket.
 - `/reload cog` — recharge un cog à chaud.
 
 ### `cogs/settings.py` — `SettingsCog`
-- `/setchannel setting channel` — fixe le salon raids (admin).
-- `/setraidrole role?` — fixe le **rôle organisateur** autorisé à créer/gérer les raids (admin). Vide = admins seulement.
-- `/showconfig` — embed de la config de la guilde (salon, rôle organisateur).
+- `/config channel usage channel` — fixe les salons et le forum marche.
+- `/config role usage role?` — fixe les rôles du bot. Vide = reset/desactivation du role configure.
+- `/config dofus guilde serveur` — fixe la guilde et le serveur attendus pour la verification.
+- `/config show` — embed de la config de la guilde.
 
 ### Permissions (`utils/perms.py`)
-Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** détenteur du rôle configuré par guilde (`SETTING_RAID_MANAGER_ROLE`, via `/setraidrole`). Si aucun rôle n'est configuré, seuls les `ADMIN_IDS` sont organisateurs.
-- `is_raid_organizer(interaction)` — création de raid, `/force_close`.
+Un **organisateur** = `ADMIN_IDS` (super-admins, en dur dans le `.env`) **OU** détenteur du rôle configuré par guilde (`SETTING_RAID_MANAGER_ROLE`, via `/config role usage:raid_manager`). Si aucun rôle n'est configuré, seuls les `ADMIN_IDS` sont organisateurs.
+- `is_raid_organizer(interaction)` — création de raid, `/raid close`.
 - `can_manage_raid(interaction, raid)` — organisateur **ou créateur** du raid (clôture sondage, annulation, retrait de participants).
 - `can_manage_ticket(interaction, ticket)` — organisateur **ou opener** du ticket (fermer, ajouter des membres).
 
-> **Total : 11 slash commands** (core×1, admin×2, settings×4, raid×4).
+> **Total : groupes et commandes slash principaux** : core, admin, config, raid, absence, rolemenu, stuff, verification.
 
 ---
 

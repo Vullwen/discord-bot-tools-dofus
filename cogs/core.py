@@ -13,12 +13,13 @@ HELP_SECTIONS = (
     (
         "Raids",
         (
-            ("`/raid`", "crée un raid ou un sondage"),
-            ("`/list_raids`", "liste les raids actifs"),
-            ("`/cancel_raid`", "annule un raid"),
-            ("`/force_close`", "clôture un sondage"),
-            ("`/ban_raid` / `/unban_raid`", "gère les bans raid"),
-            ("`/show_bans`", "liste les bans actifs"),
+            ("`/raid start`", "crée un raid ou un sondage"),
+            ("`/raid list`", "liste les raids actifs"),
+            ("`/raid cancel`", "annule un raid"),
+            ("`/raid close`", "clôture un sondage"),
+            ("`/raid warn`", "avertit un membre pour les raids"),
+            ("`/raid ban` / `/raid unban`", "gère les bans raid"),
+            ("`/raid bans`", "liste les bans actifs"),
         ),
     ),
     (
@@ -50,13 +51,10 @@ HELP_SECTIONS = (
     (
         "Configuration",
         (
-            ("`/setchannel`", "configure les salons"),
-            ("`/setbotadminrole` / `/setraidrole`", "configure les droits bot/raid"),
-            ("`/setraidnotifyrole`", "configure le rôle de notification raid"),
-            ("`/setbaserole`", "configure le rôle remis avec `/absence kick`"),
-            ("`/setmemberrole` / `/setunverifiedrole`", "configure les rôles de vérification"),
-            ("`/setdofusconfig`", "configure guilde/serveur Dofus pour la vérification"),
-            ("`/showconfig`", "affiche la configuration"),
+            ("`/config channel`", "configure les salons"),
+            ("`/config role`", "configure les rôles"),
+            ("`/config dofus`", "configure guilde/serveur Dofus pour la vérification"),
+            ("`/config show`", "affiche la configuration"),
         ),
     ),
     (

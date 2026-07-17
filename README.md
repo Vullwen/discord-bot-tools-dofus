@@ -10,12 +10,12 @@ Python 3.12, discord.py 2.x, SQLite, Docker.
 
 Tout dépend de ce que tu donnes à la création :
 
-- `/raid` avec **une heure** (ex. `vendredi 21h`) : le raid est planifié directement,
+- `/raid start` avec **une heure** (ex. `vendredi 21h`) : le raid est planifié directement,
   pas de sondage.
-- `/raid` avec **le raid mais pas d'heure** : un menu te laisse choisir les créneaux
+- `/raid start` avec **le raid mais pas d'heure** : un menu te laisse choisir les créneaux
   à proposer, puis un sondage est lancé. Chacun vote pour les heures qui lui
   conviennent (plusieurs choix possibles).
-- `/raid` **sans le raid** : un sondage choisit d'abord le raid, puis l'heure.
+- `/raid start` **sans le raid** : un sondage choisit d'abord le raid, puis l'heure.
 
 Ensuite :
 
@@ -48,15 +48,16 @@ Général :
 
 Raids :
 
-- `/raid date [raid] [cloture] [note]` — crée un raid. `cloture` choisit
+- `/raid start date [raid] [cloture] [note]` — crée un raid. `cloture` choisit
   l'heure de fermeture le jour du raid (ex. `12h` = midi le jour du raid).
-- `/list_raids` — raids actifs.
-- `/ban_raid user jours [raison]` — interdit temporairement à un membre de voter
+- `/raid list` — raids actifs.
+- `/raid warn user [raison]` — avertit un membre en MP et copie l'avertissement dans le salon admin raids configuré.
+- `/raid ban user jours [raison]` — interdit temporairement à un membre de voter
   ou de s'inscrire aux raids, avec notification dans le salon admin raids configuré.
-- `/unban_raid user` — retire le ban raid d'un membre.
-- `/show_bans` — liste les bans raid actifs.
-- `/cancel_raid raid_id` — annule un raid (créateur ou organisateur).
-- `/force_close raid_id` — clôture tout de suite le sondage en cours.
+- `/raid unban user` — retire le ban raid d'un membre.
+- `/raid bans` — liste les bans raid actifs.
+- `/raid cancel raid_id` — annule un raid (créateur ou organisateur).
+- `/raid close raid_id` — clôture tout de suite le sondage en cours.
 
 Sur chaque message de raid, les boutons permettent de voter, s'inscrire, se
 désinscrire, voir les participants, retirer un participant (admin/créateur) et
@@ -115,18 +116,10 @@ Vérification Dofus :
 
 Configuration (organisateur) :
 
-- `/setchannel` — salons des raids, de l'admin raids, des absences et des motifs admin.
-- `/setchannel` permet aussi de définir le forum marché.
-- `/setbotadminrole` — rôle donnant les droits admin du bot.
-- `/setraidrole` — rôle autorisé à créer et gérer les raids : ID, mention copiée
-  ou nom exact (vide = permission Administrateur Discord).
-- `/setraidnotifyrole` — rôle mentionné à chaque nouveau raid : ID, mention copiée
-  ou nom exact (vide = pas de mention).
-- `/setbaserole` — rôle remis après `/absence kick`.
-- `/setmemberrole` — rôle donné automatiquement après une vérification Dofus réussie.
-- `/setunverifiedrole` — rôle "à vérifier" retiré automatiquement après une vérification réussie.
-- `/setdofusconfig` — nom de guilde et serveur attendus dans les screenshots de vérification.
-- `/showconfig` — affiche la config du serveur.
+- `/config channel usage channel` — salons des raids, de l'admin raids, des absences, des motifs admin et forum marché.
+- `/config role usage [role]` — rôles admin bot, organisateur, notif raids, base, membre vérifié et à vérifier.
+- `/config dofus guilde serveur` — nom de guilde et serveur attendus dans les screenshots de vérification.
+- `/config show` — affiche la config du serveur.
 
 Menus de rôles :
 
@@ -141,11 +134,11 @@ Menus de rôles :
 
 ## Rôles
 
-- **Organisateur** (défini par `/setraidrole`) : crée et gère les raids,
+- **Organisateur** (défini par `/config role usage:raid_manager`) : crée et gère les raids,
   configure le bot, clôture les sondages, annule, gère les participants et les
   tickets. Si aucun rôle n'est défini, les membres avec la permission
   Administrateur Discord sont organisateurs.
-- **Notif raids** (défini par `/setraidnotifyrole`) : mentionné quand un raid est
+- **Notif raids** (défini par `/config role usage:raid_notify`) : mentionné quand un raid est
   annoncé. L'attribution aux membres est manuelle (côté Discord).
 - **Créateur du raid** : peut gérer son raid même sans rôle organisateur.
 - **Opener du ticket** : peut gérer son ticket même sans rôle organisateur.
@@ -170,14 +163,14 @@ Voir `.env.example` pour la liste complète. Les principales :
 - `REMINDER_DELETE_HOURS` — délai de suppression des messages de rappel/raid
   après publication ou heure prévue (2 par défaut).
 - `MARKET_FORUM_CHANNEL_ID` — ID du forum marché en fallback. En priorité,
-  configure le forum via `/setchannel`.
+  configure le forum via `/config channel`.
 - `DOFUS_GUILD_NAME` — guilde Dofus attendue par défaut pour la vérification
-  (`Bagarres et Belettes` par défaut, surchargeable par `/setdofusconfig`).
+  (`Bagarres et Belettes` par défaut, surchargeable par `/config dofus`).
 - `DOFUS_SERVER` — serveur Dofus par défaut (`Dakal` par défaut, surchargeable par
-  `/setdofusconfig`).
+  `/config dofus`).
 - `VERIFICATION_CODE_PREFIX` — préfixe des codes de vérification (`BEB` par défaut).
 - `VERIFICATION_EXPIRES_MINUTES` — durée de validité d'un code de vérification (15 par défaut).
-- `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/setchannel`).
+- `RAIDS_CHANNEL_ID` — salon des sondages (surchargeable par `/config channel`).
 - `DB_PATH` — chemin SQLite (par défaut `/app/data/beb_raid.db` en Docker).
 
 La lecture automatique des screenshots nécessite l'intent Discord **Message

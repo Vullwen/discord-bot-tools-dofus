@@ -1,21 +1,17 @@
 # Nomenclature des commandes
 
-Ce fichier sert de reference pour garder les slash commands lisibles. Il distingue
-les commandes actuellement exposees et la nomenclature cible a viser lors d'une
-future migration.
+Ce fichier sert de reference pour garder les slash commands lisibles.
 
 ## Regles de nommage
 
-- Grouper par domaine quand un domaine a plusieurs actions : raid, absence,
-  rolemenu, stuff, verification, config, admin.
-- Utiliser des verbes courts et stables : `create`, `list`, `show`, `add`,
+- Grouper par domaine quand un domaine a plusieurs actions : `raid`, `absence`,
+  `rolemenu`, `stuff`, `config`, `admin`.
+- Utiliser des verbes courts et stables : `start`, `list`, `show`, `add`,
   `edit`, `remove`, `refresh`, `export`, `import`, `copy`, `cancel`, `close`.
 - Eviter les underscores dans les nouvelles commandes : preferer un groupe et un
   sous-nom clair.
-- Garder les commandes existantes tant que les joueurs les utilisent, puis
-  annoncer une migration avant tout renommage.
 - Garder les actions destructives explicites : `cancel`, `close`, `remove`,
-  `kick`.
+  `kick`, `ban`.
 
 ## Commandes actuelles
 
@@ -30,13 +26,14 @@ future migration.
 
 | Commande | Usage |
 | --- | --- |
-| `/raid date [raid] [cloture] [note]` | Cree un raid, directement ou via sondage. |
-| `/list_raids` | Liste les raids actifs. |
-| `/cancel_raid raid_id` | Annule un raid. |
-| `/force_close raid_id` | Cloture le sondage d'un raid. |
-| `/ban_raid user jours [raison]` | Bloque temporairement les votes/inscriptions raid. |
-| `/unban_raid user` | Retire un ban raid. |
-| `/show_bans` | Liste les bans raid actifs. |
+| `/raid start date [raid] [cloture] [note]` | Cree un raid, directement ou via sondage. |
+| `/raid list` | Liste les raids actifs. |
+| `/raid cancel raid_id` | Annule un raid. |
+| `/raid close raid_id` | Cloture le sondage d'un raid. |
+| `/raid warn user [raison]` | Envoie un avertissement raid au membre et le journalise. |
+| `/raid ban user jours [raison]` | Bloque temporairement les votes/inscriptions raid. |
+| `/raid unban user` | Retire un ban raid. |
+| `/raid bans` | Liste les bans raid actifs. |
 
 ### Absences
 
@@ -68,15 +65,32 @@ future migration.
 
 | Commande | Usage |
 | --- | --- |
-| `/setchannel` | Configure les salons et le forum marche. |
-| `/setbotadminrole` | Configure le role donnant les droits admin bot. |
-| `/setraidrole` | Configure le role organisateur raid/ticket. |
-| `/setraidnotifyrole` | Configure le role mentionne aux annonces raid. |
-| `/setbaserole` | Configure le role remis avec `/absence kick`. |
-| `/setmemberrole` | Configure le role donne apres verification. |
-| `/setunverifiedrole` | Configure le role retire apres verification. |
-| `/setdofusconfig` | Configure guilde et serveur Dofus attendus. |
-| `/showconfig` | Affiche la configuration serveur. |
+| `/config channel usage channel` | Configure les salons et le forum marche. |
+| `/config role usage [role]` | Configure les roles du bot. |
+| `/config dofus guilde serveur` | Configure guilde et serveur Dofus attendus. |
+| `/config show` | Affiche la configuration serveur. |
+
+Valeurs `usage` de `/config channel` :
+
+| Usage | Configure |
+| --- | --- |
+| `raids` | Salon des raids. |
+| `raid_admin` | Salon admin raids. |
+| `absence_panel` | Salon panel absences. |
+| `absence` | Salon absence. |
+| `absence_admin` | Salon admin absences. |
+| `market_forum` | Forum marche. |
+
+Valeurs `usage` de `/config role` :
+
+| Usage | Configure |
+| --- | --- |
+| `bot_admin` | Role donnant les droits admin bot. |
+| `raid_manager` | Role organisateur raid/ticket. |
+| `raid_notify` | Role mentionne aux annonces raid. |
+| `base` | Role remis avec `/absence kick`. |
+| `verified_member` | Role donne apres verification. |
+| `unverified_member` | Role retire apres verification. |
 
 ### Menus de roles
 
@@ -108,42 +122,11 @@ future migration.
 | `/sync` | Resynchronise les slash commands. |
 | `/reload` | Recharge un cog. |
 
-## Nomenclature cible
-
-Cette cible est volontairement non appliquee dans le code pour eviter de casser
-les habitudes. Elle sert de plan de migration.
-
-| Actuel | Cible |
-| --- | --- |
-| `/raid` | `/raids create` |
-| `/list_raids` | `/raids list` |
-| `/cancel_raid` | `/raids cancel` |
-| `/force_close` | `/raids close` |
-| `/ban_raid` | `/raids ban` |
-| `/unban_raid` | `/raids unban` |
-| `/show_bans` | `/raids bans` |
-| `/setchannel` | `/config channel` |
-| `/setbotadminrole` | `/config bot_admin_role` |
-| `/setraidrole` | `/config raid_role` |
-| `/setraidnotifyrole` | `/config raid_notify_role` |
-| `/setbaserole` | `/config base_role` |
-| `/setmemberrole` | `/config member_role` |
-| `/setunverifiedrole` | `/config unverified_role` |
-| `/setdofusconfig` | `/config dofus` |
-| `/showconfig` | `/config show` |
-| `/mychars` | `/verify mine` |
-| `/chars` | `/verify member` |
-| `/find` | `/verify find` |
-| `/sync` | `/admin sync` |
-| `/reload` | `/admin reload` |
-
 ## Optimisations prioritaires
 
 - Extraire `cogs/raid.py` en modules plus petits : vues Discord, service de
   planification, service participants, commandes slash.
 - Generer `/help` depuis un catalogue partage pour eviter les ecarts avec la doc.
-- Ajouter une phase de migration progressive pour les noms cibles : nouvelles
-  commandes, periode de transition, puis retrait des anciennes.
 - Garder les index SQLite ajoutes dans `db.py` et mesurer les requetes lentes si
   la base grossit.
 - Envisager `aiosqlite` ou `asyncio.to_thread` si les operations DB deviennent

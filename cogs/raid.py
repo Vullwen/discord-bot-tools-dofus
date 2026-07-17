@@ -499,6 +499,8 @@ class HourChoiceView(discord.ui.View):
 
 
 class RaidCog(commands.Cog):
+    raid = app_commands.Group(name="raid", description="Gestion des raids")
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         # (raid_id, kind) -> asyncio.Task ; kind ∈ raid_close|hour_close|remind|done
@@ -531,7 +533,7 @@ class RaidCog(commands.Cog):
     # --------------------------------------------------------------- helpers
 
     def _resolve_raids_channel(self, guild: discord.Guild, fallback) -> Optional[discord.abc.GuildChannel]:
-        # 1) réglage /setchannel (DB, par guilde) ; 2) variable d'env ; 3) salon courant.
+        # 1) réglage /config channel (DB, par guilde) ; 2) variable d'env ; 3) salon courant.
         cid = db.get_guild_setting_int(guild.id, db.SETTING_RAIDS_CHANNEL)
         if cid:
             ch = guild.get_channel(cid)
@@ -638,6 +640,47 @@ class RaidCog(commands.Cog):
             )
         except discord.DiscordException as exc:
             logger.warning("Notification ban raid échouée pour %s: %s", banned_user.id, exc)
+
+    async def _notify_raid_warn_admin(
+        self,
+        guild_id: int,
+        warned_user: discord.abc.User,
+        moderator: discord.abc.User,
+        reason: str,
+        dm_sent: bool,
+    ) -> None:
+        channel_id = db.get_guild_setting_int(guild_id, db.SETTING_RAID_ADMIN_CHANNEL)
+        if not channel_id:
+            return
+        channel = await self._get_channel(channel_id)
+        if channel is None:
+            return
+        dm_status = "envoyé" if dm_sent else "non envoyé"
+        try:
+            await channel.send(
+                content=(
+                    "⚠️ **Warn raid**\n"
+                    f"Membre : {warned_user.mention} (`{warned_user.id}`)\n"
+                    f"Raison : {reason}\n"
+                    f"MP : {dm_status}\n"
+                    f"Appliqué par : {moderator.mention}"
+                )
+            )
+        except discord.DiscordException as exc:
+            logger.warning("Notification warn raid échouée pour %s: %s", warned_user.id, exc)
+
+    async def _send_raid_warning_dm(self, user: discord.abc.User, reason: str) -> bool:
+        try:
+            await user.send(
+                "⚠️ **Avertissement raid**\n"
+                f"Raison : {reason}\n\n"
+                "Merci de prévenir si tu ne peux pas venir à un raid. En cas de récidive, "
+                "tu peux être temporairement banni des votes et inscriptions raid."
+            )
+            return True
+        except discord.DiscordException as exc:
+            logger.warning("MP warn raid échoué pour %s: %s", user.id, exc)
+            return False
 
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
         low_level_cap = raid_low_level_cap(raid["name"])
@@ -1661,7 +1704,7 @@ class RaidCog(commands.Cog):
 
     # --------------------------------------------------------------- commandes
 
-    @app_commands.command(name="raid", description="Crée un raid : fixe l'heure toi-même ou laisse un sondage")
+    @raid.command(name="start", description="Crée un raid : fixe l'heure toi-même ou laisse un sondage")
     @app_commands.describe(
         date="Date et/ou heure (ex: ce soir, demain 19h30, 28/06, 21h). Une heure précise fixe l'heure sans sondage.",
         raid="Nom du raid (laisser vide = sondage pour choisir le raid d'abord)",
@@ -1672,7 +1715,7 @@ class RaidCog(commands.Cog):
         raid=[app_commands.Choice(name=name, value=name) for name in RAID_NAMES],
         cloture=POLL_CLOSE_HOUR_CHOICES,
     )
-    async def raid(
+    async def start_raid(
         self,
         interaction: discord.Interaction,
         date: str,
@@ -1726,13 +1769,13 @@ class RaidCog(commands.Cog):
             poll_close_hour=poll_close_hour,
         )
 
-    @app_commands.command(name="list_raids", description="Liste les raids actifs")
+    @raid.command(name="list", description="Liste les raids actifs")
     async def list_raids(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         rows = db.list_active_raids()
         await interaction.followup.send(embed=embeds.list_embed(rows), ephemeral=True)
 
-    @app_commands.command(name="ban_raid", description="Interdit temporairement les votes et inscriptions raid")
+    @raid.command(name="ban", description="Interdit temporairement les votes et inscriptions raid")
     @app_commands.describe(
         user="Membre à bannir des raids",
         jours="Durée du ban en jours",
@@ -1779,7 +1822,40 @@ class RaidCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="unban_raid", description="Autorise à nouveau un membre à voter et s'inscrire aux raids")
+    @raid.command(name="warn", description="Envoie un avertissement raid à un membre")
+    @app_commands.describe(
+        user="Membre à avertir",
+        raison="Raison envoyée au membre et copiée dans le salon admin raids",
+    )
+    async def warn_raid(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        raison: Optional[str] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        reason = (raison or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
+        dm_sent = await self._send_raid_warning_dm(user, reason)
+        await self._notify_raid_warn_admin(
+            interaction.guild.id,
+            user,
+            interaction.user,
+            reason,
+            dm_sent,
+        )
+        warning = "" if dm_sent else " MP non envoyé : impossible de contacter la personne."
+        await interaction.response.send_message(
+            f"{user.mention} a reçu un avertissement raid.{warning}",
+            ephemeral=True,
+        )
+
+    @raid.command(name="unban", description="Autorise à nouveau un membre à voter et s'inscrire aux raids")
     @app_commands.describe(user="Membre à débannir des raids")
     async def unban_raid(
         self,
@@ -1810,7 +1886,7 @@ class RaidCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="show_bans", description="Affiche les bans raid actifs")
+    @raid.command(name="bans", description="Affiche les bans raid actifs")
     async def show_bans(self, interaction: discord.Interaction) -> None:
         if not is_raid_organizer(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
@@ -1840,7 +1916,7 @@ class RaidCog(commands.Cog):
     async def _apply_cancel(self, raid_id: int) -> bool:
         """Annule un raid (sans interaction) : annule les tâches planifiées, passe en
         CANCELLED et édite les messages visibles en embed « annulé ». Retourne False si
-        le raid est introuvable ou déjà annulé. Réutilisée par /cancel_raid et le bouton.
+        le raid est introuvable ou déjà annulé. Réutilisée par /raid cancel et le bouton.
         """
         raid = db.get_raid(raid_id)
         if not raid or raid["state"] == STATE_CANCELLED:
@@ -1868,8 +1944,8 @@ class RaidCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="cancel_raid", description="Annule un raid (créateur ou admin)")
-    @app_commands.describe(raid_id="Identifiant du raid (visible via /list_raids)")
+    @raid.command(name="cancel", description="Annule un raid (créateur ou admin)")
+    @app_commands.describe(raid_id="Identifiant du raid (visible via /raid list)")
     async def cancel_raid(self, interaction: discord.Interaction, raid_id: int) -> None:
         await interaction.response.defer(ephemeral=True)
         raid = db.get_raid(raid_id)
@@ -1885,7 +1961,7 @@ class RaidCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="force_close", description="Clôture immédiatement le sondage d'un raid (organisateur)")
+    @raid.command(name="close", description="Clôture immédiatement le sondage d'un raid (organisateur)")
     @app_commands.describe(raid_id="Identifiant du raid")
     async def force_close(self, interaction: discord.Interaction, raid_id: int) -> None:
         if not is_raid_organizer(interaction):

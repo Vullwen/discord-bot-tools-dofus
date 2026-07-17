@@ -177,6 +177,41 @@ async def test_ban_raid_command_persists_ban(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_warn_raid_command_sends_dm_and_admin_notice(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
+    admin_channel = _FakeChannel(500)
+    db.set_guild_setting(2, db.SETTING_RAID_ADMIN_CHANNEL, str(admin_channel.id))
+    cog = _cog()
+    cog._get_channel = _async_return(admin_channel)
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=1, mention="<@1>"),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+
+    class _FakeUser:
+        id = 10
+        mention = "<@10>"
+
+        def __init__(self):
+            self.dms = []
+
+        async def send(self, content):
+            self.dms.append(content)
+
+    user = _FakeUser()
+
+    await RaidCog.warn_raid.callback(cog, interaction, user, "absence non prévenue")
+
+    assert "a reçu un avertissement raid" in interaction.response.messages[0][0]
+    assert "absence non prévenue" in user.dms[0]
+    assert "Warn raid" in admin_channel.sent[0].content
+    assert "<@10>" in admin_channel.sent[0].content
+    assert "<@1>" in admin_channel.sent[0].content
+
+
+@pytest.mark.asyncio
 async def test_unban_raid_command_clears_active_ban(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
