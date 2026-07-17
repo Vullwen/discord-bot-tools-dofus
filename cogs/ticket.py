@@ -26,6 +26,81 @@ logger = logging.getLogger("dofus-raid-bot.ticket")
 
 ONBOARDING_CLOSE_DELAY = timedelta(minutes=15)
 
+DEFAULT_RULE_SECTIONS = (
+    (
+        "👤 1 — Comportement des membres",
+        (
+            "Respect obligatoire entre tous les membres",
+            "Aucune insulte, harcèlement, menace ou provocation gratuite",
+            "Pas de propos discriminatoires ou haineux",
+            "Les conflits personnels se règlent en privé ou via un officier",
+            "Le troll léger est toléré ; le manque de respect ne l'est pas",
+        ),
+    ),
+    (
+        "💬 2 — Utilisation des salons",
+        (
+            "Poster dans le bon salon",
+            "Pas de spam, flood ou pollution de discussion",
+            "Pas de publicité externe sans autorisation d'un officier",
+            "Les salons d'annonce et d'organisation ne sont pas des salons de débat",
+            "Respecter les consignes épinglées",
+        ),
+    ),
+    (
+        "⚔️ 3 — Règles en jeu",
+        (
+            "Représenter la guilde/alliance correctement en jeu",
+            "Pas d'arnaque, d'abus ou de comportement toxique sous le blason",
+            "Participation aux activités de guilde/alliance selon disponibilités",
+            "Prévenir en cas d'absence longue",
+            "Respect des décisions AvA / défense / stratégie",
+        ),
+    ),
+    (
+        "🏆 4 — Hiérarchie et décisions",
+        (
+            "La hiérarchie doit être respectée",
+            "Les décisions du Chef et des Bras Droits font autorité",
+            "Les officiers peuvent modérer, déplacer ou sanctionner",
+        ),
+    ),
+    (
+        "🔐 5 — Sécurité et confidentialité",
+        (
+            "Ne partage jamais tes identifiants",
+            "Ne partage jamais les informations personnelles d'un membre",
+            "Ne partage jamais les contenus privés du serveur",
+            "Pas de doxxing ou fouille d'informations",
+        ),
+    ),
+    (
+        "🎙️ 6 — Vocal",
+        (
+            "Micro propre et audible si possible",
+            "Push-to-talk recommandé si environnement bruyant",
+            "Respect des activités en cours : donjon, AvA, organisation",
+        ),
+    ),
+    (
+        "🚫 7 — Contenus interdits",
+        (
+            "Contenus NSFW",
+            "Liens douteux / malware",
+            "Cheat, bot illégal",
+            "Politique / religion : éviter les débats conflictuels",
+        ),
+    ),
+    (
+        "✍️ 8 — Acceptation",
+        (
+            "Toute présence sur le serveur vaut acceptation du règlement",
+            "Les règles peuvent évoluer ; les membres seront informés",
+            "Respecte la meute, et la meute te protégera",
+        ),
+    ),
+)
+
 
 def _safe_onboarding_channel_name(member: discord.Member) -> str:
     display = getattr(member, "display_name", None) or getattr(member, "name", "nouveau")
@@ -37,6 +112,21 @@ def _safe_onboarding_channel_name(member: discord.Member) -> str:
 
 def _parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value)
+
+
+def _format_lines(lines: tuple[str, ...]) -> str:
+    return "\n".join(f"- {line}" for line in lines)
+
+
+def _rules_embed(title: str = "Règlement") -> discord.Embed:
+    embed = discord.Embed(
+        title=title.strip() or "Règlement",
+        description="📜 Merci de lire le règlement avant de cliquer sur le bouton d'acceptation.",
+        color=0x2ECC71,
+    )
+    for name, lines in DEFAULT_RULE_SECTIONS:
+        embed.add_field(name=name, value=_format_lines(lines), inline=False)
+    return embed
 
 
 class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
@@ -298,14 +388,14 @@ class TicketCog(commands.Cog):
     @app_commands.describe(
         channel="Salon où poster le bouton (vide = salon actuel)",
         titre="Titre de l'embed",
-        texte="Texte affiché au-dessus du bouton",
+        texte="Texte custom optionnel. Utilise \\n pour forcer un retour ligne.",
     )
     async def ticket_rules_panel(
         self,
         interaction: discord.Interaction,
         channel: Optional[discord.TextChannel] = None,
         titre: str = "Règlement",
-        texte: str = "Clique sur le bouton ci-dessous après avoir lu et accepté le règlement.",
+        texte: Optional[str] = None,
     ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
@@ -319,11 +409,14 @@ class TicketCog(commands.Cog):
             await interaction.response.send_message("Salon introuvable.", ephemeral=True)
             return
 
-        embed = discord.Embed(
-            title=titre.strip() or "Règlement",
-            description=texte.strip() or "Clique sur le bouton ci-dessous après avoir accepté le règlement.",
-            color=0x2ECC71,
-        )
+        if texte is None or not texte.strip():
+            embed = _rules_embed(titre)
+        else:
+            embed = discord.Embed(
+                title=titre.strip() or "Règlement",
+                description=texte.strip().replace("\\n", "\n"),
+                color=0x2ECC71,
+            )
         await target.send(embed=embed, view=RulesAcceptView(self))
         await interaction.response.send_message(
             f"Panneau d'acceptation posté dans {target.mention}.",

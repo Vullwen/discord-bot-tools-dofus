@@ -5,12 +5,22 @@ from types import SimpleNamespace
 import pytest
 
 import db
-from cogs.ticket import TicketCog
+from cogs.ticket import TicketCog, _rules_embed
 from tests.fakes import FakeBot, FakeChannel, FakeInteraction, FakeUser
 
 
 def _member(user_id: int, name: str):
     return SimpleNamespace(id=user_id, display_name=name, mention=f"<@{user_id}>")
+
+
+def test_rules_embed_uses_fields_for_readable_sections():
+    embed = _rules_embed()
+
+    assert embed.title == "Règlement"
+    assert len(embed.fields) == 8
+    assert embed.fields[0].name == "👤 1 — Comportement des membres"
+    assert "Respect obligatoire" in embed.fields[0].value
+    assert "\n- Aucune insulte" in embed.fields[0].value
 
 
 class FakeRole:

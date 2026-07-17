@@ -118,11 +118,14 @@ peuvent valider ou refuser dans le salon privé.
 
 ### Accueil Discord
 
-Si le règlement est un embed maison, poste le bouton d'acceptation avec
-`/ticket reglement`. Tu peux le mettre juste sous l'embed du règlement existant.
-Quand un nouveau membre clique sur `J'accepte le règlement`, le bot ouvre un
-salon privé avec deux choix : rejoindre la guilde ou demander seulement l'accès
-au marché.
+Poste le règlement et son bouton d'acceptation avec `/ticket reglement`. Sans
+option `texte`, le bot publie un embed structuré B&B avec une section par règle.
+Quand un nouveau membre clique sur `J'accepte le règlement`, le bot ouvre un salon
+privé avec deux choix : rejoindre la guilde ou demander seulement l'accès au
+marché.
+
+Si tu veux garder un texte custom dans la commande, écris `\n` là où tu veux
+forcer un retour ligne.
 
 Si le serveur utilise le screening natif Discord, le même ticket peut aussi être
 ouvert automatiquement quand le membre accepte les règles Discord.
