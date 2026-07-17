@@ -328,6 +328,7 @@ class MarketCog(commands.Cog):
 
         operation = _market_operation(thread)
         label = _choice_label(operation, status)
+        await interaction.response.defer(ephemeral=True)
         try:
             await thread.edit(
                 name=_closed_name(thread.name, status, operation),
@@ -336,18 +337,18 @@ class MarketCog(commands.Cog):
                 reason=f"{label} par {interaction.user}",
             )
         except discord.Forbidden:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Je n'ai pas les permissions pour clôturer ce post.",
                 ephemeral=True,
             )
             return
         except discord.DiscordException as exc:
             logger.warning("Clôture marché échouée pour %s: %s", thread.id, exc)
-            await interaction.response.send_message("Impossible de clôturer ce post.", ephemeral=True)
+            await interaction.followup.send("Impossible de clôturer ce post.", ephemeral=True)
             return
 
         db.mark_market_post_closed(thread.id, status, now_paris())
-        await interaction.response.send_message(f"{label} : post clôturé.", ephemeral=True)
+        await interaction.followup.send(f"{label} : post clôturé.", ephemeral=True)
 
     def _record_activity(self, thread: discord.Thread) -> None:
         guild = getattr(thread, "guild", None)

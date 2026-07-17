@@ -59,12 +59,26 @@ class FakeResponse:
     def __init__(self):
         self.messages = []
         self.modals = []
+        self.deferred = False
+        self.defer_kwargs = None
 
     async def send_message(self, content=None, **kwargs):
         self.messages.append((content, kwargs))
 
     async def send_modal(self, modal):
         self.modals.append(modal)
+
+    async def defer(self, **kwargs):
+        self.deferred = True
+        self.defer_kwargs = kwargs
+
+
+class FakeFollowup:
+    def __init__(self):
+        self.messages = []
+
+    async def send(self, content=None, **kwargs):
+        self.messages.append((content, kwargs))
 
 
 class FakeInteraction:
@@ -74,6 +88,7 @@ class FakeInteraction:
         self.channel = channel
         self.channel_id = getattr(channel, "id", None)
         self.response = FakeResponse()
+        self.followup = FakeFollowup()
 
 
 class FakeThread:
@@ -284,6 +299,9 @@ async def test_op_can_close_sale_as_guild_sale(monkeypatch):
     assert thread.name == "[vente guilde] Gelano - 1 500 000 kamas"
     assert thread.archived is True
     assert thread.locked is True
+    assert interaction.response.deferred is True
+    assert interaction.response.defer_kwargs == {"ephemeral": True}
+    assert interaction.followup.messages[0][0] == "Vente guilde : post clôturé."
 
 
 @pytest.mark.asyncio
@@ -298,6 +316,8 @@ async def test_buy_post_close_uses_buy_prefix(monkeypatch):
     assert thread.name == "[achat hdv] Dofus turquoise - 1 500 000 kamas"
     assert thread.archived is True
     assert thread.locked is True
+    assert interaction.response.deferred is True
+    assert interaction.followup.messages[0][0] == "Achat HDV : post clôturé."
 
 
 @pytest.mark.asyncio
