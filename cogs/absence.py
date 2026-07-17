@@ -370,7 +370,10 @@ class AbsenceCog(commands.Cog):
             )
         except discord.Forbidden:
             logger.warning("Remise rôle base refusée pour %s", member.id)
-            return " Rôles non modifiés : permission Discord manquante."
+            return (
+                " Rôles non modifiés : je ne peux pas modifier les rôles de ce membre. "
+                "Vérifie que mon rôle est au-dessus du sien et que j'ai la permission `Gérer les rôles`."
+            )
         except discord.DiscordException as exc:
             logger.warning("Remise rôle base échouée pour %s: %s", member.id, exc)
             return " Rôles non modifiés : erreur Discord."
@@ -605,14 +608,14 @@ class AbsenceCog(commands.Cog):
             await interaction.response.send_message("Aucun salon absence disponible.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=False, thinking=True)
 
         message = _kick_abs_message(user)
         try:
             await public_channel.send(content=message)
         except discord.DiscordException as exc:
             logger.warning("Publication kick absence échouée: %s", exc)
-            await interaction.followup.send("Impossible de publier le message d'absence.", ephemeral=True)
+            await interaction.followup.send("Impossible de publier le message d'absence.", ephemeral=False)
             return
 
         role_warning = await self._reset_member_roles_to_base(interaction.guild, user)
@@ -626,7 +629,7 @@ class AbsenceCog(commands.Cog):
 
         await interaction.followup.send(
             f"Message envoyé dans {_channel_label(public_channel)}.{role_warning}{dm_warning}",
-            ephemeral=True,
+            ephemeral=False,
         )
 
 

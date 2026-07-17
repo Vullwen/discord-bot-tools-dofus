@@ -177,7 +177,7 @@ async def test_ban_raid_command_persists_ban(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_warn_raid_command_sends_dm_and_admin_notice(tmp_path, monkeypatch):
+async def test_warn_raid_command_sends_admin_notice_without_dm(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
     admin_channel = _FakeChannel(500)
@@ -204,9 +204,11 @@ async def test_warn_raid_command_sends_dm_and_admin_notice(tmp_path, monkeypatch
 
     await RaidCog.warn_raid.callback(cog, interaction, user, "absence non prévenue")
 
-    assert "a reçu un avertissement raid" in interaction.response.messages[0][0]
-    assert "absence non prévenue" in user.dms[0]
+    assert "Warn raid enregistré" in interaction.response.messages[0][0]
+    assert user.dms == []
     assert "Warn raid" in admin_channel.sent[0].content
+    assert "absence non prévenue" in admin_channel.sent[0].content
+    assert "MP :" not in admin_channel.sent[0].content
     assert "<@10>" in admin_channel.sent[0].content
     assert "<@1>" in admin_channel.sent[0].content
 

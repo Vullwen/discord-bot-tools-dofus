@@ -19,7 +19,7 @@ HELP_SECTIONS = (
             ("`/raid list`", "liste les raids actifs"),
             ("`/raid cancel`", "annule un raid"),
             ("`/raid close`", "clôture un sondage"),
-            ("`/raid warn`", "avertit un membre pour les raids"),
+            ("`/raid warn`", "journalise un warn raid"),
             ("`/raid ban` / `/raid unban`", "gère les bans raid"),
             ("`/raid bans`", "liste les bans actifs"),
         ),

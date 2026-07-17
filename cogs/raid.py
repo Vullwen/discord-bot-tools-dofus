@@ -647,7 +647,6 @@ class RaidCog(commands.Cog):
         warned_user: discord.abc.User,
         moderator: discord.abc.User,
         reason: str,
-        dm_sent: bool,
     ) -> None:
         channel_id = db.get_guild_setting_int(guild_id, db.SETTING_RAID_ADMIN_CHANNEL)
         if not channel_id:
@@ -655,32 +654,17 @@ class RaidCog(commands.Cog):
         channel = await self._get_channel(channel_id)
         if channel is None:
             return
-        dm_status = "envoyé" if dm_sent else "non envoyé"
         try:
             await channel.send(
                 content=(
                     "⚠️ **Warn raid**\n"
                     f"Membre : {warned_user.mention} (`{warned_user.id}`)\n"
                     f"Raison : {reason}\n"
-                    f"MP : {dm_status}\n"
                     f"Appliqué par : {moderator.mention}"
                 )
             )
         except discord.DiscordException as exc:
             logger.warning("Notification warn raid échouée pour %s: %s", warned_user.id, exc)
-
-    async def _send_raid_warning_dm(self, user: discord.abc.User, reason: str) -> bool:
-        try:
-            await user.send(
-                "⚠️ **Avertissement raid**\n"
-                f"Raison : {reason}\n\n"
-                "Merci de prévenir si tu ne peux pas venir à un raid. En cas de récidive, "
-                "tu peux être temporairement banni des votes et inscriptions raid."
-            )
-            return True
-        except discord.DiscordException as exc:
-            logger.warning("MP warn raid échoué pour %s: %s", user.id, exc)
-            return False
 
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
         low_level_cap = raid_low_level_cap(raid["name"])
@@ -1822,10 +1806,10 @@ class RaidCog(commands.Cog):
             ephemeral=True,
         )
 
-    @raid.command(name="warn", description="Envoie un avertissement raid à un membre")
+    @raid.command(name="warn", description="Journalise un avertissement raid pour un membre")
     @app_commands.describe(
         user="Membre à avertir",
-        raison="Raison envoyée au membre et copiée dans le salon admin raids",
+        raison="Raison copiée dans le salon admin raids",
     )
     async def warn_raid(
         self,
@@ -1841,17 +1825,14 @@ class RaidCog(commands.Cog):
             return
 
         reason = (raison or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
-        dm_sent = await self._send_raid_warning_dm(user, reason)
         await self._notify_raid_warn_admin(
             interaction.guild.id,
             user,
             interaction.user,
             reason,
-            dm_sent,
         )
-        warning = "" if dm_sent else " MP non envoyé : impossible de contacter la personne."
         await interaction.response.send_message(
-            f"{user.mention} a reçu un avertissement raid.{warning}",
+            f"Warn raid enregistré pour {user.mention}.",
             ephemeral=True,
         )
 
