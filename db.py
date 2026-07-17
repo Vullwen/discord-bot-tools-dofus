@@ -71,6 +71,18 @@ def init(db_path: str = DB_PATH) -> None:
             closed      INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS onboarding_tickets (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id   INTEGER NOT NULL UNIQUE,
+            guild_id     INTEGER NOT NULL,
+            user_id      INTEGER NOT NULL,
+            choice       TEXT,
+            status       TEXT NOT NULL,
+            close_after  TEXT,
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS guild_settings (
             guild_id  INTEGER NOT NULL,
             key       TEXT NOT NULL,
@@ -253,6 +265,10 @@ def _create_indexes() -> None:
             ON absences(guild_id, public_deleted_at, end_date, start_date, id);
         CREATE INDEX IF NOT EXISTS idx_market_posts_inactive
             ON market_posts(closed_at, last_activity_at);
+        CREATE INDEX IF NOT EXISTS idx_onboarding_open_user
+            ON onboarding_tickets(guild_id, user_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_onboarding_close_after
+            ON onboarding_tickets(status, close_after);
         """
     )
 
@@ -892,6 +908,77 @@ def close_ticket(channel_id: int) -> None:
     _db().commit()
 
 
+# --------------------------------------------------------------- onboarding tickets
+
+
+def create_onboarding_ticket(*, channel_id: int, guild_id: int, user_id: int) -> int:
+    now = _now_iso()
+    cur = _db().execute(
+        """
+        INSERT INTO onboarding_tickets
+            (channel_id, guild_id, user_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'pending', ?, ?)
+        """,
+        (channel_id, guild_id, user_id, now, now),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_onboarding_ticket_by_channel(channel_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM onboarding_tickets WHERE channel_id = ?", (channel_id,)
+    ).fetchone()
+
+
+def get_open_onboarding_ticket_for_user(
+    *, guild_id: int, user_id: int
+) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        """
+        SELECT * FROM onboarding_tickets
+        WHERE guild_id = ?
+          AND user_id = ?
+          AND status NOT IN ('closed', 'deleted')
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (guild_id, user_id),
+    ).fetchone()
+
+
+def update_onboarding_ticket(channel_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = _now_iso()
+    for key, value in list(fields.items()):
+        if isinstance(value, datetime):
+            fields[key] = value.isoformat()
+    assignments = ", ".join(f"{col} = ?" for col in fields)
+    _db().execute(
+        f"UPDATE onboarding_tickets SET {assignments} WHERE channel_id = ?",
+        (*fields.values(), channel_id),
+    )
+    _db().commit()
+
+
+def list_onboarding_tickets_with_close_after() -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM onboarding_tickets
+        WHERE close_after IS NOT NULL
+          AND status NOT IN ('closed', 'deleted')
+        ORDER BY close_after, id
+        """
+    ).fetchall()
+    return list(rows)
+
+
+def close_onboarding_ticket(channel_id: int) -> None:
+    update_onboarding_ticket(channel_id, status="closed")
+    close_ticket(channel_id)
+
+
 # ---------------------------------------------------------------------- role menus
 
 
@@ -1223,6 +1310,10 @@ SETTING_BASE_ROLE = "base_member_role"
 SETTING_VERIFIED_MEMBER_ROLE = "verified_member_role"
 # Rôle retiré après vérification Dofus réussie. Vide = aucun retrait automatique.
 SETTING_UNVERIFIED_MEMBER_ROLE = "unverified_member_role"
+# Rôle donné aux nouveaux membres acceptés en guilde via le ticket d'accueil.
+SETTING_GUILD_MEMBER_ROLE = "guild_member_role"
+# Rôle donné aux visiteurs qui demandent seulement l'accès au marché.
+SETTING_VISITOR_ROLE = "visitor_role"
 # Nom de guilde Dofus attendu dans le /whoami OCR.
 SETTING_DOFUS_GUILD_NAME = "dofus_guild_name"
 # Serveur Dofus attendu par défaut pour /link.

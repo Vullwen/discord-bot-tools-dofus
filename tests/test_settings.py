@@ -59,6 +59,11 @@ def test_unverified_role_setting_exists():
     assert db.SETTING_UNVERIFIED_MEMBER_ROLE == "unverified_member_role"
 
 
+def test_onboarding_role_settings_exist():
+    assert db.SETTING_GUILD_MEMBER_ROLE == "guild_member_role"
+    assert db.SETTING_VISITOR_ROLE == "visitor_role"
+
+
 class _FakeResponse:
     def __init__(self):
         self.messages = []

@@ -35,6 +35,8 @@ _ROLE_LABEL = {
     db.SETTING_BASE_ROLE: "Rôle de base",
     db.SETTING_VERIFIED_MEMBER_ROLE: "Rôle membre vérifié",
     db.SETTING_UNVERIFIED_MEMBER_ROLE: "Rôle à vérifier",
+    db.SETTING_GUILD_MEMBER_ROLE: "Rôle membre guilde",
+    db.SETTING_VISITOR_ROLE: "Rôle visiteur marché",
 }
 
 _ROLE_RESET_MESSAGE = {
@@ -54,6 +56,11 @@ _ROLE_RESET_MESSAGE = {
     db.SETTING_UNVERIFIED_MEMBER_ROLE: (
         "✅ Rôle à vérifier désactivé. La vérification ne retirera aucun rôle automatiquement."
     ),
+    db.SETTING_GUILD_MEMBER_ROLE: (
+        "✅ Rôle membre guilde désactivé. L'acceptation d'un ticket d'accueil utilisera "
+        "`verified_member` si configuré, sinon aucun rôle."
+    ),
+    db.SETTING_VISITOR_ROLE: "✅ Rôle visiteur marché désactivé.",
 }
 
 _ROLE_SET_DETAIL = {
@@ -63,6 +70,8 @@ _ROLE_SET_DETAIL = {
     db.SETTING_BASE_ROLE: "`/absence kick` retirera les autres rôles et remettra celui-ci.",
     db.SETTING_VERIFIED_MEMBER_ROLE: "Il sera donné après vérification validée.",
     db.SETTING_UNVERIFIED_MEMBER_ROLE: "Il sera retiré après vérification validée.",
+    db.SETTING_GUILD_MEMBER_ROLE: "Il sera donné quand un candidat guilde est accepté.",
+    db.SETTING_VISITOR_ROLE: "Il sera donné aux visiteurs qui demandent l'accès au marché.",
 }
 
 _CHANNEL_CHOICES = [
@@ -81,6 +90,8 @@ _ROLE_CHOICES = [
     app_commands.Choice(name="base", value=db.SETTING_BASE_ROLE),
     app_commands.Choice(name="verified_member", value=db.SETTING_VERIFIED_MEMBER_ROLE),
     app_commands.Choice(name="unverified_member", value=db.SETTING_UNVERIFIED_MEMBER_ROLE),
+    app_commands.Choice(name="guild_member", value=db.SETTING_GUILD_MEMBER_ROLE),
+    app_commands.Choice(name="visitor", value=db.SETTING_VISITOR_ROLE),
 ]
 
 
@@ -302,6 +313,16 @@ class SettingsCog(commands.Cog):
         embed.add_field(
             name="Rôle à vérifier",
             value=_role_mention(db.SETTING_UNVERIFIED_MEMBER_ROLE, "*(non défini — la vérification ne retire pas de rôle)*"),
+            inline=False,
+        )
+        embed.add_field(
+            name="Rôle membre guilde",
+            value=_role_mention(db.SETTING_GUILD_MEMBER_ROLE, "*(non défini — repli sur verified_member)*"),
+            inline=False,
+        )
+        embed.add_field(
+            name="Rôle visiteur marché",
+            value=_role_mention(db.SETTING_VISITOR_ROLE, "*(non défini — aucun rôle visiteur automatique)*"),
             inline=False,
         )
         embed.add_field(

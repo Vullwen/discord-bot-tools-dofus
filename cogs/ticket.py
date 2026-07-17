@@ -5,19 +5,37 @@ salon privé, d'ajouter des membres et de fermer le salon.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
+import secrets
+from datetime import datetime, timedelta
 from typing import Optional
 
 import discord
 from discord.ext import commands
 
 import db
-from config import RAID_NAMES
+from config import RAID_NAMES, now_paris
 from utils import dates as dates_utils
 from utils import names as names_utils
 from utils.perms import can_manage_ticket, is_raid_organizer
 
 logger = logging.getLogger("dofus-raid-bot.ticket")
+
+ONBOARDING_CLOSE_DELAY = timedelta(minutes=15)
+
+
+def _safe_onboarding_channel_name(member: discord.Member) -> str:
+    display = getattr(member, "display_name", None) or getattr(member, "name", "nouveau")
+    base = display.casefold().strip()
+    base = re.sub(r"[^a-z0-9-]+", "-", base)
+    base = re.sub(r"-+", "-", base).strip("-")
+    return f"ticket-{base or 'nouveau'}-{secrets.token_hex(2)}"[:90]
+
+
+def _parse_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value)
 
 
 class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
@@ -154,14 +172,395 @@ class TicketChannelView(discord.ui.View):
         self.add_item(_CloseTicketButton(cog))
 
 
+class _JoinGuildButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="Rejoindre la guilde",
+            style=discord.ButtonStyle.success,
+            custom_id="bebraid:onboarding_join_guild",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.choose_onboarding_path(interaction, choice="guild")
+
+
+class _VisitorButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="Accès marché",
+            style=discord.ButtonStyle.primary,
+            custom_id="bebraid:onboarding_visitor",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.choose_onboarding_path(interaction, choice="visitor")
+
+
+class OnboardingChoiceView(discord.ui.View):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(timeout=None)
+        self.add_item(_JoinGuildButton(cog))
+        self.add_item(_VisitorButton(cog))
+
+
+class _AcceptGuildButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="Accepter",
+            style=discord.ButtonStyle.success,
+            custom_id="bebraid:onboarding_accept",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.review_guild_application(interaction, accepted=True)
+
+
+class _RejectGuildButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="Refuser",
+            style=discord.ButtonStyle.danger,
+            custom_id="bebraid:onboarding_reject",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.review_guild_application(interaction, accepted=False)
+
+
+class OnboardingReviewView(discord.ui.View):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(timeout=None)
+        self.add_item(_AcceptGuildButton(cog))
+        self.add_item(_RejectGuildButton(cog))
+
+
 class TicketCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._onboarding_close_tasks: dict[int, asyncio.Task] = {}
 
     async def cog_load(self) -> None:
         # Vues persistantes (custom_id fixes) : routage sur tous les messages.
         self.bot.add_view(TicketChannelView(self))
+        self.bot.add_view(OnboardingChoiceView(self))
+        self.bot.add_view(OnboardingReviewView(self))
+        asyncio.create_task(self._restore_onboarding_closures())
         logger.info("TicketCog prêt")
+
+    async def cog_unload(self) -> None:
+        for task in self._onboarding_close_tasks.values():
+            task.cancel()
+        self._onboarding_close_tasks.clear()
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        if getattr(member, "bot", False):
+            return
+        if getattr(member, "pending", False):
+            return
+        await self.open_onboarding_ticket(member, reason="Ticket d'accueil après arrivée Discord")
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        if getattr(after, "bot", False):
+            return
+        if getattr(before, "pending", False) and not getattr(after, "pending", False):
+            await self.open_onboarding_ticket(after, reason="Ticket d'accueil après acceptation du règlement")
+
+    async def open_onboarding_ticket(self, member: discord.Member, *, reason: str) -> Optional[discord.TextChannel]:
+        guild = member.guild
+        existing = db.get_open_onboarding_ticket_for_user(guild_id=guild.id, user_id=member.id)
+        if existing is not None:
+            channel = guild.get_channel(existing["channel_id"])
+            if isinstance(channel, discord.TextChannel):
+                return channel
+            db.update_onboarding_ticket(existing["channel_id"], status="deleted")
+            db.close_ticket(existing["channel_id"])
+
+        try:
+            channel = await self._create_onboarding_channel(guild, member, reason=reason)
+        except discord.DiscordException as exc:
+            logger.warning("Création ticket accueil échouée pour %s: %s", member, exc)
+            return None
+
+        db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=member.id)
+        db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=member.id)
+        await channel.send(
+            content=member.mention,
+            embed=self._onboarding_choice_embed(),
+            view=OnboardingChoiceView(self),
+        )
+        return channel
+
+    async def _create_onboarding_channel(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        *,
+        reason: str,
+    ) -> discord.TextChannel:
+        overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            member: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                attach_files=True,
+                read_message_history=True,
+            ),
+        }
+        if guild.me is not None:
+            overwrites[guild.me] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                manage_channels=True,
+                manage_roles=True,
+                kick_members=True,
+                read_message_history=True,
+            )
+        for setting in (db.SETTING_RAID_MANAGER_ROLE, db.SETTING_BOT_ADMIN_ROLE):
+            role_id = db.get_guild_setting_int(guild.id, setting)
+            if not role_id:
+                continue
+            role = guild.get_role(role_id)
+            if role is None:
+                continue
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                manage_messages=True,
+                read_message_history=True,
+            )
+        return await guild.create_text_channel(
+            name=_safe_onboarding_channel_name(member),
+            overwrites=overwrites,
+            reason=reason,
+        )
+
+    def _onboarding_choice_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="Bienvenue chez B&B",
+            description=(
+                "Souhaites-tu rejoindre la guilde ou avoir accès au marché d'items ?"
+            ),
+            color=0x2ECC71,
+        )
+        return embed
+
+    def _guild_application_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="🐾 Bienvenue chez B&B 🐾",
+            description=(
+                "Merci de te présenter en remplissant les informations suivantes :\n\n"
+                "Pseudo en jeu :\n"
+                "Classe(s) / Niveau(x) :\n"
+                "Objectifs dans le jeu : (koli, pvm, fun, opti...)"
+            ),
+            color=0xF1C40F,
+        )
+        return embed
+
+    async def choose_onboarding_path(
+        self,
+        interaction: discord.Interaction,
+        *,
+        choice: str,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        ticket = db.get_onboarding_ticket_by_channel(interaction.channel_id)
+        if ticket is None or ticket["status"] in ("closed", "deleted"):
+            await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
+            return
+        if ticket["status"] != "pending":
+            await interaction.response.send_message("Un choix a déjà été enregistré pour ce ticket.", ephemeral=True)
+            return
+        if interaction.user.id != ticket["user_id"]:
+            await interaction.response.send_message("Seul le nouveau membre peut choisir ici.", ephemeral=True)
+            return
+
+        if choice == "guild":
+            db.update_onboarding_ticket(
+                interaction.channel_id,
+                choice="guild",
+                status="guild_pending",
+            )
+            await interaction.response.send_message(
+                content=(
+                    f"<@{ticket['user_id']}> souhaite rejoindre la guilde. "
+                    "Les admins pourront accepter ou refuser après sa présentation."
+                ),
+                embed=self._guild_application_embed(),
+                view=OnboardingReviewView(self),
+            )
+            return
+
+        close_after = now_paris() + ONBOARDING_CLOSE_DELAY
+        report = await self._grant_visitor_role(interaction.guild, ticket["user_id"])
+        db.update_onboarding_ticket(
+            interaction.channel_id,
+            choice="visitor",
+            status="visitor_granted",
+            close_after=close_after,
+        )
+        await interaction.response.send_message(
+            f"Accès marché demandé.\n{report}\nLe ticket sera fermé dans 15 minutes.",
+            ephemeral=False,
+        )
+        self._schedule_onboarding_close(interaction.channel_id, close_after)
+
+    async def review_guild_application(
+        self,
+        interaction: discord.Interaction,
+        *,
+        accepted: bool,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        ticket = db.get_onboarding_ticket_by_channel(interaction.channel_id)
+        if ticket is None or ticket["status"] in ("closed", "deleted"):
+            await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
+            return
+        if ticket["status"] != "guild_pending":
+            await interaction.response.send_message("Cette candidature a déjà été traitée.", ephemeral=True)
+            return
+        if ticket["choice"] != "guild":
+            await interaction.response.send_message("Ce ticket n'est pas une candidature guilde.", ephemeral=True)
+            return
+
+        close_after = now_paris() + ONBOARDING_CLOSE_DELAY
+        if accepted:
+            report = await self._grant_guild_role(interaction.guild, ticket["user_id"])
+            db.update_onboarding_ticket(
+                interaction.channel_id,
+                status="accepted",
+                close_after=close_after,
+            )
+            await interaction.response.send_message(
+                f"Candidature acceptée.\n{report}\nLe ticket sera fermé dans 15 minutes.",
+                ephemeral=False,
+            )
+            self._schedule_onboarding_close(interaction.channel_id, close_after)
+            return
+
+        report = await self._kick_onboarding_member(interaction.guild, ticket["user_id"])
+        db.update_onboarding_ticket(
+            interaction.channel_id,
+            status="rejected",
+            close_after=close_after,
+        )
+        await interaction.response.send_message(
+            f"Candidature refusée.\n{report}\nLe ticket sera fermé dans 15 minutes.",
+            ephemeral=False,
+        )
+        self._schedule_onboarding_close(interaction.channel_id, close_after)
+
+    async def _grant_guild_role(self, guild: discord.Guild, user_id: int) -> str:
+        role_id = (
+            db.get_guild_setting_int(guild.id, db.SETTING_GUILD_MEMBER_ROLE)
+            or db.get_guild_setting_int(guild.id, db.SETTING_VERIFIED_MEMBER_ROLE)
+        )
+        return await self._grant_role(
+            guild,
+            user_id,
+            role_id,
+            missing_message="Aucun rôle membre guilde configuré.",
+            reason="Candidature guilde acceptée",
+        )
+
+    async def _grant_visitor_role(self, guild: discord.Guild, user_id: int) -> str:
+        return await self._grant_role(
+            guild,
+            user_id,
+            db.get_guild_setting_int(guild.id, db.SETTING_VISITOR_ROLE),
+            missing_message="Aucun rôle visiteur marché configuré.",
+            reason="Accès marché demandé via ticket d'accueil",
+        )
+
+    async def _grant_role(
+        self,
+        guild: discord.Guild,
+        user_id: int,
+        role_id: Optional[int],
+        *,
+        missing_message: str,
+        reason: str,
+    ) -> str:
+        if not role_id:
+            return missing_message
+        role = guild.get_role(role_id)
+        if role is None:
+            return "Rôle configuré introuvable."
+        member = await self._fetch_member(guild, user_id)
+        if member is None:
+            return "Membre introuvable."
+        try:
+            await member.add_roles(role, reason=reason)
+        except discord.DiscordException as exc:
+            logger.warning("Attribution rôle accueil échouée: %s", exc)
+            return "Rôle non attribué : permission Discord insuffisante."
+        return f"Rôle attribué : {role.mention}."
+
+    async def _kick_onboarding_member(self, guild: discord.Guild, user_id: int) -> str:
+        member = await self._fetch_member(guild, user_id)
+        if member is None:
+            return "Membre déjà absent du serveur."
+        try:
+            await member.kick(reason="Candidature guilde refusée")
+        except discord.DiscordException as exc:
+            logger.warning("Kick candidature refusée échoué: %s", exc)
+            return "Kick non effectué : permission Discord insuffisante."
+        return "Membre kick du serveur."
+
+    async def _fetch_member(self, guild: discord.Guild, user_id: int) -> Optional[discord.Member]:
+        member = guild.get_member(user_id)
+        if member is not None:
+            return member
+        try:
+            return await guild.fetch_member(user_id)
+        except discord.DiscordException:
+            return None
+
+    async def _restore_onboarding_closures(self) -> None:
+        await self.bot.wait_until_ready()
+        for ticket in db.list_onboarding_tickets_with_close_after():
+            self._schedule_onboarding_close(ticket["channel_id"], _parse_datetime(ticket["close_after"]))
+
+    def _schedule_onboarding_close(self, channel_id: int, close_after: datetime) -> None:
+        task = self._onboarding_close_tasks.get(channel_id)
+        if task is not None and not task.done():
+            return
+        self._onboarding_close_tasks[channel_id] = asyncio.create_task(
+            self._close_onboarding_later(channel_id, close_after)
+        )
+
+    async def _close_onboarding_later(self, channel_id: int, close_after: datetime) -> None:
+        delay = max(0.0, (close_after - now_paris()).total_seconds())
+        await asyncio.sleep(delay)
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except discord.DiscordException:
+                channel = None
+        db.close_onboarding_ticket(channel_id)
+        if channel is None:
+            return
+        delete = getattr(channel, "delete", None)
+        if delete is None:
+            return
+        try:
+            await delete(reason="Ticket d'accueil fermé automatiquement")
+        except discord.DiscordException as exc:
+            logger.warning("Suppression ticket accueil %s échouée: %s", channel_id, exc)
 
     async def close_ticket(self, interaction: discord.Interaction) -> None:
         ticket = db.get_ticket_by_channel(interaction.channel_id)

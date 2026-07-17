@@ -202,6 +202,31 @@ def test_tickets(tmp_path):
     assert db.get_ticket_by_channel(111)["closed"] == 1
 
 
+def test_onboarding_tickets(tmp_path):
+    _fresh(tmp_path)
+    db.create_ticket(channel_id=111, guild_id=2, opener_id=5)
+    db.create_onboarding_ticket(channel_id=111, guild_id=2, user_id=5)
+
+    ticket = db.get_onboarding_ticket_by_channel(111)
+    assert ticket["status"] == "pending"
+    assert db.get_open_onboarding_ticket_for_user(guild_id=2, user_id=5)["channel_id"] == 111
+
+    close_after = datetime(2026, 6, 28, 21, 0, tzinfo=PARIS)
+    db.update_onboarding_ticket(
+        111,
+        choice="visitor",
+        status="visitor_granted",
+        close_after=close_after,
+    )
+    pending_close = db.list_onboarding_tickets_with_close_after()
+    assert pending_close[0]["choice"] == "visitor"
+    assert pending_close[0]["close_after"] == "2026-06-28T21:00:00+02:00"
+
+    db.close_onboarding_ticket(111)
+    assert db.get_onboarding_ticket_by_channel(111)["status"] == "closed"
+    assert db.get_ticket_by_channel(111)["closed"] == 1
+
+
 def test_role_menus_components_and_options(tmp_path):
     _fresh(tmp_path)
     menu_id = db.create_role_menu(

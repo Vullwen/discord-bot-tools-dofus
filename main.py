@@ -26,8 +26,10 @@ intents = discord.Intents.default()
 # Requis pour détecter automatiquement les screenshots postés dans les salons
 # privés de vérification Dofus.
 intents.message_content = True
-# Pas de Server Members Intent requis : on utilise interaction.user et fetch_member/fetch_user
-# en fallback.
+# Requis pour ouvrir le ticket d'accueil quand un membre accepte le screening
+# Discord (Member.pending passe de True à False).
+intents.members = True
+# Les autres actions gardent interaction.user et fetch_member/fetch_user en fallback.
 
 
 def _no_prefix(_bot, _message):

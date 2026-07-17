@@ -116,6 +116,20 @@ Quand le screenshot contient le bon code, le bon serveur, la bonne guilde et le
 message en chat guilde, le bot valide automatiquement. Sinon, les organisateurs
 peuvent valider ou refuser dans le salon privé.
 
+### Accueil Discord
+
+Quand un nouveau membre accepte le règlement Discord, le bot ouvre un salon privé
+avec deux choix : rejoindre la guilde ou demander seulement l'accès au marché.
+
+- choix guilde : le bot demande la présentation, puis les organisateurs peuvent
+  accepter ou refuser avec les boutons du ticket.
+- accepter : donne le rôle `guild_member` configuré, ou `verified_member` en
+  repli si `guild_member` n'est pas défini.
+- refuser : kick le membre du serveur.
+- choix marché : donne le rôle `visitor`.
+
+Les tickets d'accueil sont fermés automatiquement 15 minutes après une décision.
+
 ### Autres modules
 
 - `/stuff refresh` : régénère le dernier stuff Dofusbook trouvé dans le salon.
@@ -134,6 +148,8 @@ sur les posts du forum configuré.
 - `base` : rôle remis après `/absence kick`.
 - `verified_member` : rôle donné après une vérification Dofus validée.
 - `unverified_member` : rôle retiré après une vérification validée.
+- `guild_member` : rôle donné après acceptation d'une candidature guilde.
+- `visitor` : rôle donné pour l'accès visiteur au marché.
 - `bot_admin` : rôle qui donne les droits admin du bot.
 
 Si aucun rôle organisateur n'est configuré, les membres avec la permission
