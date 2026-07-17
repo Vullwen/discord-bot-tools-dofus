@@ -127,7 +127,7 @@ au marché.
 Si le serveur utilise le screening natif Discord, le même ticket peut aussi être
 ouvert automatiquement quand le membre accepte les règles Discord.
 
-- choix guilde : le bot demande la présentation, puis les organisateurs peuvent
+- choix guilde : le bot demande la présentation, puis les admins bot peuvent
   accepter ou refuser avec les boutons du ticket.
 - accepter : donne le rôle `guild_member` configuré, ou `verified_member` en
   repli si `guild_member` n'est pas défini.
@@ -135,6 +135,9 @@ ouvert automatiquement quand le membre accepte les règles Discord.
 - choix marché : donne le rôle `visitor`.
 
 Les tickets d'accueil sont fermés automatiquement 15 minutes après une décision.
+Seuls les admins bot (`bot_admin`, owner, admin Discord ou `ADMIN_IDS`) gèrent
+le panneau règlement et les candidatures guilde ; le rôle `raid_manager` reste
+réservé aux raids.
 
 ### Autres modules
 

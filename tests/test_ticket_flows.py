@@ -147,7 +147,7 @@ async def test_onboarding_visitor_choice_grants_role_and_schedules_close(tmp_pat
 @pytest.mark.asyncio
 async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
-    monkeypatch.setattr("cogs.ticket.is_raid_organizer", lambda _interaction: True)
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
     monkeypatch.setattr(TicketCog, "_schedule_onboarding_close", lambda *_args: None)
     channel = FakeChannel(500)
     applicant = FakeMember(10)
@@ -177,7 +177,7 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
 @pytest.mark.asyncio
 async def test_onboarding_guild_review_rejects_and_kicks_member(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
-    monkeypatch.setattr("cogs.ticket.is_raid_organizer", lambda _interaction: True)
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
     monkeypatch.setattr(TicketCog, "_schedule_onboarding_close", lambda *_args: None)
     channel = FakeChannel(500)
     applicant = FakeMember(10)

@@ -20,7 +20,7 @@ import db
 from config import RAID_NAMES, now_paris
 from utils import dates as dates_utils
 from utils import names as names_utils
-from utils.perms import can_manage_ticket, is_raid_organizer
+from utils.perms import can_manage_ticket, is_bot_admin, is_raid_organizer
 
 logger = logging.getLogger("dofus-raid-bot.ticket")
 
@@ -310,7 +310,7 @@ class TicketCog(commands.Cog):
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
-        if not is_raid_organizer(interaction):
+        if not is_bot_admin(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
 
@@ -401,19 +401,16 @@ class TicketCog(commands.Cog):
                 kick_members=True,
                 read_message_history=True,
             )
-        for setting in (db.SETTING_RAID_MANAGER_ROLE, db.SETTING_BOT_ADMIN_ROLE):
-            role_id = db.get_guild_setting_int(guild.id, setting)
-            if not role_id:
-                continue
-            role = guild.get_role(role_id)
-            if role is None:
-                continue
-            overwrites[role] = discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                manage_messages=True,
-                read_message_history=True,
-            )
+        bot_admin_role_id = db.get_guild_setting_int(guild.id, db.SETTING_BOT_ADMIN_ROLE)
+        if bot_admin_role_id:
+            role = guild.get_role(bot_admin_role_id)
+            if role is not None:
+                overwrites[role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    manage_messages=True,
+                    read_message_history=True,
+                )
         return await guild.create_text_channel(
             name=_safe_onboarding_channel_name(member),
             overwrites=overwrites,
@@ -472,7 +469,7 @@ class TicketCog(commands.Cog):
             await interaction.response.send_message(
                 content=(
                     f"<@{ticket['user_id']}> souhaite rejoindre la guilde. "
-                    "Les admins pourront accepter ou refuser après sa présentation."
+                    "Les admins bot pourront accepter ou refuser après sa présentation."
                 ),
                 embed=self._guild_application_embed(),
                 view=OnboardingReviewView(self),
@@ -502,7 +499,7 @@ class TicketCog(commands.Cog):
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
-        if not is_raid_organizer(interaction):
+        if not is_bot_admin(interaction):
             await interaction.response.send_message("Permission refusée.", ephemeral=True)
             return
         ticket = db.get_onboarding_ticket_by_channel(interaction.channel_id)
