@@ -129,6 +129,26 @@ def _rules_embed(title: str = "Règlement") -> discord.Embed:
     return embed
 
 
+def _configured_onboarding_role_ids(guild_id: int) -> set[int]:
+    role_ids: set[int] = set()
+    for setting in (
+        db.SETTING_GUILD_MEMBER_ROLE,
+        db.SETTING_VERIFIED_MEMBER_ROLE,
+        db.SETTING_VISITOR_ROLE,
+    ):
+        role_id = db.get_guild_setting_int(guild_id, setting)
+        if role_id:
+            role_ids.add(role_id)
+    return role_ids
+
+
+def _has_onboarding_role(member: discord.Member, guild_id: int) -> bool:
+    role_ids = _configured_onboarding_role_ids(guild_id)
+    if not role_ids:
+        return False
+    return any(getattr(role, "id", None) in role_ids for role in getattr(member, "roles", []))
+
+
 class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
     raid_input = discord.ui.TextInput(
         label="Raid",
@@ -426,6 +446,12 @@ class TicketCog(commands.Cog):
     async def accept_rules(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if _has_onboarding_role(interaction.user, interaction.guild.id):
+            await interaction.response.send_message(
+                "Tu as déjà accès au serveur. Pas besoin de rouvrir un ticket.",
+                ephemeral=True,
+            )
             return
 
         await interaction.response.defer(ephemeral=True)

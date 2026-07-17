@@ -123,6 +123,8 @@ option `texte`, le bot publie un embed structuré B&B avec une section par règl
 Quand un nouveau membre clique sur `J'accepte le règlement`, le bot ouvre un salon
 privé avec deux choix : rejoindre la guilde ou demander seulement l'accès au
 marché.
+Un membre qui a déjà le rôle `guild_member`, `verified_member` ou `visitor` ne
+peut pas rouvrir un ticket avec ce bouton.
 
 Si tu veux garder un texte custom dans la commande, écris `\n` là où tu veux
 forcer un retour ligne.

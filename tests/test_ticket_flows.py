@@ -229,3 +229,29 @@ async def test_accept_rules_opens_onboarding_ticket(monkeypatch):
 
     assert interaction.response.deferred is True
     assert created_channel.mention in interaction.followup.messages[0][0]
+
+
+@pytest.mark.asyncio
+async def test_accept_rules_denies_member_with_existing_onboarding_role(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    role = FakeRole(90, "Visiteur")
+    member = FakeMember(10)
+    member.roles.append(role)
+    guild = FakeGuild(members=(member,), roles=(role,))
+    db.set_guild_setting(guild.id, db.SETTING_VISITOR_ROLE, str(role.id))
+
+    async def open_ticket(*_args, **_kwargs):
+        raise AssertionError("ticket should not be opened")
+
+    monkeypatch.setattr("cogs.ticket.discord.Member", FakeMember)
+    monkeypatch.setattr(TicketCog, "open_onboarding_ticket", open_ticket)
+    cog = TicketCog(FakeBot(channel=FakeChannel(777)))
+    interaction = FakeInteraction(
+        user=member,
+        guild=guild,
+        channel=FakeChannel(500),
+    )
+
+    await cog.accept_rules(interaction)
+
+    assert interaction.response.messages[0][0] == "Tu as déjà accès au serveur. Pas besoin de rouvrir un ticket."
