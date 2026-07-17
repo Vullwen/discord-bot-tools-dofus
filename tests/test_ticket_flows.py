@@ -195,3 +195,27 @@ async def test_onboarding_guild_review_rejects_and_kicks_member(tmp_path, monkey
 
     assert db.get_onboarding_ticket_by_channel(channel.id)["status"] == "rejected"
     assert applicant.kicked is True
+
+
+@pytest.mark.asyncio
+async def test_accept_rules_opens_onboarding_ticket(monkeypatch):
+    created_channel = FakeChannel(777)
+
+    async def open_ticket(_self, member, *, reason):
+        assert member.id == 10
+        assert "clic règlement" in reason
+        return created_channel
+
+    monkeypatch.setattr("cogs.ticket.discord.Member", FakeMember)
+    monkeypatch.setattr(TicketCog, "open_onboarding_ticket", open_ticket)
+    cog = TicketCog(FakeBot(channel=created_channel))
+    interaction = FakeInteraction(
+        user=FakeMember(10),
+        guild=SimpleNamespace(id=2),
+        channel=FakeChannel(500),
+    )
+
+    await cog.accept_rules(interaction)
+
+    assert interaction.response.deferred is True
+    assert created_channel.mention in interaction.followup.messages[0][0]

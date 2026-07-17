@@ -48,7 +48,7 @@ HELP_SECTIONS = (
             ("`/mychars`", "liste tes personnages vérifiés"),
             ("`/chars`", "liste les personnages vérifiés d'un membre"),
             ("`/find`", "retrouve le Discord lié à un personnage"),
-            ("Ticket d'accueil", "ouvre un salon privé après acceptation du règlement"),
+            ("`/ticket reglement`", "poste le bouton d'acceptation du règlement"),
         ),
     ),
     (

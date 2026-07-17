@@ -118,8 +118,14 @@ peuvent valider ou refuser dans le salon privé.
 
 ### Accueil Discord
 
-Quand un nouveau membre accepte le règlement Discord, le bot ouvre un salon privé
-avec deux choix : rejoindre la guilde ou demander seulement l'accès au marché.
+Si le règlement est un embed maison, poste le bouton d'acceptation avec
+`/ticket reglement`. Tu peux le mettre juste sous l'embed du règlement existant.
+Quand un nouveau membre clique sur `J'accepte le règlement`, le bot ouvre un
+salon privé avec deux choix : rejoindre la guilde ou demander seulement l'accès
+au marché.
+
+Si le serveur utilise le screening natif Discord, le même ticket peut aussi être
+ouvert automatiquement quand le membre accepte les règles Discord.
 
 - choix guilde : le bot demande la présentation, puis les organisateurs peuvent
   accepter ou refuser avec les boutons du ticket.

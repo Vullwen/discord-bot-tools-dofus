@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 import db
@@ -238,7 +239,28 @@ class OnboardingReviewView(discord.ui.View):
         self.add_item(_RejectGuildButton(cog))
 
 
+class _AcceptRulesButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="J'accepte le règlement",
+            style=discord.ButtonStyle.success,
+            custom_id="bebraid:rules_accept",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.accept_rules(interaction)
+
+
+class RulesAcceptView(discord.ui.View):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(timeout=None)
+        self.add_item(_AcceptRulesButton(cog))
+
+
 class TicketCog(commands.Cog):
+    ticket = app_commands.Group(name="ticket", description="Gestion des tickets")
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._onboarding_close_tasks: dict[int, asyncio.Task] = {}
@@ -248,6 +270,7 @@ class TicketCog(commands.Cog):
         self.bot.add_view(TicketChannelView(self))
         self.bot.add_view(OnboardingChoiceView(self))
         self.bot.add_view(OnboardingReviewView(self))
+        self.bot.add_view(RulesAcceptView(self))
         asyncio.create_task(self._restore_onboarding_closures())
         logger.info("TicketCog prêt")
 
@@ -270,6 +293,63 @@ class TicketCog(commands.Cog):
             return
         if getattr(before, "pending", False) and not getattr(after, "pending", False):
             await self.open_onboarding_ticket(after, reason="Ticket d'accueil après acceptation du règlement")
+
+    @ticket.command(name="reglement", description="Poste le bouton d'acceptation du règlement")
+    @app_commands.describe(
+        channel="Salon où poster le bouton (vide = salon actuel)",
+        titre="Titre de l'embed",
+        texte="Texte affiché au-dessus du bouton",
+    )
+    async def ticket_rules_panel(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+        titre: str = "Règlement",
+        texte: str = "Clique sur le bouton ci-dessous après avoir lu et accepté le règlement.",
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+
+        target = channel or interaction.channel
+        if target is None or not isinstance(target, discord.abc.Messageable):
+            await interaction.response.send_message("Salon introuvable.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=titre.strip() or "Règlement",
+            description=texte.strip() or "Clique sur le bouton ci-dessous après avoir accepté le règlement.",
+            color=0x2ECC71,
+        )
+        await target.send(embed=embed, view=RulesAcceptView(self))
+        await interaction.response.send_message(
+            f"Panneau d'acceptation posté dans {target.mention}.",
+            ephemeral=True,
+        )
+
+    async def accept_rules(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        channel = await self.open_onboarding_ticket(
+            interaction.user,
+            reason="Ticket d'accueil après clic règlement",
+        )
+        if channel is None:
+            await interaction.followup.send(
+                "Impossible de créer ton ticket. Préviens un admin.",
+                ephemeral=True,
+            )
+            return
+        await interaction.followup.send(
+            f"Règlement accepté. Ton ticket est ouvert ici : {channel.mention}.",
+            ephemeral=True,
+        )
 
     async def open_onboarding_ticket(self, member: discord.Member, *, reason: str) -> Optional[discord.TextChannel]:
         guild = member.guild
