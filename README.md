@@ -137,7 +137,8 @@ forcer un retour ligne.
 - refuser : kick le membre du serveur.
 - choix marché : donne le rôle `visitor`.
 
-Les tickets d'accueil sont fermés automatiquement 15 minutes après une décision.
+Les tickets d'accueil restent ouverts après une décision. Un admin bot les ferme
+avec le bouton `Fermer le ticket`.
 Seuls les admins bot (`bot_admin`, owner, admin Discord ou `ADMIN_IDS`) gèrent
 le panneau règlement et les candidatures guilde ; le rôle `raid_manager` reste
 réservé aux raids.

@@ -128,14 +128,8 @@ async def test_add_members_sets_channel_permissions_and_reports_missing(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_onboarding_visitor_choice_grants_role_and_schedules_close(tmp_path, monkeypatch):
+async def test_onboarding_visitor_choice_grants_role_and_shows_admin_close_button(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
-    scheduled = []
-    monkeypatch.setattr(
-        TicketCog,
-        "_schedule_onboarding_close",
-        lambda _self, channel_id, close_after: scheduled.append((channel_id, close_after)),
-    )
     channel = FakeChannel(500)
     visitor = FakeMember(10)
     role = FakeRole(90, "Visiteur")
@@ -151,17 +145,16 @@ async def test_onboarding_visitor_choice_grants_role_and_schedules_close(tmp_pat
     ticket = db.get_onboarding_ticket_by_channel(channel.id)
     assert ticket["choice"] == "visitor"
     assert ticket["status"] == "visitor_granted"
-    assert ticket["close_after"] is not None
+    assert ticket["close_after"] is None
     assert visitor.roles == [role]
-    assert scheduled[0][0] == channel.id
-    assert "fermé dans 15 minutes" in interaction.response.messages[0][0]
+    assert "peut fermer le ticket" in interaction.response.messages[0][0]
+    assert interaction.response.messages[0][1]["view"] is not None
 
 
 @pytest.mark.asyncio
 async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
-    monkeypatch.setattr(TicketCog, "_schedule_onboarding_close", lambda *_args: None)
     channel = FakeChannel(500)
     applicant = FakeMember(10)
     admin = FakeMember(20)
@@ -184,6 +177,7 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
     ticket = db.get_onboarding_ticket_by_channel(channel.id)
     assert ticket["choice"] == "guild"
     assert ticket["status"] == "accepted"
+    assert ticket["close_after"] is None
     assert applicant.roles == [role]
 
 
@@ -191,7 +185,6 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
 async def test_onboarding_guild_review_rejects_and_kicks_member(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
-    monkeypatch.setattr(TicketCog, "_schedule_onboarding_close", lambda *_args: None)
     channel = FakeChannel(500)
     applicant = FakeMember(10)
     admin = FakeMember(20)
@@ -208,6 +201,31 @@ async def test_onboarding_guild_review_rejects_and_kicks_member(tmp_path, monkey
 
     assert db.get_onboarding_ticket_by_channel(channel.id)["status"] == "rejected"
     assert applicant.kicked is True
+
+
+@pytest.mark.asyncio
+async def test_close_onboarding_ticket_requires_bot_admin_and_deletes_channel(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(500)
+    admin = FakeMember(20)
+    guild = FakeGuild(members=(admin,))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=10)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=10)
+    cog = TicketCog(FakeBot(channel=channel))
+
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: False)
+    denied = FakeInteraction(user=admin, guild=guild, channel=channel)
+    await cog.close_onboarding_ticket(denied)
+    assert denied.response.messages[0][0] == "Permission refusée."
+    assert channel.deleted is False
+
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    accepted = FakeInteraction(user=admin, guild=guild, channel=channel)
+    await cog.close_onboarding_ticket(accepted)
+
+    assert db.get_onboarding_ticket_by_channel(channel.id)["status"] == "closed"
+    assert db.get_ticket_by_channel(channel.id)["closed"] == 1
+    assert channel.deleted is True
 
 
 @pytest.mark.asyncio
