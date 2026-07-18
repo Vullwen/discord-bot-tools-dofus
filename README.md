@@ -119,7 +119,8 @@ peuvent valider ou refuser dans le salon privé.
 ### Accueil Discord
 
 Poste le règlement et son bouton d'acceptation avec `/ticket reglement`. Sans
-option `texte`, le bot publie un embed structuré B&B avec une section par règle.
+option `texte`, le bot publie un embed structuré avec le nom du serveur Discord
+en titre/header, l'icône du serveur en image, et une section par règle.
 Quand un nouveau membre clique sur `J'accepte le règlement`, le bot ouvre un salon
 privé avec deux choix : rejoindre la guilde ou demander seulement l'accès au
 marché.

@@ -118,15 +118,33 @@ def _format_lines(lines: tuple[str, ...]) -> str:
     return "\n".join(f"- {line}" for line in lines)
 
 
-def _rules_embed(title: str = "Règlement") -> discord.Embed:
+def _apply_rules_branding(
+    embed: discord.Embed,
+    *,
+    guild_name: str,
+    guild_icon_url: Optional[str],
+) -> discord.Embed:
+    if guild_icon_url:
+        embed.set_author(name=guild_name, icon_url=guild_icon_url)
+        embed.set_thumbnail(url=guild_icon_url)
+    else:
+        embed.set_author(name=guild_name)
+    return embed
+
+
+def _rules_embed(
+    *,
+    guild_name: str = "Serveur Discord",
+    guild_icon_url: Optional[str] = None,
+) -> discord.Embed:
     embed = discord.Embed(
-        title=title.strip() or "Règlement",
-        description="📜 Merci de lire le règlement avant de cliquer sur le bouton d'acceptation.",
+        title=guild_name.strip() or "Serveur Discord",
+        description="📜 Règlement du serveur. Merci de le lire avant de cliquer sur le bouton d'acceptation.",
         color=0x2ECC71,
     )
     for name, lines in DEFAULT_RULE_SECTIONS:
         embed.add_field(name=name, value=_format_lines(lines), inline=False)
-    return embed
+    return _apply_rules_branding(embed, guild_name=guild_name, guild_icon_url=guild_icon_url)
 
 
 def _configured_onboarding_role_ids(guild_id: int) -> set[int]:
@@ -392,7 +410,7 @@ class TicketCog(commands.Cog):
     @ticket.command(name="reglement", description="Poste le bouton d'acceptation du règlement")
     @app_commands.describe(
         channel="Salon où poster le bouton (vide = salon actuel)",
-        titre="Titre de l'embed",
+        titre="Titre custom si l'option texte est renseignée",
         texte="Texte custom optionnel. Utilise \\n pour forcer un retour ligne.",
     )
     async def ticket_rules_panel(
@@ -414,14 +432,19 @@ class TicketCog(commands.Cog):
             await interaction.response.send_message("Salon introuvable.", ephemeral=True)
             return
 
+        guild_icon_url = interaction.guild.icon.url if interaction.guild.icon else None
+        guild_name = interaction.guild.name
+
         if texte is None or not texte.strip():
-            embed = _rules_embed(titre)
+            embed = _rules_embed(guild_name=guild_name, guild_icon_url=guild_icon_url)
         else:
             embed = discord.Embed(
-                title=titre.strip() or "Règlement",
+                title=(titre.strip() if titre and titre.strip() else guild_name),
                 description=texte.strip().replace("\\n", "\n"),
                 color=0x2ECC71,
             )
+            _apply_rules_branding(embed, guild_name=guild_name, guild_icon_url=guild_icon_url)
+
         await target.send(embed=embed, view=RulesAcceptView(self))
         await interaction.response.send_message(
             f"Panneau d'acceptation posté dans {target.mention}.",

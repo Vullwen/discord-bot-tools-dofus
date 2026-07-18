@@ -4,12 +4,13 @@ from types import SimpleNamespace
 
 
 class FakeMessage:
-    def __init__(self, channel, message_id: int, *, content=None, embed=None, view=None):
+    def __init__(self, channel, message_id: int, *, content=None, embed=None, view=None, file=None):
         self.channel = channel
         self.id = message_id
         self.content = content
         self.embed = embed
         self.view = view
+        self.file = file
         self.deleted = False
         self.edits = []
 
@@ -32,8 +33,8 @@ class FakeChannel:
         self.deleted = False
         self.permissions = []
 
-    async def send(self, *, content=None, embed=None, view=None):
-        msg = FakeMessage(self, self._next_id, content=content, embed=embed, view=view)
+    async def send(self, *, content=None, embed=None, view=None, file=None):
+        msg = FakeMessage(self, self._next_id, content=content, embed=embed, view=view, file=file)
         self._next_id += 1
         self.sent.append(msg)
         self._messages[msg.id] = msg

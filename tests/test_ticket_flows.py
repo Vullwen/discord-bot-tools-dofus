@@ -14,9 +14,12 @@ def _member(user_id: int, name: str):
 
 
 def test_rules_embed_uses_fields_for_readable_sections():
-    embed = _rules_embed()
+    embed = _rules_embed(guild_name="Bagarres & Belettes", guild_icon_url="https://cdn.example/icon.png")
 
-    assert embed.title == "Règlement"
+    assert embed.title == "Bagarres & Belettes"
+    assert embed.author.name == "Bagarres & Belettes"
+    assert embed.author.icon_url == "https://cdn.example/icon.png"
+    assert embed.thumbnail.url == "https://cdn.example/icon.png"
     assert len(embed.fields) == 8
     assert embed.fields[0].name == "👤 1 — Comportement des membres"
     assert "Respect obligatoire" in embed.fields[0].value
