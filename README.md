@@ -129,9 +129,6 @@ peut pas rouvrir un ticket avec ce bouton.
 Si tu veux garder un texte custom dans la commande, écris `\n` là où tu veux
 forcer un retour ligne.
 
-Si le serveur utilise le screening natif Discord, le même ticket peut aussi être
-ouvert automatiquement quand le membre accepte les règles Discord.
-
 - choix guilde : le bot demande la présentation, puis les admins bot peuvent
   accepter ou refuser avec les boutons du ticket.
 - accepter : donne le rôle `guild_member` configuré, ou `verified_member` en

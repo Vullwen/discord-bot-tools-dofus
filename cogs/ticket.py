@@ -389,21 +389,6 @@ class TicketCog(commands.Cog):
             task.cancel()
         self._onboarding_close_tasks.clear()
 
-    @commands.Cog.listener()
-    async def on_member_join(self, member: discord.Member) -> None:
-        if getattr(member, "bot", False):
-            return
-        if getattr(member, "pending", False):
-            return
-        await self.open_onboarding_ticket(member, reason="Ticket d'accueil après arrivée Discord")
-
-    @commands.Cog.listener()
-    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
-        if getattr(after, "bot", False):
-            return
-        if getattr(before, "pending", False) and not getattr(after, "pending", False):
-            await self.open_onboarding_ticket(after, reason="Ticket d'accueil après acceptation du règlement")
-
     @ticket.command(name="reglement", description="Poste le bouton d'acceptation du règlement")
     @app_commands.describe(
         channel="Salon où poster le bouton (vide = salon actuel)",
