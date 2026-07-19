@@ -324,6 +324,7 @@ class OnboardingChoiceView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(_JoinGuildButton(cog))
         self.add_item(_VisitorButton(cog))
+        self.add_item(_CloseOnboardingButton(cog))
 
 
 class _AcceptGuildButton(discord.ui.Button):
@@ -357,12 +358,13 @@ class OnboardingReviewView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(_AcceptGuildButton(cog))
         self.add_item(_RejectGuildButton(cog))
+        self.add_item(_CloseOnboardingButton(cog))
 
 
 class _CloseOnboardingButton(discord.ui.Button):
     def __init__(self, cog: "TicketCog"):
         super().__init__(
-            label="Fermer le ticket",
+            label="Clôturer le ticket",
             style=discord.ButtonStyle.danger,
             custom_id="bebraid:onboarding_close",
         )

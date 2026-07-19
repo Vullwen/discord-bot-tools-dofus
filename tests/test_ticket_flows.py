@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 import db
-from cogs.ticket import TicketCog, _rules_embed
+from cogs.ticket import OnboardingChoiceView, OnboardingReviewView, TicketCog, _rules_embed
 from tests.fakes import FakeBot, FakeChannel, FakeInteraction, FakeUser
 
 
@@ -24,6 +24,16 @@ def test_rules_embed_uses_fields_for_readable_sections():
     assert embed.fields[0].name == "👤 1 — Comportement des membres"
     assert "Respect obligatoire" in embed.fields[0].value
     assert "\n- Aucune insulte" in embed.fields[0].value
+
+
+def test_onboarding_views_include_admin_close_button():
+    cog = TicketCog(FakeBot())
+
+    choice_labels = [item.label for item in OnboardingChoiceView(cog).children]
+    review_labels = [item.label for item in OnboardingReviewView(cog).children]
+
+    assert "Clôturer le ticket" in choice_labels
+    assert "Clôturer le ticket" in review_labels
 
 
 class FakeRole:
