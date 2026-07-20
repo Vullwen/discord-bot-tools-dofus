@@ -371,47 +371,54 @@ def _search_results_content(matches: list[TradeSearchMatch]) -> str:
     return "\n".join(lines)
 
 
-def _format_trade_items(items, starter_id: int, target_id: int) -> str:
-    if not items:
-        return "Aucun archimonstre ajouté pour le moment."
-
-    starter_lines = [
+def _trade_lines_for_giver(items, giver_id: int) -> list[str]:
+    return [
         f"- {item['monster_name']} x{item['quantity']}"
         for item in items
-        if item["giver_id"] == starter_id
+        if item["giver_id"] == giver_id
     ]
-    target_lines = [
-        f"- {item['monster_name']} x{item['quantity']}"
-        for item in items
-        if item["giver_id"] == target_id
-    ]
-    lines = [
-        f"**<@{starter_id}> donne à <@{target_id}>**",
-        *(starter_lines or ["- Rien pour l'instant."]),
-        "",
-        f"**<@{target_id}> donne à <@{starter_id}>**",
-        *(target_lines or ["- Rien pour l'instant."]),
-    ]
-    return "\n".join(lines)
 
 
-def _trade_content(trade, items) -> str:
+def _embed_field_value(lines: list[str], *, empty: str = "Rien pour l'instant.") -> str:
+    value = "\n".join(lines or [empty])
+    return value if len(value) <= 1024 else value[:1000].rstrip() + "\n..."
+
+
+def _trade_embed(trade, items) -> discord.Embed:
     status_labels = {
         "open": "ouvert",
         "pending_confirm": "validation en attente",
         "completed": "validé",
         "cancelled": "annulé",
     }
-    return "\n".join(
-        [
-            f"<@{trade['starter_id']}> <@{trade['target_id']}>",
-            f"**Échange Metamob #{trade['id']}** - {status_labels.get(trade['status'], trade['status'])}",
-            "",
-            _format_trade_items(items, trade["starter_id"], trade["target_id"]),
-            "",
-            "Ajoutez vos archimonstres avec `/trade add` dans ce post.",
-        ]
+    embed = discord.Embed(
+        title=f"Échange Metamob #{trade['id']}",
+        description=(
+            f"**Statut :** {status_labels.get(trade['status'], trade['status'])}\n"
+            f"**Participants :** <@{trade['starter_id']}> et <@{trade['target_id']}>"
+        ),
+        color=0xF1C40F,
     )
+    embed.add_field(
+        name=f"<@{trade['starter_id']}> donne à <@{trade['target_id']}>",
+        value=_embed_field_value(_trade_lines_for_giver(items, trade["starter_id"])),
+        inline=False,
+    )
+    embed.add_field(
+        name=f"<@{trade['target_id']}> donne à <@{trade['starter_id']}>",
+        value=_embed_field_value(_trade_lines_for_giver(items, trade["target_id"])),
+        inline=False,
+    )
+    embed.add_field(
+        name="Mini tuto",
+        value=(
+            "Ajoutez votre/vos mob(s) avec `/trade add`.\n"
+            "Retirez une ligne avec `/trade del`.\n"
+            "Quand tout est prêt, cliquez sur **Clôturer l'échange**."
+        ),
+        inline=False,
+    )
+    return embed
 
 
 def _trade_thread_name(first: discord.abc.User, second: discord.abc.User) -> str:
@@ -927,9 +934,7 @@ class MetamobCog(commands.Cog):
         await interaction.response.defer(thinking=True)
         content = (
             f"{interaction.user.mention} {user.mention}\n"
-            "**Échange Metamob**\n\n"
-            "Ajoutez vos archimonstres avec `/trade add` dans ce post, puis cliquez sur "
-            "**Clôturer l'échange** quand tout est prêt."
+            "Nouveau post d'échange Metamob."
         )
         try:
             created = await forum.create_thread(
@@ -957,7 +962,8 @@ class MetamobCog(commands.Cog):
         trade = db.get_metamob_trade(trade_id)
         if message is not None and trade is not None:
             await message.edit(
-                content=_trade_content(trade, []),
+                content=f"<@{trade['starter_id']}> <@{trade['target_id']}>",
+                embed=_trade_embed(trade, []),
                 view=MetamobTradeControlView(self),
                 allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
             )
@@ -1142,7 +1148,8 @@ class MetamobCog(commands.Cog):
         try:
             message = await channel.fetch_message(trade["control_message_id"])
             await message.edit(
-                content=_trade_content(trade, items),
+                content=f"<@{trade['starter_id']}> <@{trade['target_id']}>",
+                embed=_trade_embed(trade, items),
                 view=MetamobTradeControlView(self) if trade["status"] == "open" else None,
                 allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
             )
@@ -1164,7 +1171,8 @@ class MetamobCog(commands.Cog):
         db.clear_metamob_trade_confirmation(trade["id"])
         refreshed = db.get_metamob_trade(trade["id"])
         await interaction.response.send_message(
-            _trade_content(refreshed, items) + "\n\nAnnulez le trade ou validez. Il faudra la validation des deux membres.",
+            "Annulez le trade ou validez. Il faudra la validation des deux membres.",
+            embed=_trade_embed(refreshed, items),
             view=MetamobTradeDecisionView(self),
             allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
         )

@@ -6,7 +6,7 @@ from cogs.metamob import (
     _choice_value,
     _normalize_quest_slug,
     _search_results_content,
-    _trade_content,
+    _trade_embed,
     adjusted_quantity,
     resolve_archmonster,
     find_trade_opportunities,
@@ -77,7 +77,7 @@ def test_adjusted_quantity_stays_within_metamob_bounds():
     assert adjusted_quantity(30, 1) == 30
 
 
-def test_trade_content_groups_items_by_giver():
+def test_trade_embed_groups_items_and_includes_tutorial():
     trade = {
         "id": 9,
         "status": "open",
@@ -89,13 +89,16 @@ def test_trade_content_groups_items_by_giver():
         {"giver_id": 20, "monster_name": "Bambono", "quantity": 1},
     ]
 
-    content = _trade_content(trade, items)
+    embed = _trade_embed(trade, items)
+    field_values = "\n".join(field.value for field in embed.fields)
 
-    assert "Échange Metamob #9" in content
-    assert "<@10> donne à <@20>" in content
-    assert "Arachitik x2" in content
-    assert "<@20> donne à <@10>" in content
-    assert "Bambono x1" in content
+    assert embed.title == "Échange Metamob #9"
+    assert "<@10> donne à <@20>" in embed.fields[0].name
+    assert "Arachitik x2" in field_values
+    assert "<@20> donne à <@10>" in embed.fields[1].name
+    assert "Bambono x1" in field_values
+    assert "/trade add" in field_values
+    assert "/trade del" in field_values
 
 
 def test_search_results_content_summarizes_mutual_matches():
