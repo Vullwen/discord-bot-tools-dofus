@@ -52,6 +52,7 @@ COGS = [
     "cogs.rolemenu",
     "cogs.stuff",
     "cogs.market",
+    "cogs.metamob",
 ]
 
 

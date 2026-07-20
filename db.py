@@ -198,6 +198,20 @@ def init(db_path: str = DB_PATH) -> None:
             close_status        TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS metamob_links (
+            guild_id        INTEGER NOT NULL,
+            user_id         INTEGER NOT NULL,
+            username        TEXT,
+            quest_slug      TEXT NOT NULL,
+            api_key         TEXT NOT NULL,
+            character_name  TEXT,
+            server_name     TEXT,
+            quest_type_slug TEXT,
+            linked_at       TEXT NOT NULL,
+            updated_at      TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id)
+        );
+
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
@@ -265,6 +279,8 @@ def _create_indexes() -> None:
             ON absences(guild_id, public_deleted_at, end_date, start_date, id);
         CREATE INDEX IF NOT EXISTS idx_market_posts_inactive
             ON market_posts(closed_at, last_activity_at);
+        CREATE INDEX IF NOT EXISTS idx_metamob_links_guild_user
+            ON metamob_links(guild_id, user_id);
         CREATE INDEX IF NOT EXISTS idx_onboarding_open_user
             ON onboarding_tickets(guild_id, user_id, status, created_at);
         CREATE INDEX IF NOT EXISTS idx_onboarding_close_after
@@ -1405,6 +1421,68 @@ def mark_market_post_closed(thread_id: int, status: str, closed_at: datetime) ->
         (closed_at.isoformat(), status, thread_id),
     )
     _db().commit()
+
+
+# ------------------------------------------------------------------------ metamob
+
+
+def upsert_metamob_link(
+    *,
+    guild_id: int,
+    user_id: int,
+    api_key: str,
+    quest_slug: str,
+    username: Optional[str] = None,
+    character_name: Optional[str] = None,
+    server_name: Optional[str] = None,
+    quest_type_slug: Optional[str] = None,
+) -> None:
+    now = _now_iso()
+    _db().execute(
+        """
+        INSERT INTO metamob_links
+            (guild_id, user_id, username, quest_slug, api_key, character_name,
+             server_name, quest_type_slug, linked_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id, user_id) DO UPDATE SET
+            username = excluded.username,
+            quest_slug = excluded.quest_slug,
+            api_key = excluded.api_key,
+            character_name = excluded.character_name,
+            server_name = excluded.server_name,
+            quest_type_slug = excluded.quest_type_slug,
+            updated_at = excluded.updated_at
+        """,
+        (
+            guild_id,
+            user_id,
+            username,
+            quest_slug,
+            api_key,
+            character_name,
+            server_name,
+            quest_type_slug,
+            now,
+            now,
+        ),
+    )
+    _db().commit()
+
+
+def get_metamob_link(guild_id: int, user_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM metamob_links WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    ).fetchone()
+
+
+def delete_metamob_link(guild_id: int, user_id: int) -> bool:
+    cur = _db().execute(
+        "DELETE FROM metamob_links WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    )
+    _db().commit()
+    return cur.rowcount > 0
 
 
 # ----------------------------------------------------------------- helpers tests

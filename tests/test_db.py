@@ -41,6 +41,7 @@ def test_hot_path_indexes_are_created(tmp_path):
         "idx_participants_raid_status_joined",
         "idx_absences_search",
         "idx_market_posts_inactive",
+        "idx_metamob_links_guild_user",
     ):
         assert name in index_names
 
@@ -433,3 +434,37 @@ def test_waitlist_promotion(tmp_path):
     parts = db.get_participants(rid)
     assert {u for u, _, _ in parts} == {2, 3, 5}
     assert [u for u, s, _ in parts if s == "waitlist"] == [5]
+
+
+def test_metamob_link_upsert_and_delete(tmp_path):
+    _fresh(tmp_path)
+    db.upsert_metamob_link(
+        guild_id=2,
+        user_id=10,
+        api_key="secret-1",
+        quest_slug="abc123",
+        username="Garfunk",
+        character_name="Perso",
+        server_name="Draconiros",
+        quest_type_slug="ocre",
+    )
+    link = db.get_metamob_link(2, 10)
+    assert link["api_key"] == "secret-1"
+    assert link["quest_slug"] == "abc123"
+    assert link["character_name"] == "Perso"
+
+    db.upsert_metamob_link(
+        guild_id=2,
+        user_id=10,
+        api_key="secret-2",
+        quest_slug="def456",
+        character_name="Autre",
+    )
+    updated = db.get_metamob_link(2, 10)
+    assert updated["api_key"] == "secret-2"
+    assert updated["quest_slug"] == "def456"
+    assert updated["character_name"] == "Autre"
+
+    assert db.delete_metamob_link(2, 10) is True
+    assert db.get_metamob_link(2, 10) is None
+    assert db.delete_metamob_link(2, 10) is False

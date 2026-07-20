@@ -43,6 +43,15 @@ HELP_SECTIONS = (
         ),
     ),
     (
+        "Metamob",
+        (
+            ("`/metamob help`", "explique comment lier ton compte Metamob"),
+            ("`/metamob link`", "lie ta clé API et ton slug de quête"),
+            ("`/metamob trade @membre`", "compare vos archimonstres en surplus/manquants"),
+            ("`/metamob unlink`", "supprime ton lien Metamob"),
+        ),
+    ),
+    (
         "Vérification Dofus",
         (
             ("`/mychars`", "liste tes personnages vérifiés"),
