@@ -53,6 +53,7 @@ HELP_SECTIONS = (
             ("`/metamob trade @membre`", "ouvre un post forum d'échange Metamob"),
             ("`/metamob search`", "cherche les meilleurs trades mutuels"),
             ("`/trade add`", "ajoute un archimonstre au trade courant"),
+            ("`/trade del`", "retire un archimonstre du trade courant"),
             ("`/metamob unlink`", "supprime ton lien Metamob"),
         ),
     ),

@@ -479,6 +479,11 @@ def _metamob_help_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
+        name="/trade del",
+        value="Dans un post d'échange Metamob, retire 1 archimonstre que tu avais ajouté.",
+        inline=False,
+    )
+    embed.add_field(
         name="/metamob add",
         value="Ajoute 1 exemplaire d'un archimonstre dans ta quête Metamob liée.",
         inline=False,
@@ -1033,6 +1038,82 @@ class MetamobCog(commands.Cog):
         current: str,
     ) -> list[app_commands.Choice[str]]:
         return await self._archimonstre_autocomplete(interaction, current)
+
+    @trade_group.command(name="del", description="Retire un archimonstre du trade Metamob courant")
+    @app_commands.describe(archimonstre="Archimonstre que tu veux retirer du trade")
+    async def trade_del(self, interaction: discord.Interaction, archimonstre: str) -> None:
+        trade = self._get_active_trade_from_channel(interaction)
+        if trade is None:
+            await interaction.response.send_message(
+                "À utiliser dans un post d'échange Metamob ouvert.",
+                ephemeral=True,
+            )
+            return
+        if interaction.user.id not in {trade["starter_id"], trade["target_id"]}:
+            await interaction.response.send_message("Seuls les deux membres du trade peuvent retirer.", ephemeral=True)
+            return
+
+        item = self._resolve_trade_item(archimonstre, trade["id"], interaction.user.id)
+        if item is None:
+            await interaction.response.send_message(
+                "Je n'ai pas trouvé cet archimonstre dans ce que tu as ajouté au trade.",
+                ephemeral=True,
+            )
+            return
+
+        db.remove_metamob_trade_item(
+            trade_id=trade["id"],
+            monster_id=item["monster_id"],
+            giver_id=interaction.user.id,
+        )
+        db.clear_metamob_trade_confirmation(trade["id"])
+        await self._refresh_trade_message(interaction.channel)
+        await interaction.response.send_message(
+            f"✅ **{item['monster_name']}** x1 retiré du trade."
+        )
+
+    @trade_del.autocomplete("archimonstre")
+    async def trade_del_archimonstre_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        trade = self._get_active_trade_from_channel(interaction)
+        if trade is None:
+            return []
+        current_normalized = current.strip().casefold()
+        choices = []
+        for item in db.list_metamob_trade_items(trade["id"]):
+            if item["giver_id"] != interaction.user.id:
+                continue
+            if current_normalized and current_normalized not in item["monster_name"].casefold():
+                continue
+            choices.append(
+                app_commands.Choice(
+                    name=f"{item['monster_name']} x{item['quantity']}"[:100],
+                    value=f"{item['monster_id']}:{item['monster_name']}"[:100],
+                )
+            )
+            if len(choices) >= AUTOCOMPLETE_LIMIT:
+                break
+        return choices
+
+    def _resolve_trade_item(self, value: str, trade_id: int, giver_id: int):
+        selected_id = _selected_monster_id(value)
+        items = [
+            item
+            for item in db.list_metamob_trade_items(trade_id)
+            if item["giver_id"] == giver_id
+        ]
+        if selected_id is not None:
+            return next((item for item in items if item["monster_id"] == selected_id), None)
+
+        wanted = value.strip().casefold()
+        exact = [item for item in items if item["monster_name"].casefold() == wanted]
+        if exact:
+            return exact[0]
+        partial = [item for item in items if wanted and wanted in item["monster_name"].casefold()]
+        return partial[0] if len(partial) == 1 else None
 
     def _resolve_metamob_forum(self, guild: discord.Guild) -> discord.ForumChannel | None:
         channel_id = db.get_guild_setting_int(guild.id, db.SETTING_METAMOB_FORUM_CHANNEL)

@@ -1611,6 +1611,45 @@ def add_metamob_trade_item(
     update_metamob_trade(trade_id)
 
 
+def remove_metamob_trade_item(
+    *,
+    trade_id: int,
+    monster_id: int,
+    giver_id: int,
+    quantity: int = 1,
+) -> bool:
+    row = _db().execute(
+        """
+        SELECT quantity FROM metamob_trade_items
+        WHERE trade_id = ? AND monster_id = ? AND giver_id = ?
+        """,
+        (trade_id, monster_id, giver_id),
+    ).fetchone()
+    if row is None:
+        return False
+
+    next_quantity = row["quantity"] - quantity
+    if next_quantity > 0:
+        _db().execute(
+            """
+            UPDATE metamob_trade_items
+            SET quantity = ?
+            WHERE trade_id = ? AND monster_id = ? AND giver_id = ?
+            """,
+            (next_quantity, trade_id, monster_id, giver_id),
+        )
+    else:
+        _db().execute(
+            """
+            DELETE FROM metamob_trade_items
+            WHERE trade_id = ? AND monster_id = ? AND giver_id = ?
+            """,
+            (trade_id, monster_id, giver_id),
+        )
+    update_metamob_trade(trade_id)
+    return True
+
+
 def list_metamob_trade_items(trade_id: int) -> list[sqlite3.Row]:
     rows = _db().execute(
         """

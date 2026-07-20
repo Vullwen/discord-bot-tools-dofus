@@ -504,6 +504,19 @@ def test_metamob_trade_items_and_status(tmp_path):
     items = db.list_metamob_trade_items(trade_id)
     assert len(items) == 1
     assert items[0]["quantity"] == 2
+    assert db.remove_metamob_trade_item(trade_id=trade_id, monster_id=123, giver_id=10) is True
+    assert db.list_metamob_trade_items(trade_id)[0]["quantity"] == 1
+    assert db.remove_metamob_trade_item(trade_id=trade_id, monster_id=123, giver_id=10) is True
+    assert db.list_metamob_trade_items(trade_id) == []
+    assert db.remove_metamob_trade_item(trade_id=trade_id, monster_id=123, giver_id=10) is False
+
+    db.add_metamob_trade_item(
+        trade_id=trade_id,
+        monster_id=123,
+        monster_name="Arachitik la Souffreteuse",
+        giver_id=10,
+        receiver_id=20,
+    )
 
     db.update_metamob_trade(trade_id, status="pending_confirm", confirmed_by=10)
     assert db.get_metamob_trade(trade_id)["confirmed_by"] == 10
