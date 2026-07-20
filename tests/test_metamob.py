@@ -3,6 +3,7 @@ from cogs.metamob import (
     MonsterSearchResult,
     _choice_value,
     _normalize_quest_slug,
+    adjusted_quantity,
     resolve_archmonster,
     find_trade_opportunities,
 )
@@ -63,3 +64,10 @@ def test_resolve_archmonster_from_autocomplete_value_or_name():
     assert resolve_archmonster("bambono le divin", monsters).id == 456
     assert resolve_archmonster("arachitik", monsters).id == 123
     assert resolve_archmonster("inconnu", monsters) is None
+
+
+def test_adjusted_quantity_stays_within_metamob_bounds():
+    assert adjusted_quantity(0, -1) == 0
+    assert adjusted_quantity(4, -1) == 3
+    assert adjusted_quantity(4, 1) == 5
+    assert adjusted_quantity(30, 1) == 30

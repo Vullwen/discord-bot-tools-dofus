@@ -255,6 +255,10 @@ def resolve_archmonster(value: str, monsters: dict[int, ArchMonster]) -> ArchMon
     return None
 
 
+def adjusted_quantity(current: int, delta: int) -> int:
+    return max(0, min(current + delta, 30))
+
+
 def _quest_type_slug(settings: dict[str, Any]) -> str | None:
     quest_template = settings.get("quest_template") or {}
     quest_type = quest_template.get("quest_type") or {}
@@ -344,6 +348,11 @@ def _metamob_help_embed() -> discord.Embed:
     embed.add_field(
         name="/metamob add",
         value="Ajoute 1 exemplaire d'un archimonstre dans ta quête Metamob liée.",
+        inline=False,
+    )
+    embed.add_field(
+        name="/metamob del",
+        value="Retire 1 exemplaire d'un archimonstre de ta quête Metamob liée.",
         inline=False,
     )
     embed.add_field(
@@ -470,6 +479,53 @@ class MetamobCog(commands.Cog):
     @metamob.command(name="add", description="Ajoute un archimonstre à ton inventaire Metamob")
     @app_commands.describe(archimonstre="Nom de l'archimonstre à ajouter")
     async def add(self, interaction: discord.Interaction, archimonstre: str) -> None:
+        await self._change_archmonster_quantity(
+            interaction,
+            archimonstre,
+            delta=1,
+            verb="ajouter",
+            done_label="ajouté",
+            limit_message="est déjà à la quantité maximale Metamob",
+        )
+
+    @add.autocomplete("archimonstre")
+    async def add_archimonstre_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        return await self._archimonstre_autocomplete(interaction, current)
+
+    @metamob.command(name="del", description="Retire un archimonstre de ton inventaire Metamob")
+    @app_commands.describe(archimonstre="Nom de l'archimonstre à retirer")
+    async def delete(self, interaction: discord.Interaction, archimonstre: str) -> None:
+        await self._change_archmonster_quantity(
+            interaction,
+            archimonstre,
+            delta=-1,
+            verb="retirer",
+            done_label="retiré",
+            limit_message="est déjà à 0 sur Metamob",
+        )
+
+    @delete.autocomplete("archimonstre")
+    async def delete_archimonstre_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        return await self._archimonstre_autocomplete(interaction, current)
+
+    async def _change_archmonster_quantity(
+        self,
+        interaction: discord.Interaction,
+        archimonstre: str,
+        *,
+        delta: int,
+        verb: str,
+        done_label: str,
+        limit_message: str,
+    ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
@@ -491,10 +547,10 @@ class MetamobCog(commands.Cog):
                 )
                 return
 
-            new_quantity = min(monster.owned + 1, 30)
+            new_quantity = adjusted_quantity(monster.owned, delta)
             if new_quantity == monster.owned:
                 await interaction.followup.send(
-                    f"**{monster.name}** est déjà à la quantité maximale Metamob ({monster.owned}).",
+                    f"**{monster.name}** {limit_message} ({monster.owned}).",
                     ephemeral=True,
                 )
                 return
@@ -507,19 +563,18 @@ class MetamobCog(commands.Cog):
             )
         except MetamobAPIError as exc:
             await interaction.followup.send(
-                f"Je n'ai pas pu ajouter cet archimonstre: {exc.message}",
+                f"Je n'ai pas pu {verb} cet archimonstre: {exc.message}",
                 ephemeral=True,
             )
             return
 
         quantity = int(updated.get("owned") or updated.get("quantity") or new_quantity)
         await interaction.followup.send(
-            f"✅ **{monster.name}** ajouté sur Metamob: {monster.owned} → {quantity}.",
+            f"✅ **{monster.name}** {done_label} sur Metamob: {monster.owned} → {quantity}.",
             ephemeral=True,
         )
 
-    @add.autocomplete("archimonstre")
-    async def add_archimonstre_autocomplete(
+    async def _archimonstre_autocomplete(
         self,
         interaction: discord.Interaction,
         current: str,
@@ -595,7 +650,6 @@ class MetamobCog(commands.Cog):
         await interaction.followup.send(chunks[0], ephemeral=True)
         for chunk in chunks[1:]:
             await interaction.followup.send(chunk, ephemeral=True)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MetamobCog(bot))
