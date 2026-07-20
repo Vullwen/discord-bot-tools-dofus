@@ -1512,6 +1512,14 @@ def get_metamob_link(guild_id: int, user_id: int) -> Optional[sqlite3.Row]:
     ).fetchone()
 
 
+def list_metamob_links_for_guild(guild_id: int) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        "SELECT * FROM metamob_links WHERE guild_id = ? ORDER BY user_id",
+        (guild_id,),
+    ).fetchall()
+    return list(rows)
+
+
 def delete_metamob_link(guild_id: int, user_id: int) -> bool:
     cur = _db().execute(
         "DELETE FROM metamob_links WHERE guild_id = ? AND user_id = ?",

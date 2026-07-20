@@ -454,6 +454,7 @@ def test_metamob_link_upsert_and_delete(tmp_path):
     assert link["api_key"] == "secret-1"
     assert link["quest_slug"] == "abc123"
     assert link["character_name"] == "Perso"
+    assert [row["user_id"] for row in db.list_metamob_links_for_guild(2)] == [10]
 
     db.upsert_metamob_link(
         guild_id=2,

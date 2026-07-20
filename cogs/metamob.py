@@ -23,6 +23,7 @@ METAMOB_ARCHMONSTER_TYPE_ID = 3
 DISCORD_MESSAGE_LIMIT = 1900
 AUTOCOMPLETE_LIMIT = 25
 MAX_METAMOB_QUANTITY = 30
+SEARCH_MATCH_LIMIT = 5
 
 
 class MetamobAPIError(Exception):
@@ -59,6 +60,26 @@ class TradeOpportunity:
 class MonsterSearchResult:
     id: int
     name: str
+
+
+@dataclass(frozen=True)
+class TradeSearchMatch:
+    user_id: int
+    label: str
+    they_give: list[TradeOpportunity]
+    you_give: list[TradeOpportunity]
+
+    @property
+    def they_count(self) -> int:
+        return len(self.they_give)
+
+    @property
+    def you_count(self) -> int:
+        return len(self.you_give)
+
+    @property
+    def score(self) -> tuple[int, int]:
+        return (min(self.they_count, self.you_count), self.they_count + self.you_count)
 
 
 def _metamob_request_sync(
@@ -323,6 +344,33 @@ def _format_opportunities(items: list[TradeOpportunity], *, empty: str) -> list[
     ]
 
 
+def _sample_opportunities(items: list[TradeOpportunity], limit: int = 3) -> str:
+    if not items:
+        return "rien"
+    names = [item.monster.name for item in items[:limit]]
+    suffix = "" if len(items) <= limit else f" +{len(items) - limit}"
+    return ", ".join(names) + suffix
+
+
+def _format_search_match(match: TradeSearchMatch, index: int) -> str:
+    return "\n".join(
+        [
+            f"**{index}. {match.label}**",
+            f"- Il/elle a **{match.they_count}** archi(s) que tu cherches : {_sample_opportunities(match.they_give)}",
+            f"- Tu as **{match.you_count}** archi(s) qu'il/elle cherche : {_sample_opportunities(match.you_give)}",
+        ]
+    )
+
+
+def _search_results_content(matches: list[TradeSearchMatch]) -> str:
+    if not matches:
+        return "Aucune correspondance de trade mutuel trouvée avec les comptes Metamob liés du serveur."
+    lines = ["**Meilleures correspondances Metamob**"]
+    for index, match in enumerate(matches, start=1):
+        lines.extend(("", _format_search_match(match, index)))
+    return "\n".join(lines)
+
+
 def _format_trade_items(items, starter_id: int, target_id: int) -> str:
     if not items:
         return "Aucun archimonstre ajouté pour le moment."
@@ -421,6 +469,11 @@ def _metamob_help_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
+        name="/metamob search",
+        value="Cherche les meilleurs trades mutuels parmi les comptes Metamob liés du serveur.",
+        inline=False,
+    )
+    embed.add_field(
         name="/trade add",
         value="Dans un post d'échange Metamob, ajoute 1 archimonstre que tu donnes à l'autre membre.",
         inline=False,
@@ -482,6 +535,45 @@ class MetamobTradeDecisionView(discord.ui.View):
     )
     async def validate_trade(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await self.cog.validate_trade(interaction)
+
+
+class _SearchTradeButton(discord.ui.Button):
+    def __init__(self, cog: "MetamobCog", owner_id: int, match: TradeSearchMatch):
+        super().__init__(
+            label=f"Lancer avec {match.label}"[:80],
+            style=discord.ButtonStyle.primary,
+        )
+        self.cog = cog
+        self.owner_id = owner_id
+        self.target_id = match.user_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Seule la personne qui a lancé la recherche peut utiliser ce bouton.",
+                ephemeral=True,
+            )
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        target = interaction.guild.get_member(self.target_id)
+        if target is None:
+            try:
+                target = await interaction.guild.fetch_member(self.target_id)
+            except discord.DiscordException:
+                target = None
+        if target is None:
+            await interaction.response.send_message("Je ne trouve plus ce membre sur le serveur.", ephemeral=True)
+            return
+        await self.cog.start_trade_with_member(interaction, target, ephemeral_response=True)
+
+
+class MetamobSearchView(discord.ui.View):
+    def __init__(self, cog: "MetamobCog", owner_id: int, matches: list[TradeSearchMatch]):
+        super().__init__(timeout=900)
+        for match in matches[:SEARCH_MATCH_LIMIT]:
+            self.add_item(_SearchTradeButton(cog, owner_id, match))
 
 
 class MetamobLinkModal(discord.ui.Modal, title="Lier Metamob"):
@@ -713,9 +805,92 @@ class MetamobCog(commands.Cog):
             for monster in monsters
         ]
 
+    @metamob.command(name="search", description="Cherche les meilleurs partenaires de trade Metamob")
+    async def search(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        own_link = db.get_metamob_link(interaction.guild.id, interaction.user.id)
+        if own_link is None:
+            await interaction.response.send_message("Tu dois d'abord faire `/metamob link`.", ephemeral=True)
+            return
+
+        candidate_links = [
+            link
+            for link in db.list_metamob_links_for_guild(interaction.guild.id)
+            if link["user_id"] != interaction.user.id
+        ]
+        if not candidate_links:
+            await interaction.response.send_message(
+                "Aucun autre compte Metamob lié sur ce serveur pour comparer.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            own_archs = await fetch_archmonsters(own_link["api_key"], own_link["quest_slug"])
+            matches = await self._find_trade_matches(interaction.guild, own_archs, candidate_links)
+        except MetamobAPIError as exc:
+            await interaction.followup.send(f"Je n'ai pas pu chercher les trades: {exc.message}", ephemeral=True)
+            return
+
+        matches = matches[:SEARCH_MATCH_LIMIT]
+        view = MetamobSearchView(self, interaction.user.id, matches) if matches else None
+        await interaction.followup.send(
+            _search_results_content(matches),
+            view=view,
+            ephemeral=True,
+        )
+
+    async def _find_trade_matches(
+        self,
+        guild: discord.Guild,
+        own_archs: dict[int, ArchMonster],
+        candidate_links,
+    ) -> list[TradeSearchMatch]:
+        semaphore = asyncio.Semaphore(8)
+
+        async def inspect_candidate(link) -> TradeSearchMatch | None:
+            async with semaphore:
+                try:
+                    candidate_archs = await fetch_archmonsters(link["api_key"], link["quest_slug"])
+                except MetamobAPIError:
+                    logger.exception("Échec lecture Metamob pour user_id=%s", link["user_id"])
+                    return None
+            they_give = find_trade_opportunities(candidate_archs, own_archs)
+            you_give = find_trade_opportunities(own_archs, candidate_archs)
+            if not they_give or not you_give:
+                return None
+            return TradeSearchMatch(
+                user_id=link["user_id"],
+                label=self._search_label(guild, link),
+                they_give=they_give,
+                you_give=you_give,
+            )
+
+        inspected = await asyncio.gather(*(inspect_candidate(link) for link in candidate_links))
+        matches = [match for match in inspected if match is not None]
+        return sorted(matches, key=lambda match: match.score, reverse=True)
+
+    def _search_label(self, guild: discord.Guild, link) -> str:
+        member = guild.get_member(link["user_id"])
+        if member is not None:
+            return member.display_name
+        return link["character_name"] or link["username"] or f"Membre {link['user_id']}"
+
     @metamob.command(name="trade", description="Ouvre un post d'échange Metamob avec un membre")
     @app_commands.describe(user="Membre Discord avec qui ouvrir l'échange")
     async def trade(self, interaction: discord.Interaction, user: discord.Member) -> None:
+        await self.start_trade_with_member(interaction, user, ephemeral_response=False)
+
+    async def start_trade_with_member(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        *,
+        ephemeral_response: bool,
+    ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
@@ -746,7 +921,7 @@ class MetamobCog(commands.Cog):
             )
             return
 
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=ephemeral_response)
         content = (
             f"{interaction.user.mention} {user.mention}\n"
             "**Échange Metamob**\n\n"
@@ -790,7 +965,10 @@ class MetamobCog(commands.Cog):
                 await talk_channel.send(f"Échange Metamob ouvert : {thread.mention}")
             except discord.DiscordException:
                 logger.exception("Impossible d'annoncer le trade Metamob")
-        await interaction.followup.send(f"Échange Metamob ouvert : {thread.mention}")
+        await interaction.followup.send(
+            f"Échange Metamob ouvert : {thread.mention}",
+            ephemeral=ephemeral_response,
+        )
 
     @trade_group.command(name="add", description="Ajoute un archimonstre au trade Metamob courant")
     @app_commands.describe(archimonstre="Archimonstre que tu donnes à l'autre membre")

@@ -51,6 +51,7 @@ HELP_SECTIONS = (
             ("`/metamob del`", "retire un archimonstre de ton inventaire Metamob"),
             ("`/metamob diff @membre`", "compare vos archimonstres en privé"),
             ("`/metamob trade @membre`", "ouvre un post forum d'échange Metamob"),
+            ("`/metamob search`", "cherche les meilleurs trades mutuels"),
             ("`/trade add`", "ajoute un archimonstre au trade courant"),
             ("`/metamob unlink`", "supprime ton lien Metamob"),
         ),

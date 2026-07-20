@@ -1,8 +1,11 @@
 from cogs.metamob import (
     ArchMonster,
     MonsterSearchResult,
+    TradeOpportunity,
+    TradeSearchMatch,
     _choice_value,
     _normalize_quest_slug,
+    _search_results_content,
     _trade_content,
     adjusted_quantity,
     resolve_archmonster,
@@ -93,3 +96,20 @@ def test_trade_content_groups_items_by_giver():
     assert "Arachitik x2" in content
     assert "<@20> donne à <@10>" in content
     assert "Bambono x1" in content
+
+
+def test_search_results_content_summarizes_mutual_matches():
+    arachitik = ArchMonster(id=123, name="Arachitik", owned=2, required=1)
+    bambono = ArchMonster(id=456, name="Bambono", owned=2, required=1)
+    match = TradeSearchMatch(
+        user_id=20,
+        label="Ilyzaelle",
+        they_give=[TradeOpportunity(monster=arachitik, giver_extra=1, receiver_missing=1)],
+        you_give=[TradeOpportunity(monster=bambono, giver_extra=1, receiver_missing=1)],
+    )
+
+    content = _search_results_content([match])
+
+    assert "Ilyzaelle" in content
+    assert "a **1** archi(s) que tu cherches" in content
+    assert "Tu as **1** archi(s)" in content
