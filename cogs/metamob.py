@@ -22,6 +22,7 @@ METAMOB_TIMEOUT_SECONDS = 15
 METAMOB_ARCHMONSTER_TYPE_ID = 3
 DISCORD_MESSAGE_LIMIT = 1900
 AUTOCOMPLETE_LIMIT = 25
+MAX_METAMOB_QUANTITY = 30
 
 
 class MetamobAPIError(Exception):
@@ -205,6 +206,27 @@ async def update_monster_quantity(
     return data
 
 
+async def update_monster_quantities(
+    api_key: str,
+    quest_slug: str,
+    quantities: dict[int, int],
+) -> dict[str, Any]:
+    payload = await _metamob_patch(
+        api_key,
+        f"/v1/quests/{quote(quest_slug, safe='')}/monsters",
+        {
+            "monsters": [
+                {"monster_id": monster_id, "quantity": quantity}
+                for monster_id, quantity in quantities.items()
+            ]
+        },
+    )
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise MetamobAPIError(None, "Réponse de mise à jour Metamob invalide.")
+    return data
+
+
 def _localized_name(value: Any, fallback: str = "Inconnu") -> str:
     if isinstance(value, dict):
         return str(value.get("fr") or value.get("en") or value.get("es") or fallback)
@@ -256,7 +278,7 @@ def resolve_archmonster(value: str, monsters: dict[int, ArchMonster]) -> ArchMon
 
 
 def adjusted_quantity(current: int, delta: int) -> int:
-    return max(0, min(current + delta, 30))
+    return max(0, min(current + delta, MAX_METAMOB_QUANTITY))
 
 
 def _quest_type_slug(settings: dict[str, Any]) -> str | None:
@@ -301,6 +323,54 @@ def _format_opportunities(items: list[TradeOpportunity], *, empty: str) -> list[
     ]
 
 
+def _format_trade_items(items, starter_id: int, target_id: int) -> str:
+    if not items:
+        return "Aucun archimonstre ajouté pour le moment."
+
+    starter_lines = [
+        f"- {item['monster_name']} x{item['quantity']}"
+        for item in items
+        if item["giver_id"] == starter_id
+    ]
+    target_lines = [
+        f"- {item['monster_name']} x{item['quantity']}"
+        for item in items
+        if item["giver_id"] == target_id
+    ]
+    lines = [
+        f"**<@{starter_id}> donne à <@{target_id}>**",
+        *(starter_lines or ["- Rien pour l'instant."]),
+        "",
+        f"**<@{target_id}> donne à <@{starter_id}>**",
+        *(target_lines or ["- Rien pour l'instant."]),
+    ]
+    return "\n".join(lines)
+
+
+def _trade_content(trade, items) -> str:
+    status_labels = {
+        "open": "ouvert",
+        "pending_confirm": "validation en attente",
+        "completed": "validé",
+        "cancelled": "annulé",
+    }
+    return "\n".join(
+        [
+            f"<@{trade['starter_id']}> <@{trade['target_id']}>",
+            f"**Échange Metamob #{trade['id']}** - {status_labels.get(trade['status'], trade['status'])}",
+            "",
+            _format_trade_items(items, trade["starter_id"], trade["target_id"]),
+            "",
+            "Ajoutez vos archimonstres avec `/trade add` dans ce post.",
+        ]
+    )
+
+
+def _trade_thread_name(first: discord.abc.User, second: discord.abc.User) -> str:
+    name = f"Échange Metamob - {first.display_name} & {second.display_name}"
+    return name[:100]
+
+
 def _chunk_lines(lines: list[str], limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
     chunks: list[str] = []
     current = ""
@@ -338,11 +408,21 @@ def _metamob_help_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="/metamob trade @membre",
+        name="/metamob diff @membre",
         value=(
-            "Compare les deux comptes liés et liste les archimonstres que tu as en trop "
+            "Répond uniquement à toi avec les archimonstres que tu as en trop "
             "et qui lui manquent, puis l'inverse."
         ),
+        inline=False,
+    )
+    embed.add_field(
+        name="/metamob trade @membre",
+        value="Ouvre un post dans le forum Metamob pour préparer un échange à deux.",
+        inline=False,
+    )
+    embed.add_field(
+        name="/trade add",
+        value="Dans un post d'échange Metamob, ajoute 1 archimonstre que tu donnes à l'autre membre.",
         inline=False,
     )
     embed.add_field(
@@ -366,6 +446,42 @@ def _metamob_help_embed() -> discord.Embed:
         inline=False,
     )
     return embed
+
+
+class MetamobTradeControlView(discord.ui.View):
+    def __init__(self, cog: "MetamobCog"):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(
+        label="Clôturer l'échange",
+        style=discord.ButtonStyle.primary,
+        custom_id="bebraid:metamob_trade:close",
+    )
+    async def close_trade(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self.cog.prompt_trade_close(interaction)
+
+
+class MetamobTradeDecisionView(discord.ui.View):
+    def __init__(self, cog: "MetamobCog"):
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(
+        label="Annuler le trade",
+        style=discord.ButtonStyle.danger,
+        custom_id="bebraid:metamob_trade:cancel",
+    )
+    async def cancel_trade(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self.cog.cancel_trade(interaction)
+
+    @discord.ui.button(
+        label="Valider le trade",
+        style=discord.ButtonStyle.success,
+        custom_id="bebraid:metamob_trade:validate",
+    )
+    async def validate_trade(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self.cog.validate_trade(interaction)
 
 
 class MetamobLinkModal(discord.ui.Modal, title="Lier Metamob"):
@@ -403,12 +519,15 @@ class MetamobLinkModal(discord.ui.Modal, title="Lier Metamob"):
 
 class MetamobCog(commands.Cog):
     metamob = app_commands.Group(name="metamob", description="Outils Metamob")
+    trade_group = app_commands.Group(name="trade", description="Gestion des échanges Metamob")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     async def cog_load(self) -> None:
         db.init()
+        self.bot.add_view(MetamobTradeControlView(self))
+        self.bot.add_view(MetamobTradeDecisionView(self))
         logger.info("MetamobCog prêt")
 
     @metamob.command(name="help", description="Explique comment lier Metamob au bot")
@@ -594,9 +713,332 @@ class MetamobCog(commands.Cog):
             for monster in monsters
         ]
 
-    @metamob.command(name="trade", description="Compare tes archimonstres avec un membre lié")
-    @app_commands.describe(user="Membre Discord avec qui comparer les archimonstres")
+    @metamob.command(name="trade", description="Ouvre un post d'échange Metamob avec un membre")
+    @app_commands.describe(user="Membre Discord avec qui ouvrir l'échange")
     async def trade(self, interaction: discord.Interaction, user: discord.Member) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if user.bot:
+            await interaction.response.send_message("Ce membre est un bot.", ephemeral=True)
+            return
+        if user.id == interaction.user.id:
+            await interaction.response.send_message("Choisis un autre membre pour échanger.", ephemeral=True)
+            return
+
+        own_link = db.get_metamob_link(interaction.guild.id, interaction.user.id)
+        target_link = db.get_metamob_link(interaction.guild.id, user.id)
+        if own_link is None:
+            await interaction.response.send_message("Tu dois d'abord faire `/metamob link`.", ephemeral=True)
+            return
+        if target_link is None:
+            await interaction.response.send_message(
+                f"{user.mention} doit d'abord faire `/metamob link`.",
+                ephemeral=True,
+            )
+            return
+
+        forum = self._resolve_metamob_forum(interaction.guild)
+        if forum is None:
+            await interaction.response.send_message(
+                "Configure d'abord le forum avec `/config channel metamob-forum`.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(thinking=True)
+        content = (
+            f"{interaction.user.mention} {user.mention}\n"
+            "**Échange Metamob**\n\n"
+            "Ajoutez vos archimonstres avec `/trade add` dans ce post, puis cliquez sur "
+            "**Clôturer l'échange** quand tout est prêt."
+        )
+        try:
+            created = await forum.create_thread(
+                name=_trade_thread_name(interaction.user, user),
+                content=content,
+                view=MetamobTradeControlView(self),
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            )
+        except discord.DiscordException as exc:
+            await interaction.followup.send(
+                f"Je n'ai pas pu créer le post d'échange: {type(exc).__name__}: {exc}",
+            )
+            return
+
+        thread = getattr(created, "thread", None) or created
+        message = getattr(created, "message", None)
+        trade_id = db.create_metamob_trade(
+            guild_id=interaction.guild.id,
+            thread_id=thread.id,
+            forum_channel_id=forum.id,
+            starter_id=interaction.user.id,
+            target_id=user.id,
+            control_message_id=getattr(message, "id", None),
+        )
+        trade = db.get_metamob_trade(trade_id)
+        if message is not None and trade is not None:
+            await message.edit(
+                content=_trade_content(trade, []),
+                view=MetamobTradeControlView(self),
+                allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
+            )
+
+        talk_channel = self._resolve_metamob_talk(interaction.guild, interaction.channel)
+        if talk_channel is not None and getattr(talk_channel, "id", None) != getattr(interaction.channel, "id", None):
+            try:
+                await talk_channel.send(f"Échange Metamob ouvert : {thread.mention}")
+            except discord.DiscordException:
+                logger.exception("Impossible d'annoncer le trade Metamob")
+        await interaction.followup.send(f"Échange Metamob ouvert : {thread.mention}")
+
+    @trade_group.command(name="add", description="Ajoute un archimonstre au trade Metamob courant")
+    @app_commands.describe(archimonstre="Archimonstre que tu donnes à l'autre membre")
+    async def trade_add(self, interaction: discord.Interaction, archimonstre: str) -> None:
+        trade = self._get_active_trade_from_channel(interaction)
+        if trade is None:
+            await interaction.response.send_message(
+                "À utiliser dans un post d'échange Metamob ouvert.",
+                ephemeral=True,
+            )
+            return
+        if interaction.user.id not in {trade["starter_id"], trade["target_id"]}:
+            await interaction.response.send_message("Seuls les deux membres du trade peuvent ajouter.", ephemeral=True)
+            return
+
+        link = db.get_metamob_link(trade["guild_id"], interaction.user.id)
+        if link is None:
+            await interaction.response.send_message("Tu dois d'abord faire `/metamob link`.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+        try:
+            monsters = await fetch_archmonsters(link["api_key"], link["quest_slug"])
+            monster = resolve_archmonster(archimonstre, monsters)
+            if monster is None:
+                await interaction.followup.send(
+                    "Je n'ai pas trouvé cet archimonstre dans ta quête. Réessaie avec l'autocomplétion Metamob.",
+                    ephemeral=True,
+                )
+                return
+            already_added = sum(
+                item["quantity"]
+                for item in db.list_metamob_trade_items(trade["id"])
+                if item["giver_id"] == interaction.user.id and item["monster_id"] == monster.id
+            )
+            if monster.owned <= already_added:
+                await interaction.followup.send(
+                    f"Tu n'as pas assez de **{monster.name}** sur Metamob pour en ajouter davantage.",
+                    ephemeral=True,
+                )
+                return
+        except MetamobAPIError as exc:
+            await interaction.followup.send(f"Je n'ai pas pu lire Metamob: {exc.message}", ephemeral=True)
+            return
+
+        receiver_id = trade["target_id"] if interaction.user.id == trade["starter_id"] else trade["starter_id"]
+        db.add_metamob_trade_item(
+            trade_id=trade["id"],
+            monster_id=monster.id,
+            monster_name=monster.name,
+            giver_id=interaction.user.id,
+            receiver_id=receiver_id,
+            quantity=1,
+        )
+        db.clear_metamob_trade_confirmation(trade["id"])
+        await self._refresh_trade_message(interaction.channel)
+        await interaction.followup.send(
+            f"✅ **{monster.name}** x1 ajouté au trade pour <@{receiver_id}>."
+        )
+
+    @trade_add.autocomplete("archimonstre")
+    async def trade_add_archimonstre_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        return await self._archimonstre_autocomplete(interaction, current)
+
+    def _resolve_metamob_forum(self, guild: discord.Guild) -> discord.ForumChannel | None:
+        channel_id = db.get_guild_setting_int(guild.id, db.SETTING_METAMOB_FORUM_CHANNEL)
+        channel = guild.get_channel(channel_id) if channel_id else None
+        return channel if isinstance(channel, discord.ForumChannel) else None
+
+    def _resolve_metamob_talk(self, guild: discord.Guild, fallback) -> Any:
+        channel_id = db.get_guild_setting_int(guild.id, db.SETTING_METAMOB_TALK_CHANNEL)
+        channel = guild.get_channel(channel_id) if channel_id else None
+        return channel or fallback
+
+    def _get_active_trade_from_channel(self, interaction: discord.Interaction):
+        channel_id = getattr(interaction.channel, "id", None)
+        if channel_id is None:
+            return None
+        trade = db.get_metamob_trade_by_thread(channel_id)
+        if trade is None or trade["status"] not in {"open", "pending_confirm"}:
+            return None
+        return trade
+
+    async def _refresh_trade_message(self, channel) -> None:
+        trade = db.get_metamob_trade_by_thread(getattr(channel, "id", 0))
+        if trade is None or not trade["control_message_id"]:
+            return
+        items = db.list_metamob_trade_items(trade["id"])
+        try:
+            message = await channel.fetch_message(trade["control_message_id"])
+            await message.edit(
+                content=_trade_content(trade, items),
+                view=MetamobTradeControlView(self) if trade["status"] == "open" else None,
+                allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
+            )
+        except discord.DiscordException:
+            logger.exception("Impossible de mettre à jour le message de trade Metamob")
+
+    async def prompt_trade_close(self, interaction: discord.Interaction) -> None:
+        trade = self._get_active_trade_from_channel(interaction)
+        if trade is None:
+            await interaction.response.send_message("Ce trade n'est plus ouvert.", ephemeral=True)
+            return
+        if interaction.user.id not in {trade["starter_id"], trade["target_id"]}:
+            await interaction.response.send_message("Seuls les deux membres du trade peuvent clôturer.", ephemeral=True)
+            return
+        items = db.list_metamob_trade_items(trade["id"])
+        if not items:
+            await interaction.response.send_message("Ajoutez au moins un archimonstre avant de clôturer.", ephemeral=True)
+            return
+        db.clear_metamob_trade_confirmation(trade["id"])
+        refreshed = db.get_metamob_trade(trade["id"])
+        await interaction.response.send_message(
+            _trade_content(refreshed, items) + "\n\nAnnulez le trade ou validez. Il faudra la validation des deux membres.",
+            view=MetamobTradeDecisionView(self),
+            allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
+        )
+
+    async def cancel_trade(self, interaction: discord.Interaction) -> None:
+        trade = self._get_active_trade_from_channel(interaction)
+        if trade is None:
+            await interaction.response.send_message("Ce trade n'est plus ouvert.", ephemeral=True)
+            return
+        if interaction.user.id not in {trade["starter_id"], trade["target_id"]}:
+            await interaction.response.send_message("Seuls les deux membres du trade peuvent annuler.", ephemeral=True)
+            return
+        db.update_metamob_trade(
+            trade["id"],
+            status="cancelled",
+            confirmed_by=None,
+            closed_at=db._now_iso(),
+        )
+        await interaction.response.edit_message(content="Trade Metamob annulé.", view=None)
+        await self._close_trade_thread(interaction.channel, locked=False)
+
+    async def validate_trade(self, interaction: discord.Interaction) -> None:
+        trade = self._get_active_trade_from_channel(interaction)
+        if trade is None:
+            await interaction.response.send_message("Ce trade n'est plus ouvert.", ephemeral=True)
+            return
+        if interaction.user.id not in {trade["starter_id"], trade["target_id"]}:
+            await interaction.response.send_message("Seuls les deux membres du trade peuvent valider.", ephemeral=True)
+            return
+        if trade["confirmed_by"] is None:
+            other_id = trade["target_id"] if interaction.user.id == trade["starter_id"] else trade["starter_id"]
+            db.update_metamob_trade(trade["id"], status="pending_confirm", confirmed_by=interaction.user.id)
+            await interaction.response.edit_message(
+                content=f"<@{interaction.user.id}> a validé. En attente de la confirmation de <@{other_id}>.",
+                view=MetamobTradeDecisionView(self),
+                allowed_mentions=discord.AllowedMentions(users=False, roles=False, everyone=False),
+            )
+            return
+        if trade["confirmed_by"] == interaction.user.id:
+            await interaction.response.send_message("L'autre membre doit confirmer à son tour.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+        try:
+            await self._apply_trade(trade["id"])
+        except MetamobAPIError as exc:
+            await interaction.followup.send(f"Validation impossible: {exc.message}")
+            return
+
+        db.update_metamob_trade(
+            trade["id"],
+            status="completed",
+            confirmed_by=interaction.user.id,
+            closed_at=db._now_iso(),
+        )
+        if interaction.message is not None:
+            try:
+                await interaction.message.edit(content="✅ Trade Metamob validé.", view=None)
+            except discord.DiscordException:
+                logger.exception("Impossible de nettoyer les boutons du trade Metamob")
+        await interaction.followup.send("✅ Trade Metamob validé et inventaires mis à jour.")
+        await self._close_trade_thread(interaction.channel, locked=True)
+
+    async def _apply_trade(self, trade_id: int) -> None:
+        trade = db.get_metamob_trade(trade_id)
+        if trade is None:
+            raise MetamobAPIError(None, "trade introuvable.")
+        items = db.list_metamob_trade_items(trade_id)
+        if not items:
+            raise MetamobAPIError(None, "aucun archimonstre dans le trade.")
+
+        links = {
+            trade["starter_id"]: db.get_metamob_link(trade["guild_id"], trade["starter_id"]),
+            trade["target_id"]: db.get_metamob_link(trade["guild_id"], trade["target_id"]),
+        }
+        if any(link is None for link in links.values()):
+            raise MetamobAPIError(None, "les deux membres doivent encore être liés à Metamob.")
+
+        inventories = await asyncio.gather(
+            fetch_archmonsters(links[trade["starter_id"]]["api_key"], links[trade["starter_id"]]["quest_slug"]),
+            fetch_archmonsters(links[trade["target_id"]]["api_key"], links[trade["target_id"]]["quest_slug"]),
+        )
+        inventory_by_user = {
+            trade["starter_id"]: inventories[0],
+            trade["target_id"]: inventories[1],
+        }
+        deltas: dict[int, dict[int, int]] = {
+            trade["starter_id"]: {},
+            trade["target_id"]: {},
+        }
+        for item in items:
+            giver_deltas = deltas[item["giver_id"]]
+            receiver_deltas = deltas[item["receiver_id"]]
+            giver_deltas[item["monster_id"]] = giver_deltas.get(item["monster_id"], 0) - item["quantity"]
+            receiver_deltas[item["monster_id"]] = receiver_deltas.get(item["monster_id"], 0) + item["quantity"]
+
+        updates: dict[int, dict[int, int]] = {}
+        for user_id, user_deltas in deltas.items():
+            inventory = inventory_by_user[user_id]
+            updates[user_id] = {}
+            for monster_id, delta in user_deltas.items():
+                current = inventory.get(monster_id)
+                current_quantity = current.owned if current is not None else 0
+                next_quantity = current_quantity + delta
+                if next_quantity < 0:
+                    name = current.name if current is not None else f"Monstre #{monster_id}"
+                    raise MetamobAPIError(None, f"<@{user_id}> n'a plus assez de {name}.")
+                if next_quantity > MAX_METAMOB_QUANTITY:
+                    name = current.name if current is not None else f"Monstre #{monster_id}"
+                    raise MetamobAPIError(None, f"<@{user_id}> dépasserait {MAX_METAMOB_QUANTITY} exemplaires de {name}.")
+                updates[user_id][monster_id] = next_quantity
+
+        await asyncio.gather(
+            *[
+                update_monster_quantities(links[user_id]["api_key"], links[user_id]["quest_slug"], quantities)
+                for user_id, quantities in updates.items()
+                if quantities
+            ]
+        )
+
+    async def _close_trade_thread(self, channel, *, locked: bool) -> None:
+        if isinstance(channel, discord.Thread):
+            try:
+                await channel.edit(archived=True, locked=locked)
+            except discord.DiscordException:
+                logger.exception("Impossible d'archiver le thread Metamob")
+
+    @metamob.command(name="diff", description="Compare en privé tes archimonstres avec un membre lié")
+    @app_commands.describe(user="Membre Discord avec qui comparer les archimonstres")
+    async def diff(self, interaction: discord.Interaction, user: discord.Member) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
@@ -650,6 +1092,7 @@ class MetamobCog(commands.Cog):
         await interaction.followup.send(chunks[0], ephemeral=True)
         for chunk in chunks[1:]:
             await interaction.followup.send(chunk, ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MetamobCog(bot))

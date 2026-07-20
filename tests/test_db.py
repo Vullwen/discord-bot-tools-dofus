@@ -42,6 +42,8 @@ def test_hot_path_indexes_are_created(tmp_path):
         "idx_absences_search",
         "idx_market_posts_inactive",
         "idx_metamob_links_guild_user",
+        "idx_metamob_trades_thread",
+        "idx_metamob_trade_items_trade",
     ):
         assert name in index_names
 
@@ -468,3 +470,43 @@ def test_metamob_link_upsert_and_delete(tmp_path):
     assert db.delete_metamob_link(2, 10) is True
     assert db.get_metamob_link(2, 10) is None
     assert db.delete_metamob_link(2, 10) is False
+
+
+def test_metamob_trade_items_and_status(tmp_path):
+    _fresh(tmp_path)
+    trade_id = db.create_metamob_trade(
+        guild_id=2,
+        thread_id=300,
+        forum_channel_id=200,
+        starter_id=10,
+        target_id=20,
+        control_message_id=400,
+    )
+    trade = db.get_metamob_trade(trade_id)
+    assert trade["status"] == "open"
+    assert db.get_metamob_trade_by_thread(300)["id"] == trade_id
+
+    db.add_metamob_trade_item(
+        trade_id=trade_id,
+        monster_id=123,
+        monster_name="Arachitik la Souffreteuse",
+        giver_id=10,
+        receiver_id=20,
+    )
+    db.add_metamob_trade_item(
+        trade_id=trade_id,
+        monster_id=123,
+        monster_name="Arachitik la Souffreteuse",
+        giver_id=10,
+        receiver_id=20,
+    )
+    items = db.list_metamob_trade_items(trade_id)
+    assert len(items) == 1
+    assert items[0]["quantity"] == 2
+
+    db.update_metamob_trade(trade_id, status="pending_confirm", confirmed_by=10)
+    assert db.get_metamob_trade(trade_id)["confirmed_by"] == 10
+    db.clear_metamob_trade_confirmation(trade_id)
+    reopened = db.get_metamob_trade(trade_id)
+    assert reopened["status"] == "open"
+    assert reopened["confirmed_by"] is None

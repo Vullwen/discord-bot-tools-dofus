@@ -47,6 +47,11 @@ def test_channel_labels_include_market_forum_channel():
     assert _CHANNEL_LABEL[db.SETTING_MARKET_FORUM_CHANNEL] == "Forum marché"
 
 
+def test_channel_labels_include_metamob_channels():
+    assert _CHANNEL_LABEL[db.SETTING_METAMOB_TALK_CHANNEL] == "Salon Metamob"
+    assert _CHANNEL_LABEL[db.SETTING_METAMOB_FORUM_CHANNEL] == "Forum Metamob"
+
+
 def test_base_role_setting_exists():
     assert db.SETTING_BASE_ROLE == "base_member_role"
 

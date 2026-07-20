@@ -1,6 +1,6 @@
 """Configuration Discord du bot.
 
-- /config channel : configure les salons et forums utilises par le bot.
+- /config channel : configure les salons et forums utilisés par le bot.
 - /config role : configure les roles utilises par le bot.
 - /config guild : configure le nom de guilde Dofus attendu.
 - /config dofus : configure la verification Dofus.
@@ -26,6 +26,8 @@ _CHANNEL_LABEL = {
     db.SETTING_ABSENCE_CHANNEL: "Salon absence",
     db.SETTING_ABSENCE_ADMIN_CHANNEL: "Salon admin absences",
     db.SETTING_MARKET_FORUM_CHANNEL: "Forum marché",
+    db.SETTING_METAMOB_TALK_CHANNEL: "Salon Metamob",
+    db.SETTING_METAMOB_FORUM_CHANNEL: "Forum Metamob",
 }
 
 _ROLE_LABEL = {
@@ -81,6 +83,8 @@ _CHANNEL_CHOICES = [
     app_commands.Choice(name="absence", value=db.SETTING_ABSENCE_CHANNEL),
     app_commands.Choice(name="absence_admin", value=db.SETTING_ABSENCE_ADMIN_CHANNEL),
     app_commands.Choice(name="market_forum", value=db.SETTING_MARKET_FORUM_CHANNEL),
+    app_commands.Choice(name="metamob-talk", value=db.SETTING_METAMOB_TALK_CHANNEL),
+    app_commands.Choice(name="metamob-forum", value=db.SETTING_METAMOB_FORUM_CHANNEL),
 ]
 
 _ROLE_CHOICES = [
@@ -285,6 +289,8 @@ class SettingsCog(commands.Cog):
             inline=False,
         )
         embed.add_field(name="Forum marché", value=_mention(db.SETTING_MARKET_FORUM_CHANNEL), inline=False)
+        embed.add_field(name="Salon Metamob", value=_mention(db.SETTING_METAMOB_TALK_CHANNEL), inline=False)
+        embed.add_field(name="Forum Metamob", value=_mention(db.SETTING_METAMOB_FORUM_CHANNEL), inline=False)
         embed.add_field(
             name="Rôle admin bot",
             value=_role_mention(db.SETTING_BOT_ADMIN_ROLE, "*(non défini — ADMIN_IDS/propriétaire/Administrateur)*"),

@@ -3,6 +3,7 @@ from cogs.metamob import (
     MonsterSearchResult,
     _choice_value,
     _normalize_quest_slug,
+    _trade_content,
     adjusted_quantity,
     resolve_archmonster,
     find_trade_opportunities,
@@ -71,3 +72,24 @@ def test_adjusted_quantity_stays_within_metamob_bounds():
     assert adjusted_quantity(4, -1) == 3
     assert adjusted_quantity(4, 1) == 5
     assert adjusted_quantity(30, 1) == 30
+
+
+def test_trade_content_groups_items_by_giver():
+    trade = {
+        "id": 9,
+        "status": "open",
+        "starter_id": 10,
+        "target_id": 20,
+    }
+    items = [
+        {"giver_id": 10, "monster_name": "Arachitik", "quantity": 2},
+        {"giver_id": 20, "monster_name": "Bambono", "quantity": 1},
+    ]
+
+    content = _trade_content(trade, items)
+
+    assert "Échange Metamob #9" in content
+    assert "<@10> donne à <@20>" in content
+    assert "Arachitik x2" in content
+    assert "<@20> donne à <@10>" in content
+    assert "Bambono x1" in content

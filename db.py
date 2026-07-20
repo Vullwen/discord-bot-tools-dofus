@@ -212,6 +212,32 @@ def init(db_path: str = DB_PATH) -> None:
             PRIMARY KEY (guild_id, user_id)
         );
 
+        CREATE TABLE IF NOT EXISTS metamob_trades (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id            INTEGER NOT NULL,
+            thread_id           INTEGER NOT NULL UNIQUE,
+            forum_channel_id    INTEGER NOT NULL,
+            starter_id          INTEGER NOT NULL,
+            target_id           INTEGER NOT NULL,
+            status              TEXT NOT NULL,
+            control_message_id  INTEGER,
+            confirmed_by        INTEGER,
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL,
+            closed_at           TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS metamob_trade_items (
+            trade_id      INTEGER NOT NULL,
+            monster_id    INTEGER NOT NULL,
+            monster_name  TEXT NOT NULL,
+            giver_id      INTEGER NOT NULL,
+            receiver_id   INTEGER NOT NULL,
+            quantity      INTEGER NOT NULL,
+            PRIMARY KEY (trade_id, monster_id, giver_id),
+            FOREIGN KEY(trade_id) REFERENCES metamob_trades(id) ON DELETE CASCADE
+        );
+
         """
     )
     # Migrations : colonnes ajoutées a posteriori (idempotent).
@@ -281,6 +307,12 @@ def _create_indexes() -> None:
             ON market_posts(closed_at, last_activity_at);
         CREATE INDEX IF NOT EXISTS idx_metamob_links_guild_user
             ON metamob_links(guild_id, user_id);
+        CREATE INDEX IF NOT EXISTS idx_metamob_trades_thread
+            ON metamob_trades(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_metamob_trades_status
+            ON metamob_trades(guild_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_metamob_trade_items_trade
+            ON metamob_trade_items(trade_id, giver_id, monster_name);
         CREATE INDEX IF NOT EXISTS idx_onboarding_open_user
             ON onboarding_tickets(guild_id, user_id, status, created_at);
         CREATE INDEX IF NOT EXISTS idx_onboarding_close_after
@@ -1314,6 +1346,10 @@ SETTING_ABSENCE_CHANNEL = "absence_channel"
 SETTING_ABSENCE_ADMIN_CHANNEL = "absence_admin_channel"
 # Forum où sont créés les posts du marché.
 SETTING_MARKET_FORUM_CHANNEL = "market_forum_channel"
+# Salon de discussion où annoncer les échanges Metamob. Vide = salon de commande.
+SETTING_METAMOB_TALK_CHANNEL = "metamob_talk_channel"
+# Forum où créer les posts d'échange Metamob.
+SETTING_METAMOB_FORUM_CHANNEL = "metamob_forum_channel"
 # Rôle Discord qui donne les droits admin bot. Vide = ADMIN_IDS/proprio/admin Discord.
 SETTING_BOT_ADMIN_ROLE = "bot_admin_role"
 # Rôle Discord autorisé à créer/gérer les raids (et tickets). Vide = admins seulement.
@@ -1483,6 +1519,104 @@ def delete_metamob_link(guild_id: int, user_id: int) -> bool:
     )
     _db().commit()
     return cur.rowcount > 0
+
+
+def create_metamob_trade(
+    *,
+    guild_id: int,
+    thread_id: int,
+    forum_channel_id: int,
+    starter_id: int,
+    target_id: int,
+    control_message_id: Optional[int] = None,
+) -> int:
+    now = _now_iso()
+    cur = _db().execute(
+        """
+        INSERT INTO metamob_trades
+            (guild_id, thread_id, forum_channel_id, starter_id, target_id, status,
+             control_message_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)
+        """,
+        (
+            guild_id,
+            thread_id,
+            forum_channel_id,
+            starter_id,
+            target_id,
+            control_message_id,
+            now,
+            now,
+        ),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_metamob_trade(trade_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM metamob_trades WHERE id = ?",
+        (trade_id,),
+    ).fetchone()
+
+
+def get_metamob_trade_by_thread(thread_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM metamob_trades WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+
+
+def update_metamob_trade(trade_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    fields.setdefault("updated_at", _now_iso())
+    assignments = ", ".join(f"{col} = ?" for col in fields)
+    _db().execute(
+        f"UPDATE metamob_trades SET {assignments} WHERE id = ?",
+        (*fields.values(), trade_id),
+    )
+    _db().commit()
+
+
+def add_metamob_trade_item(
+    *,
+    trade_id: int,
+    monster_id: int,
+    monster_name: str,
+    giver_id: int,
+    receiver_id: int,
+    quantity: int = 1,
+) -> None:
+    _db().execute(
+        """
+        INSERT INTO metamob_trade_items
+            (trade_id, monster_id, monster_name, giver_id, receiver_id, quantity)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(trade_id, monster_id, giver_id) DO UPDATE SET
+            quantity = metamob_trade_items.quantity + excluded.quantity,
+            monster_name = excluded.monster_name,
+            receiver_id = excluded.receiver_id
+        """,
+        (trade_id, monster_id, monster_name, giver_id, receiver_id, quantity),
+    )
+    update_metamob_trade(trade_id)
+
+
+def list_metamob_trade_items(trade_id: int) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM metamob_trade_items
+        WHERE trade_id = ?
+        ORDER BY giver_id, monster_name
+        """,
+        (trade_id,),
+    ).fetchall()
+    return list(rows)
+
+
+def clear_metamob_trade_confirmation(trade_id: int) -> None:
+    update_metamob_trade(trade_id, status="open", confirmed_by=None)
 
 
 # ----------------------------------------------------------------- helpers tests
