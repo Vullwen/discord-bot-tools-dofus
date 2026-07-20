@@ -21,6 +21,7 @@ METAMOB_API_BASE_URL = "https://www.metamob.fr/api"
 METAMOB_TIMEOUT_SECONDS = 15
 METAMOB_ARCHMONSTER_TYPE_ID = 3
 DISCORD_MESSAGE_LIMIT = 1900
+AUTOCOMPLETE_LIMIT = 25
 
 
 class MetamobAPIError(Exception):
@@ -53,14 +54,30 @@ class TradeOpportunity:
     receiver_missing: int
 
 
-def _metamob_get_sync(api_key: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+@dataclass(frozen=True)
+class MonsterSearchResult:
+    id: int
+    name: str
+
+
+def _metamob_request_sync(
+    api_key: str,
+    method: str,
+    path: str,
+    params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     query = f"?{urlencode(params)}" if params else ""
     url = f"{METAMOB_API_BASE_URL}{path}{query}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
     request = Request(
         url,
+        data=data,
+        method=method,
         headers={
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
+            "Content-Type": "application/json",
             "User-Agent": "beb-raid-discord-bot/1.0",
         },
     )
@@ -76,6 +93,14 @@ def _metamob_get_sync(api_key: str, path: str, params: dict[str, Any] | None = N
         raise MetamobAPIError(None, "Metamob ne répond pas assez vite.") from exc
     except json.JSONDecodeError as exc:
         raise MetamobAPIError(None, "Réponse Metamob illisible.") from exc
+
+
+def _metamob_get_sync(api_key: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _metamob_request_sync(api_key, "GET", path, params=params)
+
+
+def _metamob_patch_sync(api_key: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    return _metamob_request_sync(api_key, "PATCH", path, body=body)
 
 
 def _read_error_detail(exc: HTTPError) -> str:
@@ -98,6 +123,10 @@ def _read_error_detail(exc: HTTPError) -> str:
 
 async def _metamob_get(api_key: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     return await asyncio.to_thread(_metamob_get_sync, api_key, path, params)
+
+
+async def _metamob_patch(api_key: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    return await asyncio.to_thread(_metamob_patch_sync, api_key, path, body)
 
 
 async def fetch_quest_settings(api_key: str, quest_slug: str) -> dict[str, Any]:
@@ -135,6 +164,47 @@ async def fetch_archmonsters(api_key: str, quest_slug: str) -> dict[int, ArchMon
     return monsters
 
 
+async def search_archmonsters(api_key: str, query: str, limit: int = AUTOCOMPLETE_LIMIT) -> list[MonsterSearchResult]:
+    params: dict[str, Any] = {"type": METAMOB_ARCHMONSTER_TYPE_ID, "limit": limit}
+    cleaned = query.strip()
+    if len(cleaned) >= 3:
+        params["q"] = cleaned
+    payload = await _metamob_get(api_key, "/v1/monsters", params)
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise MetamobAPIError(None, "Réponse de recherche Metamob invalide.")
+    results: list[MonsterSearchResult] = []
+    for monster in data:
+        try:
+            monster_id = int(monster["id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        results.append(
+            MonsterSearchResult(
+                id=monster_id,
+                name=_localized_name(monster.get("name"), fallback=f"Monstre #{monster_id}"),
+            )
+        )
+    return results[:limit]
+
+
+async def update_monster_quantity(
+    api_key: str,
+    quest_slug: str,
+    monster_id: int,
+    quantity: int,
+) -> dict[str, Any]:
+    payload = await _metamob_patch(
+        api_key,
+        f"/v1/quests/{quote(quest_slug, safe='')}/monsters/{monster_id}",
+        {"quantity": quantity},
+    )
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise MetamobAPIError(None, "Réponse de mise à jour Metamob invalide.")
+    return data
+
+
 def _localized_name(value: Any, fallback: str = "Inconnu") -> str:
     if isinstance(value, dict):
         return str(value.get("fr") or value.get("en") or value.get("es") or fallback)
@@ -150,6 +220,39 @@ def _normalize_quest_slug(value: str) -> str:
     parsed = urlparse(cleaned)
     path = parsed.path if parsed.scheme or parsed.netloc else cleaned
     return path.rstrip("/").rsplit("/", 1)[-1].strip()
+
+
+def _choice_value(monster: MonsterSearchResult) -> str:
+    return f"{monster.id}:{monster.name}"[:100]
+
+
+def _choice_name(monster: MonsterSearchResult) -> str:
+    return monster.name[:100]
+
+
+def _selected_monster_id(value: str) -> int | None:
+    raw_id = value.split(":", 1)[0].strip()
+    return int(raw_id) if raw_id.isdigit() else None
+
+
+def resolve_archmonster(value: str, monsters: dict[int, ArchMonster]) -> ArchMonster | None:
+    selected_id = _selected_monster_id(value)
+    if selected_id is not None:
+        return monsters.get(selected_id)
+
+    wanted = value.strip().casefold()
+    exact = [monster for monster in monsters.values() if monster.name.casefold() == wanted]
+    if exact:
+        return sorted(exact, key=lambda monster: monster.name.casefold())[0]
+
+    partial = [
+        monster
+        for monster in monsters.values()
+        if wanted and wanted in monster.name.casefold()
+    ]
+    if len(partial) == 1:
+        return partial[0]
+    return None
 
 
 def _quest_type_slug(settings: dict[str, Any]) -> str | None:
@@ -236,6 +339,11 @@ def _metamob_help_embed() -> discord.Embed:
             "Compare les deux comptes liés et liste les archimonstres que tu as en trop "
             "et qui lui manquent, puis l'inverse."
         ),
+        inline=False,
+    )
+    embed.add_field(
+        name="/metamob add",
+        value="Ajoute 1 exemplaire d'un archimonstre dans ta quête Metamob liée.",
         inline=False,
     )
     embed.add_field(
@@ -358,6 +466,78 @@ class MetamobCog(commands.Cog):
         deleted = db.delete_metamob_link(interaction.guild.id, interaction.user.id)
         message = "✅ Ton lien Metamob a été supprimé." if deleted else "Aucun lien Metamob enregistré."
         await interaction.response.send_message(message, ephemeral=True)
+
+    @metamob.command(name="add", description="Ajoute un archimonstre à ton inventaire Metamob")
+    @app_commands.describe(archimonstre="Nom de l'archimonstre à ajouter")
+    async def add(self, interaction: discord.Interaction, archimonstre: str) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        link = db.get_metamob_link(interaction.guild.id, interaction.user.id)
+        if link is None:
+            await interaction.response.send_message("Tu dois d'abord faire `/metamob link`.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            monsters = await fetch_archmonsters(link["api_key"], link["quest_slug"])
+            monster = resolve_archmonster(archimonstre, monsters)
+            if monster is None:
+                await interaction.followup.send(
+                    "Je n'ai pas trouvé cet archimonstre dans ta quête. "
+                    "Réessaie avec l'autocomplétion Metamob.",
+                    ephemeral=True,
+                )
+                return
+
+            new_quantity = min(monster.owned + 1, 30)
+            if new_quantity == monster.owned:
+                await interaction.followup.send(
+                    f"**{monster.name}** est déjà à la quantité maximale Metamob ({monster.owned}).",
+                    ephemeral=True,
+                )
+                return
+
+            updated = await update_monster_quantity(
+                link["api_key"],
+                link["quest_slug"],
+                monster.id,
+                new_quantity,
+            )
+        except MetamobAPIError as exc:
+            await interaction.followup.send(
+                f"Je n'ai pas pu ajouter cet archimonstre: {exc.message}",
+                ephemeral=True,
+            )
+            return
+
+        quantity = int(updated.get("owned") or updated.get("quantity") or new_quantity)
+        await interaction.followup.send(
+            f"✅ **{monster.name}** ajouté sur Metamob: {monster.owned} → {quantity}.",
+            ephemeral=True,
+        )
+
+    @add.autocomplete("archimonstre")
+    async def add_archimonstre_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        if interaction.guild is None:
+            return []
+        link = db.get_metamob_link(interaction.guild.id, interaction.user.id)
+        if link is None:
+            return []
+        try:
+            monsters = await search_archmonsters(link["api_key"], current)
+        except MetamobAPIError:
+            logger.exception("Échec autocomplete Metamob")
+            return []
+        return [
+            app_commands.Choice(name=_choice_name(monster), value=_choice_value(monster))
+            for monster in monsters
+        ]
 
     @metamob.command(name="trade", description="Compare tes archimonstres avec un membre lié")
     @app_commands.describe(user="Membre Discord avec qui comparer les archimonstres")

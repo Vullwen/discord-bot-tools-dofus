@@ -1,4 +1,11 @@
-from cogs.metamob import ArchMonster, _normalize_quest_slug, find_trade_opportunities
+from cogs.metamob import (
+    ArchMonster,
+    MonsterSearchResult,
+    _choice_value,
+    _normalize_quest_slug,
+    resolve_archmonster,
+    find_trade_opportunities,
+)
 
 
 def test_find_trade_opportunities_uses_parallel_requirements():
@@ -38,3 +45,21 @@ def test_find_trade_opportunities_sorts_by_name():
 def test_normalize_quest_slug_accepts_full_url():
     assert _normalize_quest_slug("abc123") == "abc123"
     assert _normalize_quest_slug("https://www.metamob.fr/quests/abc123/") == "abc123"
+
+
+def test_choice_value_keeps_monster_id_for_autocomplete():
+    monster = MonsterSearchResult(id=123, name="Arachitik la Souffreteuse")
+
+    assert _choice_value(monster) == "123:Arachitik la Souffreteuse"
+
+
+def test_resolve_archmonster_from_autocomplete_value_or_name():
+    monsters = {
+        123: ArchMonster(id=123, name="Arachitik la Souffreteuse", owned=1, required=1),
+        456: ArchMonster(id=456, name="Bambono le Divin", owned=0, required=1),
+    }
+
+    assert resolve_archmonster("123:Arachitik la Souffreteuse", monsters).id == 123
+    assert resolve_archmonster("bambono le divin", monsters).id == 456
+    assert resolve_archmonster("arachitik", monsters).id == 123
+    assert resolve_archmonster("inconnu", monsters) is None
