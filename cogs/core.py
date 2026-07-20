@@ -46,6 +46,7 @@ HELP_SECTIONS = (
         "Metamob",
         (
             ("`/metamob help`", "explique comment lier ton compte Metamob"),
+            ("`/metamob on` / `/metamob off`", "active ou désactive Metamob sur le serveur"),
             ("`/metamob link`", "lie ta clé API et ton slug de quête"),
             ("`/metamob add`", "ajoute un archimonstre à ton inventaire Metamob"),
             ("`/metamob del`", "retire un archimonstre de ton inventaire Metamob"),

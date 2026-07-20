@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from utils.perms import is_raid_organizer
 
 logger = logging.getLogger("dofus-raid-bot.metamob")
 
@@ -24,6 +25,10 @@ DISCORD_MESSAGE_LIMIT = 1900
 AUTOCOMPLETE_LIMIT = 25
 MAX_METAMOB_QUANTITY = 30
 SEARCH_MATCH_LIMIT = 5
+METAMOB_DISABLED_MESSAGE = (
+    "Metamob est désactivé sur ce serveur. "
+    "Un organisateur peut le réactiver avec `/metamob on`."
+)
 
 
 class MetamobAPIError(Exception):
@@ -80,6 +85,10 @@ class TradeSearchMatch:
     @property
     def score(self) -> tuple[int, int]:
         return (min(self.they_count, self.you_count), self.they_count + self.you_count)
+
+
+def _is_metamob_enabled(guild_id: int) -> bool:
+    return db.get_guild_setting(guild_id, db.SETTING_METAMOB_ENABLED) != "0"
 
 
 def _metamob_request_sync(
@@ -481,6 +490,11 @@ def _metamob_help_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
+        name="/metamob on / off",
+        value="Active ou désactive les commandes Metamob du serveur. Réservé aux organisateurs.",
+        inline=False,
+    )
+    embed.add_field(
         name="/trade add",
         value="Dans un post d'échange Metamob, ajoute 1 archimonstre que tu donnes à l'autre membre.",
         inline=False,
@@ -634,14 +648,44 @@ class MetamobCog(commands.Cog):
         self.bot.add_view(MetamobTradeDecisionView(self))
         logger.info("MetamobCog prêt")
 
+    async def _ensure_metamob_enabled(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return False
+        if _is_metamob_enabled(interaction.guild.id):
+            return True
+        await interaction.response.send_message(METAMOB_DISABLED_MESSAGE, ephemeral=True)
+        return False
+
+    @metamob.command(name="on", description="Active les commandes Metamob sur ce serveur")
+    async def enable(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        db.set_guild_setting(interaction.guild.id, db.SETTING_METAMOB_ENABLED, "1")
+        await interaction.response.send_message("✅ Metamob activé sur ce serveur.", ephemeral=True)
+
+    @metamob.command(name="off", description="Désactive les commandes Metamob sur ce serveur")
+    async def disable(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        db.set_guild_setting(interaction.guild.id, db.SETTING_METAMOB_ENABLED, "0")
+        await interaction.response.send_message("⛔ Metamob désactivé sur ce serveur.", ephemeral=True)
+
     @metamob.command(name="help", description="Explique comment lier Metamob au bot")
     async def help(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(embed=_metamob_help_embed())
 
     @metamob.command(name="link", description="Lie ton compte Metamob au bot")
     async def link(self, interaction: discord.Interaction) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+        if not await self._ensure_metamob_enabled(interaction):
             return
         await interaction.response.send_modal(MetamobLinkModal(self))
 
@@ -653,8 +697,7 @@ class MetamobCog(commands.Cog):
         quest_slug: str,
         username: str | None,
     ) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+        if not await self._ensure_metamob_enabled(interaction):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
 
@@ -692,8 +735,7 @@ class MetamobCog(commands.Cog):
 
     @metamob.command(name="unlink", description="Supprime ton lien Metamob")
     async def unlink(self, interaction: discord.Interaction) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+        if not await self._ensure_metamob_enabled(interaction):
             return
         deleted = db.delete_metamob_link(interaction.guild.id, interaction.user.id)
         message = "✅ Ton lien Metamob a été supprimé." if deleted else "Aucun lien Metamob enregistré."
@@ -749,8 +791,7 @@ class MetamobCog(commands.Cog):
         done_label: str,
         limit_message: str,
     ) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+        if not await self._ensure_metamob_enabled(interaction):
             return
 
         link = db.get_metamob_link(interaction.guild.id, interaction.user.id)
@@ -804,6 +845,8 @@ class MetamobCog(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         if interaction.guild is None:
             return []
+        if not _is_metamob_enabled(interaction.guild.id):
+            return []
         link = db.get_metamob_link(interaction.guild.id, interaction.user.id)
         if link is None:
             return []
@@ -819,8 +862,7 @@ class MetamobCog(commands.Cog):
 
     @metamob.command(name="search", description="Cherche les meilleurs partenaires de trade Metamob")
     async def search(self, interaction: discord.Interaction) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+        if not await self._ensure_metamob_enabled(interaction):
             return
         own_link = db.get_metamob_link(interaction.guild.id, interaction.user.id)
         if own_link is None:
@@ -901,8 +943,7 @@ class MetamobCog(commands.Cog):
         interaction: discord.Interaction,
         user: discord.Member,
     ) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+        if not await self._ensure_metamob_enabled(interaction):
             return
         if user.bot:
             await interaction.response.send_message("Ce membre est un bot.", ephemeral=True)
@@ -981,6 +1022,8 @@ class MetamobCog(commands.Cog):
     @trade_group.command(name="add", description="Ajoute un archimonstre au trade Metamob courant")
     @app_commands.describe(archimonstre="Archimonstre que tu donnes à l'autre membre")
     async def trade_add(self, interaction: discord.Interaction, archimonstre: str) -> None:
+        if not await self._ensure_metamob_enabled(interaction):
+            return
         trade = self._get_active_trade_from_channel(interaction)
         if trade is None:
             await interaction.response.send_message(
@@ -1048,6 +1091,8 @@ class MetamobCog(commands.Cog):
     @trade_group.command(name="del", description="Retire un archimonstre du trade Metamob courant")
     @app_commands.describe(archimonstre="Archimonstre que tu veux retirer du trade")
     async def trade_del(self, interaction: discord.Interaction, archimonstre: str) -> None:
+        if not await self._ensure_metamob_enabled(interaction):
+            return
         trade = self._get_active_trade_from_channel(interaction)
         if trade is None:
             await interaction.response.send_message(
@@ -1084,6 +1129,8 @@ class MetamobCog(commands.Cog):
         interaction: discord.Interaction,
         current: str,
     ) -> list[app_commands.Choice[str]]:
+        if interaction.guild is None or not _is_metamob_enabled(interaction.guild.id):
+            return []
         trade = self._get_active_trade_from_channel(interaction)
         if trade is None:
             return []
@@ -1157,6 +1204,8 @@ class MetamobCog(commands.Cog):
             logger.exception("Impossible de mettre à jour le message de trade Metamob")
 
     async def prompt_trade_close(self, interaction: discord.Interaction) -> None:
+        if not await self._ensure_metamob_enabled(interaction):
+            return
         trade = self._get_active_trade_from_channel(interaction)
         if trade is None:
             await interaction.response.send_message("Ce trade n'est plus ouvert.", ephemeral=True)
@@ -1178,6 +1227,8 @@ class MetamobCog(commands.Cog):
         )
 
     async def cancel_trade(self, interaction: discord.Interaction) -> None:
+        if not await self._ensure_metamob_enabled(interaction):
+            return
         trade = self._get_active_trade_from_channel(interaction)
         if trade is None:
             await interaction.response.send_message("Ce trade n'est plus ouvert.", ephemeral=True)
@@ -1195,6 +1246,8 @@ class MetamobCog(commands.Cog):
         await self._close_trade_thread(interaction.channel, locked=False)
 
     async def validate_trade(self, interaction: discord.Interaction) -> None:
+        if not await self._ensure_metamob_enabled(interaction):
+            return
         trade = self._get_active_trade_from_channel(interaction)
         if trade is None:
             await interaction.response.send_message("Ce trade n'est plus ouvert.", ephemeral=True)
@@ -1303,8 +1356,7 @@ class MetamobCog(commands.Cog):
     @metamob.command(name="diff", description="Compare en privé tes archimonstres avec un membre lié")
     @app_commands.describe(user="Membre Discord avec qui comparer les archimonstres")
     async def diff(self, interaction: discord.Interaction, user: discord.Member) -> None:
-        if interaction.guild is None:
-            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+        if not await self._ensure_metamob_enabled(interaction):
             return
         if user.bot:
             await interaction.response.send_message("Ce membre est un bot.", ephemeral=True)

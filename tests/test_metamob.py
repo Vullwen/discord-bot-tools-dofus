@@ -1,9 +1,12 @@
+import db
+
 from cogs.metamob import (
     ArchMonster,
     MonsterSearchResult,
     TradeOpportunity,
     TradeSearchMatch,
     _choice_value,
+    _is_metamob_enabled,
     _normalize_quest_slug,
     _search_results_content,
     _trade_embed,
@@ -75,6 +78,18 @@ def test_adjusted_quantity_stays_within_metamob_bounds():
     assert adjusted_quantity(4, -1) == 3
     assert adjusted_quantity(4, 1) == 5
     assert adjusted_quantity(30, 1) == 30
+
+
+def test_metamob_enabled_defaults_on_and_can_be_toggled(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+
+    assert _is_metamob_enabled(2) is True
+
+    db.set_guild_setting(2, db.SETTING_METAMOB_ENABLED, "0")
+    assert _is_metamob_enabled(2) is False
+
+    db.set_guild_setting(2, db.SETTING_METAMOB_ENABLED, "1")
+    assert _is_metamob_enabled(2) is True
 
 
 def test_trade_embed_groups_items_and_includes_tutorial():

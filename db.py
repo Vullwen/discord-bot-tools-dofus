@@ -1350,6 +1350,8 @@ SETTING_MARKET_FORUM_CHANNEL = "market_forum_channel"
 SETTING_METAMOB_TALK_CHANNEL = "metamob_talk_channel"
 # Forum où créer les posts d'échange Metamob.
 SETTING_METAMOB_FORUM_CHANNEL = "metamob_forum_channel"
+# Active ou désactive les commandes Metamob du serveur. Absent/1 = actif, 0 = off.
+SETTING_METAMOB_ENABLED = "metamob_enabled"
 # Rôle Discord qui donne les droits admin bot. Vide = ADMIN_IDS/proprio/admin Discord.
 SETTING_BOT_ADMIN_ROLE = "bot_admin_role"
 # Rôle Discord autorisé à créer/gérer les raids (et tickets). Vide = admins seulement.
