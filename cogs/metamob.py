@@ -566,7 +566,7 @@ class _SearchTradeButton(discord.ui.Button):
         if target is None:
             await interaction.response.send_message("Je ne trouve plus ce membre sur le serveur.", ephemeral=True)
             return
-        await self.cog.start_trade_with_member(interaction, target, ephemeral_response=True)
+        await self.cog.start_trade_with_member(interaction, target)
 
 
 class MetamobSearchView(discord.ui.View):
@@ -624,7 +624,7 @@ class MetamobCog(commands.Cog):
 
     @metamob.command(name="help", description="Explique comment lier Metamob au bot")
     async def help(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(embed=_metamob_help_embed(), ephemeral=True)
+        await interaction.response.send_message(embed=_metamob_help_embed())
 
     @metamob.command(name="link", description="Lie ton compte Metamob au bot")
     async def link(self, interaction: discord.Interaction) -> None:
@@ -882,14 +882,12 @@ class MetamobCog(commands.Cog):
     @metamob.command(name="trade", description="Ouvre un post d'échange Metamob avec un membre")
     @app_commands.describe(user="Membre Discord avec qui ouvrir l'échange")
     async def trade(self, interaction: discord.Interaction, user: discord.Member) -> None:
-        await self.start_trade_with_member(interaction, user, ephemeral_response=False)
+        await self.start_trade_with_member(interaction, user)
 
     async def start_trade_with_member(
         self,
         interaction: discord.Interaction,
         user: discord.Member,
-        *,
-        ephemeral_response: bool,
     ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
@@ -921,7 +919,7 @@ class MetamobCog(commands.Cog):
             )
             return
 
-        await interaction.response.defer(thinking=True, ephemeral=ephemeral_response)
+        await interaction.response.defer(thinking=True)
         content = (
             f"{interaction.user.mention} {user.mention}\n"
             "**Échange Metamob**\n\n"
@@ -967,7 +965,6 @@ class MetamobCog(commands.Cog):
                 logger.exception("Impossible d'annoncer le trade Metamob")
         await interaction.followup.send(
             f"Échange Metamob ouvert : {thread.mention}",
-            ephemeral=ephemeral_response,
         )
 
     @trade_group.command(name="add", description="Ajoute un archimonstre au trade Metamob courant")
