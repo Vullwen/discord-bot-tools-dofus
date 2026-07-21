@@ -195,12 +195,13 @@ Content** dans le Developer Portal.
 
 ## Lancer le bot
 
-En production, depuis ce dossier :
+En production, depuis le compose des bots (`~/server/bot`) :
 
 ```bash
-docker compose up -d --build
+cd ~/server/bot
+docker compose up -d --build beb-raid
 docker compose ps
-docker compose logs --tail=100
+docker compose logs --tail=100 beb-raid
 ```
 
 En local :
@@ -226,7 +227,7 @@ Avec le venv du serveur :
 Dans Docker :
 
 ```bash
-docker compose run --rm --no-deps --entrypoint pytest dofus-raid-bot -q
+docker compose run --rm --no-deps --entrypoint pytest beb-raid -q
 ```
 
 Le projet n'a pas encore de configuration mypy officielle.
