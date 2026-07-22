@@ -337,7 +337,7 @@ class _AcceptGuildButton(discord.ui.Button):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self.cog.review_guild_application(interaction, accepted=True)
+        await self.cog.review_onboarding_request(interaction, accepted=True)
 
 
 class _RejectGuildButton(discord.ui.Button):
@@ -350,7 +350,7 @@ class _RejectGuildButton(discord.ui.Button):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self.cog.review_guild_application(interaction, accepted=False)
+        await self.cog.review_onboarding_request(interaction, accepted=False)
 
 
 class OnboardingReviewView(discord.ui.View):
@@ -610,19 +610,21 @@ class TicketCog(commands.Cog):
             )
             return
 
-        report = await self._grant_visitor_role(interaction.guild, ticket["user_id"])
         db.update_onboarding_ticket(
             interaction.channel_id,
             choice="visitor",
-            status="visitor_granted",
+            status="visitor_pending",
         )
         await interaction.response.send_message(
-            f"Accès marché demandé.\n{report}\nUn admin bot peut fermer le ticket avec le bouton ci-dessous.",
+            content=(
+                f"<@{ticket['user_id']}> demande l'accès au marché. "
+                "Les admins bot peuvent accepter ou refuser cette demande."
+            ),
             ephemeral=False,
-            view=OnboardingCloseView(self),
+            view=OnboardingReviewView(self),
         )
 
-    async def review_guild_application(
+    async def review_onboarding_request(
         self,
         interaction: discord.Interaction,
         *,
@@ -638,21 +640,28 @@ class TicketCog(commands.Cog):
         if ticket is None or ticket["status"] in ("closed", "deleted"):
             await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
             return
-        if ticket["status"] != "guild_pending":
-            await interaction.response.send_message("Cette candidature a déjà été traitée.", ephemeral=True)
+        if ticket["status"] not in ("guild_pending", "visitor_pending"):
+            await interaction.response.send_message("Cette demande a déjà été traitée.", ephemeral=True)
             return
-        if ticket["choice"] != "guild":
-            await interaction.response.send_message("Ce ticket n'est pas une candidature guilde.", ephemeral=True)
+        if ticket["choice"] not in ("guild", "visitor"):
+            await interaction.response.send_message("Ce ticket n'est pas une demande d'accueil.", ephemeral=True)
             return
 
         if accepted:
-            report = await self._grant_guild_role(interaction.guild, ticket["user_id"])
+            if ticket["choice"] == "visitor":
+                report = await self._grant_visitor_role(interaction.guild, ticket["user_id"])
+                status = "visitor_granted"
+                message = "Accès marché accepté."
+            else:
+                report = await self._grant_guild_role(interaction.guild, ticket["user_id"])
+                status = "accepted"
+                message = "Candidature acceptée."
             db.update_onboarding_ticket(
                 interaction.channel_id,
-                status="accepted",
+                status=status,
             )
             await interaction.response.send_message(
-                f"Candidature acceptée.\n{report}\nUn admin bot peut fermer le ticket avec le bouton ci-dessous.",
+                f"{message}\n{report}\nUn admin bot peut fermer le ticket avec le bouton ci-dessous.",
                 ephemeral=False,
                 view=OnboardingCloseView(self),
             )
@@ -663,11 +672,24 @@ class TicketCog(commands.Cog):
             interaction.channel_id,
             status="rejected",
         )
+        message = (
+            "Accès marché refusé."
+            if ticket["choice"] == "visitor"
+            else "Candidature refusée."
+        )
         await interaction.response.send_message(
-            f"Candidature refusée.\n{report}\nUn admin bot peut fermer le ticket avec le bouton ci-dessous.",
+            f"{message}\n{report}\nUn admin bot peut fermer le ticket avec le bouton ci-dessous.",
             ephemeral=False,
             view=OnboardingCloseView(self),
         )
+
+    async def review_guild_application(
+        self,
+        interaction: discord.Interaction,
+        *,
+        accepted: bool,
+    ) -> None:
+        await self.review_onboarding_request(interaction, accepted=accepted)
 
     async def _grant_guild_role(self, guild: discord.Guild, user_id: int) -> str:
         role_id = (

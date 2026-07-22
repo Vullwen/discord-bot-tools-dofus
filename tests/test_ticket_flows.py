@@ -138,7 +138,7 @@ async def test_add_members_sets_channel_permissions_and_reports_missing(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_onboarding_visitor_choice_grants_role_and_shows_admin_close_button(tmp_path):
+async def test_onboarding_visitor_choice_waits_for_admin_review(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
     channel = FakeChannel(500)
     visitor = FakeMember(10)
@@ -154,11 +154,41 @@ async def test_onboarding_visitor_choice_grants_role_and_shows_admin_close_butto
 
     ticket = db.get_onboarding_ticket_by_channel(channel.id)
     assert ticket["choice"] == "visitor"
+    assert ticket["status"] == "visitor_pending"
+    assert ticket["close_after"] is None
+    assert visitor.roles == []
+    assert "peuvent accepter ou refuser" in interaction.response.messages[0][0]
+    assert interaction.response.messages[0][1]["view"] is not None
+
+
+@pytest.mark.asyncio
+async def test_onboarding_visitor_review_accepts_and_grants_visitor_role(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    channel = FakeChannel(500)
+    visitor = FakeMember(10)
+    admin = FakeMember(20)
+    role = FakeRole(90, "Visiteur")
+    guild = FakeGuild(members=(visitor, admin), roles=(role,))
+    db.set_guild_setting(guild.id, db.SETTING_VISITOR_ROLE, str(role.id))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=visitor.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=visitor.id)
+    cog = TicketCog(FakeBot(channel=channel))
+
+    await cog.choose_onboarding_path(
+        FakeInteraction(user=visitor, guild=guild, channel=channel),
+        choice="visitor",
+    )
+    await cog.review_onboarding_request(
+        FakeInteraction(user=admin, guild=guild, channel=channel),
+        accepted=True,
+    )
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["choice"] == "visitor"
     assert ticket["status"] == "visitor_granted"
     assert ticket["close_after"] is None
     assert visitor.roles == [role]
-    assert "peut fermer le ticket" in interaction.response.messages[0][0]
-    assert interaction.response.messages[0][1]["view"] is not None
 
 
 @pytest.mark.asyncio
@@ -179,7 +209,7 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
         FakeInteraction(user=applicant, guild=guild, channel=channel),
         choice="guild",
     )
-    await cog.review_guild_application(
+    await cog.review_onboarding_request(
         FakeInteraction(user=admin, guild=guild, channel=channel),
         accepted=True,
     )
@@ -204,7 +234,7 @@ async def test_onboarding_guild_review_rejects_and_kicks_member(tmp_path, monkey
     db.update_onboarding_ticket(channel.id, choice="guild", status="guild_pending")
     cog = TicketCog(FakeBot(channel=channel))
 
-    await cog.review_guild_application(
+    await cog.review_onboarding_request(
         FakeInteraction(user=admin, guild=guild, channel=channel),
         accepted=False,
     )
