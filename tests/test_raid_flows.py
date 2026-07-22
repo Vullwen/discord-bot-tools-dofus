@@ -174,3 +174,64 @@ async def test_unregister_confirmed_promotes_waitlist_and_updates_message(tmp_pa
     assert interaction.response.messages[0][0] == "Désinscrit du rappel MP."
     assert scheduled.edits
 
+
+@pytest.mark.asyncio
+async def test_unregister_200_skips_low_level_waitlist_when_low_cap_full(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(300)
+    users = [FakeUser(uid) for uid in (10, 11, 20, 30, 40)]
+    cog = _cog(channel=channel, users=users)
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-08-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=channel.id,
+        state="scheduled",
+        scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS),
+    )
+    scheduled = await channel.send(embed=None)
+    db.update_raid(raid_id, scheduled_message_id=scheduled.id)
+    db.add_participant(raid_id, 10, "confirmed", LEVEL_199_MINUS)
+    db.add_participant(raid_id, 11, "confirmed", LEVEL_199_MINUS)
+    db.add_participant(raid_id, 20, "confirmed", LEVEL_200_PLUS)
+    db.add_participant(raid_id, 30, "waitlist", LEVEL_199_MINUS)
+    db.add_participant(raid_id, 40, "waitlist", LEVEL_200_PLUS)
+
+    interaction = FakeInteraction(user=users[2], guild=_guild(), channel=channel)
+    await cog.handle_unregister(interaction, raid_id)
+
+    assert db.is_participant(raid_id, 20) is False
+    assert db.get_participant_status(raid_id, 30) == "waitlist"
+    assert db.get_participant_status(raid_id, 40) == "confirmed"
+    assert len(users[3].dms) == 0
+    assert len(users[4].dms) == 1
+
+
+@pytest.mark.asyncio
+async def test_unregister_low_level_can_promote_low_level_waitlist(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(300)
+    users = [FakeUser(uid) for uid in (10, 11, 20)]
+    cog = _cog(channel=channel, users=users)
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-08-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=channel.id,
+        state="scheduled",
+        scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS),
+    )
+    scheduled = await channel.send(embed=None)
+    db.update_raid(raid_id, scheduled_message_id=scheduled.id)
+    db.add_participant(raid_id, 10, "confirmed", LEVEL_199_MINUS)
+    db.add_participant(raid_id, 11, "confirmed", LEVEL_199_MINUS)
+    db.add_participant(raid_id, 20, "waitlist", LEVEL_199_MINUS)
+
+    interaction = FakeInteraction(user=users[0], guild=_guild(), channel=channel)
+    await cog.handle_unregister(interaction, raid_id)
+
+    assert db.is_participant(raid_id, 10) is False
+    assert db.get_participant_status(raid_id, 20) == "confirmed"
+    assert len(users[2].dms) == 1

@@ -726,8 +726,9 @@ class RaidCog(commands.Cog):
             low_level_cap = raid_low_level_cap(name)
             if low_level_cap <= 0:
                 return "low_level_full"
-            if db.count_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
-                return "low_level_full"
+            if self._count_confirmed_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
+                db.add_participant(raid_id, user_id, "waitlist", level_group)
+                return "waitlist"
         cap = raid_cap(name)
         status = "confirmed" if (cap is None or db.count_confirmed(raid_id) < cap) else "waitlist"
         db.add_participant(raid_id, user_id, status, level_group)
@@ -744,6 +745,35 @@ class RaidCog(commands.Cog):
             f"⏳ Raid complet : tu es en liste d'attente (position {position}). "
             f"Tu seras inscrit automatiquement si une place se libère. ({_level_label(level_group)})"
         )
+
+    def _eligible_waitlist_promotions(self, raid, raid_id: int, removed_user_id: int) -> list[int]:
+        participants = db.get_participants(raid_id)
+        removed = next((p for p in participants if p[0] == removed_user_id), None)
+        if removed is None or removed[1] != "confirmed":
+            return []
+
+        cap = raid_cap(raid["name"])
+        confirmed_after = sum(
+            1 for uid, status, _level in participants
+            if status == "confirmed" and uid != removed_user_id
+        )
+        if cap is not None and confirmed_after >= cap:
+            return []
+
+        low_level_cap = raid_low_level_cap(raid["name"])
+        confirmed_low_after = sum(
+            1 for uid, status, level in participants
+            if status == "confirmed" and uid != removed_user_id and level == LEVEL_199_MINUS
+        )
+        eligible: list[int] = []
+        for uid, status, level in participants:
+            if status != "waitlist":
+                continue
+            if level == LEVEL_199_MINUS:
+                if low_level_cap <= 0 or confirmed_low_after >= low_level_cap:
+                    continue
+            eligible.append(uid)
+        return eligible
 
     def _register_winning_hour_voters(self, raid_id: int, raid, winner_hour: str) -> tuple[int, int]:
         """Inscrit les votants du créneau gagnant. Retourne (confirmés, attente)."""
@@ -1152,7 +1182,7 @@ class RaidCog(commands.Cog):
                 return
             if level_group == LEVEL_199_MINUS:
                 blocked = self._low_level_full_message(raid, raid_id)
-                if blocked:
+                if blocked and raid_low_level_cap(raid["name"]) <= 0:
                     await interaction.response.edit_message(content=blocked, view=None)
                     return
             db.set_level_choice(raid_id, interaction.user.id, level_group)
@@ -1218,7 +1248,12 @@ class RaidCog(commands.Cog):
         if not db.is_participant(raid_id, interaction.user.id):
             await interaction.response.send_message("Tu n'es pas inscrit à ce raid.", ephemeral=True)
             return
-        promoted = db.remove_participant(raid_id, interaction.user.id)
+        eligible = self._eligible_waitlist_promotions(raid, raid_id, interaction.user.id)
+        promoted = db.remove_participant(
+            raid_id,
+            interaction.user.id,
+            eligible_waitlist_user_ids=eligible,
+        )
         creator = await self._creator_display(raid["created_by"])
         confirmed, waitlist = self._counts(raid_id)
         await interaction.response.send_message("Désinscrit du rappel MP.", ephemeral=True)
@@ -1265,7 +1300,12 @@ class RaidCog(commands.Cog):
         promoted: list[int] = []
         for user in users:
             if db.is_participant(raid_id, user.id):
-                p = db.remove_participant(raid_id, user.id)
+                eligible = self._eligible_waitlist_promotions(raid, raid_id, user.id) if raid else None
+                p = db.remove_participant(
+                    raid_id,
+                    user.id,
+                    eligible_waitlist_user_ids=eligible,
+                )
                 if p:
                     promoted.append(p)
                 removed.append(user.mention)

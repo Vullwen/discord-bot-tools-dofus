@@ -438,6 +438,20 @@ def test_waitlist_promotion(tmp_path):
     assert [u for u, s, _ in parts if s == "waitlist"] == [5]
 
 
+def test_waitlist_promotion_can_skip_ineligible_users(tmp_path):
+    _fresh(tmp_path)
+    rid = db.create_raid(
+        name="X", date_iso="2026-06-28", created_by=1, guild_id=2, channel_id=3, state="scheduled",
+    )
+    db.add_participant(rid, 1, "confirmed")
+    db.add_participant(rid, 2, "waitlist")
+    db.add_participant(rid, 3, "waitlist")
+
+    assert db.remove_participant(rid, 1, eligible_waitlist_user_ids={3}) == 3
+    assert db.get_participant_status(rid, 2) == "waitlist"
+    assert db.get_participant_status(rid, 3) == "confirmed"
+
+
 def test_metamob_link_upsert_and_delete(tmp_path):
     _fresh(tmp_path)
     db.upsert_metamob_link(

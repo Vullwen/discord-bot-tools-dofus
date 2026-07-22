@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Collection, Optional
 
 from config import DB_PATH
 
@@ -669,9 +669,47 @@ def is_participant(raid_id: int, user_id: int) -> bool:
     return row is not None
 
 
-def remove_participant(raid_id: int, user_id: int) -> Optional[int]:
+def _promote_waitlist(
+    conn: sqlite3.Connection,
+    raid_id: int,
+    eligible_waitlist_user_ids: Optional[Collection[int]] = None,
+) -> Optional[int]:
+    eligible = set(eligible_waitlist_user_ids) if eligible_waitlist_user_ids is not None else None
+    rows = conn.execute(
+        "SELECT user_id FROM participants WHERE raid_id = ? AND status = 'waitlist' "
+        "ORDER BY joined_at ASC",
+        (raid_id,),
+    ).fetchall()
+    for row in rows:
+        user_id = row["user_id"]
+        if eligible is not None and user_id not in eligible:
+            continue
+        conn.execute(
+            "UPDATE participants SET status = 'confirmed' "
+            "WHERE raid_id = ? AND user_id = ?",
+            (raid_id, user_id),
+        )
+        return user_id
+    return None
+
+
+def promote_waitlist(
+    raid_id: int,
+    eligible_waitlist_user_ids: Optional[Collection[int]] = None,
+) -> Optional[int]:
+    promoted = _promote_waitlist(_db(), raid_id, eligible_waitlist_user_ids)
+    _db().commit()
+    return promoted
+
+
+def remove_participant(
+    raid_id: int,
+    user_id: int,
+    *,
+    eligible_waitlist_user_ids: Optional[Collection[int]] = None,
+) -> Optional[int]:
     """Retire un participant. S'il était confirmé et qu'une file d'attente existe,
-    promeut le plus ancien en attente et retourne son user_id ; sinon None."""
+    promeut le plus ancien en attente éligible et retourne son user_id ; sinon None."""
     conn = _db()
     row = conn.execute(
         "SELECT status FROM participants WHERE raid_id = ? AND user_id = ?",
@@ -687,18 +725,7 @@ def remove_participant(raid_id: int, user_id: int) -> Optional[int]:
     )
     promoted: Optional[int] = None
     if was_confirmed:
-        nxt = conn.execute(
-            "SELECT user_id FROM participants WHERE raid_id = ? AND status = 'waitlist' "
-            "ORDER BY joined_at ASC LIMIT 1",
-            (raid_id,),
-        ).fetchone()
-        if nxt:
-            conn.execute(
-                "UPDATE participants SET status = 'confirmed' "
-                "WHERE raid_id = ? AND user_id = ?",
-                (raid_id, nxt["user_id"]),
-            )
-            promoted = nxt["user_id"]
+        promoted = _promote_waitlist(conn, raid_id, eligible_waitlist_user_ids)
     conn.commit()
     return promoted
 
