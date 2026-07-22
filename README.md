@@ -52,7 +52,8 @@ raids limitent les places ouvertes aux personnages 199-.
 - `/raid cancel raid_id` : annule un raid.
 - `/raid close raid_id` : ferme le sondage en cours tout de suite.
 - `/raid warn user [raison]` : note un avertissement raid dans le salon admin raids,
-  sans envoyer de MP au membre.
+  affiche son nombre total de warns, sans envoyer de MP au membre.
+- `/raid warns [user]` : affiche le récap des warns raid, ou le détail d'un membre.
 - `/raid ban user jours [raison]` : bloque temporairement les votes et inscriptions.
 - `/raid unban user` : retire le ban raid d'un membre.
 - `/raid bans` : liste les bans raid actifs.

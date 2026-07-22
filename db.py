@@ -115,6 +115,15 @@ def init(db_path: str = DB_PATH) -> None:
             PRIMARY KEY (guild_id, user_id)
         );
 
+        CREATE TABLE IF NOT EXISTS raid_warns (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id    INTEGER NOT NULL,
+            user_id     INTEGER NOT NULL,
+            reason      TEXT NOT NULL,
+            created_by  INTEGER NOT NULL,
+            created_at  TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS verification_requests (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id        INTEGER NOT NULL,
@@ -285,6 +294,10 @@ def _create_indexes() -> None:
 
         CREATE INDEX IF NOT EXISTS idx_raid_bans_guild_until
             ON raid_bans(guild_id, banned_until, user_id);
+        CREATE INDEX IF NOT EXISTS idx_raid_warns_user_created
+            ON raid_warns(guild_id, user_id, created_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_raid_warns_guild_created
+            ON raid_warns(guild_id, created_at DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_verification_pending_user
             ON verification_requests(guild_id, discord_id, status, expires_at);
         CREATE INDEX IF NOT EXISTS idx_dofus_characters_user_active
@@ -796,6 +809,70 @@ def clear_raid_ban(*, guild_id: int, user_id: int) -> None:
         (guild_id, user_id),
     )
     _db().commit()
+
+
+# -------------------------------------------------------------------------- warns
+
+
+def add_raid_warn(
+    *,
+    guild_id: int,
+    user_id: int,
+    reason: str,
+    created_by: int,
+) -> int:
+    cur = _db().execute(
+        """
+        INSERT INTO raid_warns
+            (guild_id, user_id, reason, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (guild_id, user_id, reason, created_by, _now_iso()),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def count_raid_warns(*, guild_id: int, user_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM raid_warns WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def list_raid_warns(
+    *,
+    guild_id: int,
+    user_id: int,
+    limit: int = 10,
+) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM raid_warns
+        WHERE guild_id = ?
+          AND user_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (guild_id, user_id, limit),
+    ).fetchall()
+    return list(rows)
+
+
+def list_raid_warn_counts(*, guild_id: int, limit: int = 50) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT user_id, COUNT(*) AS warn_count, MAX(created_at) AS last_warn_at
+        FROM raid_warns
+        WHERE guild_id = ?
+        GROUP BY user_id
+        ORDER BY warn_count DESC, last_warn_at DESC, user_id ASC
+        LIMIT ?
+        """,
+        (guild_id, limit),
+    ).fetchall()
+    return list(rows)
 
 
 # --------------------------------------------------------------- vérifications

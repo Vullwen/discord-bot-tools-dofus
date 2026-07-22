@@ -61,6 +61,11 @@ DEFAULT_RAID_BAN_REASON = "tu t'es inscrit plusieurs fois à des raids sans te p
 def _level_label(level_group: Optional[str]) -> str:
     return LEVEL_LABELS.get(level_group or LEVEL_200_PLUS, "200+")
 
+
+def _plural_s(count: int) -> str:
+    return "s" if count > 1 else ""
+
+
 def _slugify(name: str) -> str:
     nfkd = unicodedata.normalize("NFKD", name)
     ascii_only = "".join(c for c in nfkd if not unicodedata.combining(c))
@@ -647,6 +652,7 @@ class RaidCog(commands.Cog):
         warned_user: discord.abc.User,
         moderator: discord.abc.User,
         reason: str,
+        total_warns: int,
     ) -> None:
         channel_id = db.get_guild_setting_int(guild_id, db.SETTING_RAID_ADMIN_CHANNEL)
         if not channel_id:
@@ -659,6 +665,7 @@ class RaidCog(commands.Cog):
                 content=(
                     "⚠️ **Warn raid**\n"
                     f"Membre : {warned_user.mention} (`{warned_user.id}`)\n"
+                    f"Total : {total_warns} warn{_plural_s(total_warns)} raid\n"
                     f"Raison : {reason}\n"
                     f"Appliqué par : {moderator.mention}"
                 )
@@ -1863,16 +1870,78 @@ class RaidCog(commands.Cog):
             return
 
         reason = (raison or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
+        db.add_raid_warn(
+            guild_id=interaction.guild.id,
+            user_id=user.id,
+            reason=reason,
+            created_by=interaction.user.id,
+        )
+        total_warns = db.count_raid_warns(guild_id=interaction.guild.id, user_id=user.id)
         await self._notify_raid_warn_admin(
             interaction.guild.id,
             user,
             interaction.user,
             reason,
+            total_warns,
         )
         await interaction.response.send_message(
-            f"Warn raid enregistré pour {user.mention}.",
+            f"Warn raid enregistré pour {user.mention}. Total : {total_warns} warn{_plural_s(total_warns)}.",
             ephemeral=True,
         )
+
+    @raid.command(name="warns", description="Affiche les warns raid enregistrés")
+    @app_commands.describe(user="Membre à consulter (laisser vide = récap global)")
+    async def show_warns(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.Member] = None,
+    ) -> None:
+        if not is_raid_organizer(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+
+        if user is not None:
+            total = db.count_raid_warns(guild_id=interaction.guild.id, user_id=user.id)
+            if total == 0:
+                await interaction.response.send_message(
+                    f"Aucun warn raid enregistré pour {user.mention}.",
+                    ephemeral=True,
+                )
+                return
+            rows = db.list_raid_warns(guild_id=interaction.guild.id, user_id=user.id)
+            lines = [
+                f"**Warns raid de {user.mention}** - {total} warn{_plural_s(total)}"
+            ]
+            for row in rows:
+                created_at = datetime.fromisoformat(row["created_at"])
+                reason = (row["reason"] or DEFAULT_RAID_BAN_REASON).strip().rstrip(".")
+                lines.append(
+                    f"- {created_at:%d/%m/%Y %Hh%M} : {reason} "
+                    f"(par <@{row['created_by']}>)"
+                )
+            if total > len(rows):
+                lines.append(f"... {total - len(rows)} warn{_plural_s(total - len(rows))} plus ancien(s).")
+            await interaction.response.send_message("\n".join(lines), ephemeral=True)
+            return
+
+        rows = db.list_raid_warn_counts(guild_id=interaction.guild.id)
+        if not rows:
+            await interaction.response.send_message("Aucun warn raid enregistré.", ephemeral=True)
+            return
+
+        lines = ["**Warns raid enregistrés**"]
+        for row in rows:
+            last_warn_at = datetime.fromisoformat(row["last_warn_at"])
+            count = row["warn_count"]
+            lines.append(
+                f"- <@{row['user_id']}> (`{row['user_id']}`) : "
+                f"{count} warn{_plural_s(count)} "
+                f"(dernier le {last_warn_at:%d/%m/%Y %Hh%M})"
+            )
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     @raid.command(name="unban", description="Autorise à nouveau un membre à voter et s'inscrire aux raids")
     @app_commands.describe(user="Membre à débannir des raids")

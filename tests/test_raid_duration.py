@@ -205,12 +205,89 @@ async def test_warn_raid_command_sends_admin_notice_without_dm(tmp_path, monkeyp
     await RaidCog.warn_raid.callback(cog, interaction, user, "absence non prévenue")
 
     assert "Warn raid enregistré" in interaction.response.messages[0][0]
+    assert "Total : 1 warn" in interaction.response.messages[0][0]
+    assert db.count_raid_warns(guild_id=2, user_id=10) == 1
     assert user.dms == []
     assert "Warn raid" in admin_channel.sent[0].content
+    assert "Total : 1 warn raid" in admin_channel.sent[0].content
     assert "absence non prévenue" in admin_channel.sent[0].content
     assert "MP :" not in admin_channel.sent[0].content
     assert "<@10>" in admin_channel.sent[0].content
     assert "<@1>" in admin_channel.sent[0].content
+
+
+@pytest.mark.asyncio
+async def test_warn_raid_command_shows_existing_warn_count(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
+    admin_channel = _FakeChannel(500)
+    db.set_guild_setting(2, db.SETTING_RAID_ADMIN_CHANNEL, str(admin_channel.id))
+    db.add_raid_warn(guild_id=2, user_id=10, reason="premier retard", created_by=1)
+    cog = _cog()
+    cog._get_channel = _async_return(admin_channel)
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=1, mention="<@1>"),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+    user = SimpleNamespace(id=10, mention="<@10>")
+
+    await RaidCog.warn_raid.callback(cog, interaction, user, "absence non prévenue")
+
+    assert "Total : 2 warns" in interaction.response.messages[0][0]
+    assert "Total : 2 warns raid" in admin_channel.sent[0].content
+    assert db.count_raid_warns(guild_id=2, user_id=10) == 2
+
+
+@pytest.mark.asyncio
+async def test_show_warns_lists_global_counts(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
+    db.add_raid_warn(guild_id=2, user_id=10, reason="absence", created_by=1)
+    db.add_raid_warn(guild_id=2, user_id=10, reason="retard", created_by=1)
+    db.add_raid_warn(guild_id=2, user_id=20, reason="absence", created_by=1)
+    cog = _cog()
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=1),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+
+    await RaidCog.show_warns.callback(cog, interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    assert kwargs == {"ephemeral": True}
+    assert "Warns raid enregistrés" in content
+    assert "<@10>" in content
+    assert "2 warns" in content
+    assert "<@20>" in content
+    assert "1 warn" in content
+
+
+@pytest.mark.asyncio
+async def test_show_warns_lists_user_history(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.raid.is_raid_organizer", lambda _interaction: True)
+    db.add_raid_warn(guild_id=2, user_id=10, reason="absence", created_by=1)
+    db.add_raid_warn(guild_id=2, user_id=10, reason="retard", created_by=3)
+    cog = _cog()
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=1),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+    user = SimpleNamespace(id=10, mention="<@10>")
+
+    await RaidCog.show_warns.callback(cog, interaction, user)
+
+    content, kwargs = interaction.response.messages[0]
+    assert kwargs == {"ephemeral": True}
+    assert "Warns raid de <@10>" in content
+    assert "2 warns" in content
+    assert "absence" in content
+    assert "retard" in content
+    assert "<@1>" in content
+    assert "<@3>" in content
 
 
 @pytest.mark.asyncio
