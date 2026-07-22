@@ -718,8 +718,7 @@ class RaidCog(commands.Cog):
         name,
         level_group: str = LEVEL_200_PLUS,
     ) -> str:
-        """Inscrit un user s'il ne l'est pas. Retourne son statut ('confirmed' ou
-        'waitlist'). Un raid sans cap (nom inconnu) => toujours 'confirmed'."""
+        """Inscrit un user s'il ne l'est pas. Retourne son statut."""
         existing = db.get_participant_status(raid_id, user_id)
         if existing:
             return existing
@@ -727,9 +726,8 @@ class RaidCog(commands.Cog):
             low_level_cap = raid_low_level_cap(name)
             if low_level_cap <= 0:
                 return "low_level_full"
-            if self._count_confirmed_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
-                db.add_participant(raid_id, user_id, "waitlist", level_group)
-                return "waitlist"
+            if db.count_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
+                return "low_level_full"
         cap = raid_cap(name)
         status = "confirmed" if (cap is None or db.count_confirmed(raid_id) < cap) else "waitlist"
         db.add_participant(raid_id, user_id, status, level_group)
@@ -1154,7 +1152,7 @@ class RaidCog(commands.Cog):
                 return
             if level_group == LEVEL_199_MINUS:
                 blocked = self._low_level_full_message(raid, raid_id)
-                if blocked and raid_low_level_cap(raid["name"]) <= 0:
+                if blocked:
                     await interaction.response.edit_message(content=blocked, view=None)
                     return
             db.set_level_choice(raid_id, interaction.user.id, level_group)

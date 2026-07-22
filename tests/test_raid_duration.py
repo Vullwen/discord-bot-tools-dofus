@@ -383,14 +383,13 @@ def test_register_low_level_cap_for_gigalodon(tmp_path):
 
     assert cog._register_user(raid_id, 10, "Gigalodon", LEVEL_199_MINUS) == "confirmed"
     assert cog._register_user(raid_id, 20, "Gigalodon", LEVEL_199_MINUS) == "confirmed"
-    assert cog._register_user(raid_id, 30, "Gigalodon", LEVEL_199_MINUS) == "waitlist"
+    assert cog._register_user(raid_id, 30, "Gigalodon", LEVEL_199_MINUS) == "low_level_full"
     assert cog._register_user(raid_id, 40, "Gigalodon", LEVEL_200_PLUS) == "confirmed"
-    assert db.count_level_group(raid_id, LEVEL_199_MINUS) == 3
-    assert db.get_participant_status(raid_id, 30) == "waitlist"
-    assert db.get_participant_level_group(raid_id, 30) == LEVEL_199_MINUS
+    assert db.count_level_group(raid_id, LEVEL_199_MINUS) == 2
+    assert db.get_participant_status(raid_id, 30) is None
 
 
-def test_winning_hour_low_level_over_cap_goes_to_waitlist(tmp_path):
+def test_winning_hour_low_level_over_cap_is_not_registered(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
     raid_id = db.create_raid(
         name="Gigalodon",
@@ -405,11 +404,37 @@ def test_winning_hour_low_level_over_cap_goes_to_waitlist(tmp_path):
         db.set_level_choice(raid_id, user_id, LEVEL_199_MINUS)
         db.toggle_vote(raid_id, user_id, "hour", "15")
 
-    assert _cog()._register_winning_hour_voters(raid_id, raid, "15") == (2, 1)
+    assert _cog()._register_winning_hour_voters(raid_id, raid, "15") == (2, 0)
     assert db.get_participant_status(raid_id, 10) == "confirmed"
     assert db.get_participant_status(raid_id, 20) == "confirmed"
-    assert db.get_participant_status(raid_id, 30) == "waitlist"
-    assert db.get_participant_level_group(raid_id, 30) == LEVEL_199_MINUS
+    assert db.get_participant_status(raid_id, 30) is None
+    assert db.count_level_group(raid_id, LEVEL_199_MINUS) == 2
+
+
+@pytest.mark.asyncio
+async def test_hour_level_choice_blocks_low_level_when_cap_is_reserved(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="voting_hour",
+    )
+    for user_id, hour in ((10, "15"), (20, "16")):
+        db.set_level_choice(raid_id, user_id, LEVEL_199_MINUS)
+        db.toggle_vote(raid_id, user_id, "hour", hour)
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=30),
+        response=_FakeResponse(),
+    )
+
+    await _cog().handle_level_choice(interaction, raid_id, LEVEL_199_MINUS, "hour", 15)
+
+    assert interaction.response.edits[0][0] == "Les 2 place(s) 199- sont déjà prises pour Gigalodon."
+    assert db.get_level_choice(raid_id, 30) is None
+    assert db.get_user_votes(raid_id, 30, "hour") == []
 
 
 def test_register_low_level_forbidden_for_jardins(tmp_path):
