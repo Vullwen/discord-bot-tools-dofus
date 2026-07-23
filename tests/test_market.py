@@ -152,6 +152,7 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
 
     await cog.on_thread_create(thread)
 
+    assert thread.name == "[vente] Gelano"
     assert len(thread.sent) == 1
     assert "Prix" in thread.sent[0].content
     assert thread.sent[0].view is not None
@@ -166,6 +167,7 @@ async def test_buy_thread_gets_buy_controls(monkeypatch):
 
     await cog.on_thread_create(thread)
 
+    assert thread.name == "[achat] Gelano"
     labels = [item.label for item in thread.sent[0].view.children]
     assert "✅ Clôturer l'achat" in labels
     assert "gérer l'achat" in thread.sent[0].content
@@ -181,6 +183,7 @@ async def test_market_message_backfills_missing_control_buttons(monkeypatch):
     await cog.on_message(FakeMessage(channel=thread))
     await cog.on_message(FakeMessage(channel=thread))
 
+    assert thread.name == "[vente] Bouclier"
     assert len(thread.sent) == 1
     assert db.get_market_post(thread.id)["control_message_id"] == thread.sent[0].id
 
@@ -226,7 +229,7 @@ async def test_op_can_set_price_and_thread_is_renamed(monkeypatch):
 
     await cog.set_price(interaction, 1500000, None)
 
-    assert thread.name == "Dofus turquoise - 1 500 000 kamas"
+    assert thread.name == "[vente] Dofus turquoise - 1 500 000 kamas"
     assert interaction.response.messages[0][0] == "Prix défini : **1 500 000 kamas**."
 
 
@@ -240,7 +243,7 @@ async def test_admin_can_set_price(monkeypatch):
 
     await cog.set_price(interaction, 1500000, None)
 
-    assert thread.name == "Dofus turquoise - 1 500 000 kamas"
+    assert thread.name == "[vente] Dofus turquoise - 1 500 000 kamas"
     assert interaction.response.messages[0][0] == "Prix défini : **1 500 000 kamas**."
 
 
@@ -284,12 +287,12 @@ async def test_buy_post_prompts_buy_close_choices(monkeypatch):
     content, kwargs = interaction.response.messages[0]
     labels = [item.label for item in kwargs["view"].children]
     assert content == "Choisis comment clôturer cet achat :"
-    assert labels == ["Achat échoué", "Achat guilde", "Achat HDV"]
+    assert labels == ["Achat annulé", "Achat guilde", "Achat HDV"]
 
 
 @pytest.mark.asyncio
 async def test_op_can_close_sale_as_guild_sale(monkeypatch):
-    thread = FakeThread(name="Gelano - 1 500 000 kamas", owner_id=10)
+    thread = FakeThread(name="[vente] Gelano - 1 500 000 kamas", owner_id=10)
     cog = market.MarketCog(FakeBot(channel=thread))
     interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
@@ -299,6 +302,8 @@ async def test_op_can_close_sale_as_guild_sale(monkeypatch):
     assert thread.name == "[vente guilde] Gelano - 1 500 000 kamas"
     assert thread.archived is True
     assert thread.locked is True
+    assert thread.edits[0]["archived"] is True
+    assert thread.edits[1]["locked"] is True
     assert interaction.response.deferred is True
     assert interaction.response.defer_kwargs == {"ephemeral": True}
     assert interaction.followup.messages[0][0] == "Vente guilde : post clôturé."
@@ -306,7 +311,7 @@ async def test_op_can_close_sale_as_guild_sale(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_buy_post_close_uses_buy_prefix(monkeypatch):
-    thread = FakeThread(name="Dofus turquoise - 1 500 000 kamas", owner_id=10, tags=["achat"])
+    thread = FakeThread(name="[achat] Dofus turquoise - 1 500 000 kamas", owner_id=10, tags=["achat"])
     cog = market.MarketCog(FakeBot(channel=thread))
     interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
@@ -324,7 +329,7 @@ async def test_buy_post_close_uses_buy_prefix(monkeypatch):
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
-        ("failed", "[vente échouée] Gelano"),
+        ("failed", "[vente annulée] Gelano"),
         ("hdv", "[vente hdv] Gelano"),
     ],
 )
@@ -358,7 +363,7 @@ async def test_inactive_market_post_is_closed_and_owner_notified(monkeypatch):
 
     await cog._close_inactive_posts_once()
 
-    assert thread.name == "[vente échouée] Anneau rare"
+    assert thread.name == "[vente annulée] Anneau rare"
     assert thread.archived is True
     assert thread.locked is True
     assert owner.dms

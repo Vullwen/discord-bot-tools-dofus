@@ -24,9 +24,10 @@ logger = logging.getLogger("dofus-raid-bot.market")
 MARKET_FORUM_NAMES = {"le marche", "marche", "le-marché", "marché", "market"}
 PRICE_SUFFIX_RE = re.compile(r"\s+-\s+[\d ]+\s+kamas?$", re.IGNORECASE)
 STATUS_PREFIX_RE = re.compile(
-    r"^\s*\[(?:finalis[ée]?|vente échouée|vente guilde|vente hdv|achat échoué|achat guilde|achat hdv)\]\s*",
+    r"^\s*\[(?:finalis[ée]?|vente (?:annulée|échouée)|vente guilde|vente hdv|achat (?:annulé|échoué)|achat guilde|achat hdv)\]\s*",
     re.IGNORECASE,
 )
+TYPE_PREFIX_RE = re.compile(r"^\s*\[(?:vente|achat)\]\s*", re.IGNORECASE)
 MAX_THREAD_NAME_LENGTH = 100
 MARKET_INACTIVITY_DAYS = 30
 MARKET_INACTIVITY_CHECK_SECONDS = 60 * 60
@@ -36,7 +37,7 @@ MARKET_OPERATIONS = {
         "noun": "vente",
         "object": "la vente",
         "title": "Vente",
-        "failed_label": "Vente échouée",
+        "failed_label": "Vente annulée",
         "close_label": "✅ Clôturer la vente",
         "prompt": "Choisis comment clôturer cette vente :",
     },
@@ -45,13 +46,13 @@ MARKET_OPERATIONS = {
         "noun": "achat",
         "object": "l'achat",
         "title": "Achat",
-        "failed_label": "Achat échoué",
+        "failed_label": "Achat annulé",
         "close_label": "✅ Clôturer l'achat",
         "prompt": "Choisis comment clôturer cet achat :",
     },
 }
 CLOSE_STATUSES = {
-    "failed": {"suffix": "échouée", "buy_suffix": "échoué", "style": discord.ButtonStyle.danger},
+    "failed": {"suffix": "annulée", "buy_suffix": "annulé", "style": discord.ButtonStyle.danger},
     "guild": {"suffix": "guilde", "buy_suffix": "guilde", "style": discord.ButtonStyle.success},
     "hdv": {"suffix": "HDV", "buy_suffix": "HDV", "style": discord.ButtonStyle.primary},
 }
@@ -88,23 +89,40 @@ def _choice_prefix(operation: str, status: str) -> str:
     return f"[{_choice_label(operation, status).lower()}]"
 
 
+def _strip_market_prefix(name: str) -> str:
+    return TYPE_PREFIX_RE.sub("", STATUS_PREFIX_RE.sub("", name)).strip()
+
+
+def _open_prefix(operation: str) -> str:
+    return f"[{MARKET_OPERATIONS[operation]['tag']}]"
+
+
+def _open_name(name: str, operation: str = "sale") -> str:
+    prefix = f"{_open_prefix(operation)} "
+    base = _strip_market_prefix(name) or MARKET_OPERATIONS[operation]["title"]
+    max_base_len = MAX_THREAD_NAME_LENGTH - len(prefix)
+    if len(base) > max_base_len:
+        base = base[:max_base_len].rstrip()
+    return f"{prefix}{base}"
+
+
 def _base_sale_name(name: str, operation: str = "sale") -> str:
-    without_status = STATUS_PREFIX_RE.sub("", name).strip()
-    without_price = PRICE_SUFFIX_RE.sub("", without_status).strip()
+    without_price = PRICE_SUFFIX_RE.sub("", _strip_market_prefix(name)).strip()
     return without_price or MARKET_OPERATIONS[operation]["title"]
 
 
 def _with_price(name: str, price: int, operation: str = "sale") -> str:
     suffix = f" - {_format_kamas(price)} kamas"
-    max_base_len = MAX_THREAD_NAME_LENGTH - len(suffix)
+    prefix = f"{_open_prefix(operation)} "
+    max_base_len = MAX_THREAD_NAME_LENGTH - len(prefix) - len(suffix)
     base = _base_sale_name(name, operation)
     if len(base) > max_base_len:
         base = base[:max_base_len].rstrip()
-    return f"{base}{suffix}"
+    return f"{prefix}{base}{suffix}"
 
 
 def _closed_name(name: str, status: str, operation: str = "sale") -> str:
-    base = STATUS_PREFIX_RE.sub("", name).strip() or MARKET_OPERATIONS[operation]["title"]
+    base = _strip_market_prefix(name) or MARKET_OPERATIONS[operation]["title"]
     prefix = f"{_choice_prefix(operation, status)} "
     max_base_len = MAX_THREAD_NAME_LENGTH - len(prefix)
     if len(base) > max_base_len:
@@ -262,6 +280,7 @@ class MarketCog(commands.Cog):
         if not self.is_market_thread(thread):
             return
         self._record_activity(thread)
+        await self._ensure_thread_presentation(thread)
         await self._ensure_control_message(thread)
 
     @commands.Cog.listener()
@@ -271,6 +290,7 @@ class MarketCog(commands.Cog):
         channel = getattr(message, "channel", None)
         if self.is_market_thread(channel):
             self._record_activity(channel)
+            await self._ensure_thread_presentation(channel)
             await self._ensure_control_message(channel)
 
     async def set_price(
@@ -330,12 +350,7 @@ class MarketCog(commands.Cog):
         label = _choice_label(operation, status)
         await interaction.response.defer(ephemeral=True)
         try:
-            await thread.edit(
-                name=_closed_name(thread.name, status, operation),
-                archived=True,
-                locked=True,
-                reason=f"{label} par {interaction.user}",
-            )
+            await self._archive_market_thread(thread, _closed_name(thread.name, status, operation), f"{label} par {interaction.user}")
         except discord.Forbidden:
             await interaction.followup.send(
                 "Je n'ai pas les permissions pour clôturer ce post.",
@@ -349,6 +364,25 @@ class MarketCog(commands.Cog):
 
         db.mark_market_post_closed(thread.id, status, now_paris())
         await interaction.followup.send(f"{label} : post clôturé.", ephemeral=True)
+
+    async def _ensure_thread_presentation(self, thread: discord.Thread) -> None:
+        if STATUS_PREFIX_RE.match(getattr(thread, "name", "")):
+            return
+        operation = _market_operation(thread)
+        expected_name = _open_name(thread.name, operation)
+        if expected_name == thread.name:
+            return
+        try:
+            await thread.edit(name=expected_name, reason="Présentation marché normalisée")
+        except discord.DiscordException as exc:
+            logger.info("Présentation marché non normalisée pour %s: %s", thread.id, exc)
+
+    async def _archive_market_thread(self, thread: discord.Thread, name: str, reason: str) -> None:
+        await thread.edit(name=name, archived=True, reason=reason)
+        try:
+            await thread.edit(archived=True, locked=True, reason=reason)
+        except discord.DiscordException as exc:
+            logger.warning("Verrouillage marché échoué pour %s après archivage: %s", thread.id, exc)
 
     def _record_activity(self, thread: discord.Thread) -> None:
         guild = getattr(thread, "guild", None)
@@ -477,11 +511,10 @@ class MarketCog(commands.Cog):
         label = _choice_label(operation, "failed")
         original_name = thread.name
         try:
-            await thread.edit(
-                name=_closed_name(thread.name, "failed", operation),
-                archived=True,
-                locked=True,
-                reason=f"{label} automatique après {MARKET_INACTIVITY_DAYS} jours d'inactivité",
+            await self._archive_market_thread(
+                thread,
+                _closed_name(thread.name, "failed", operation),
+                f"{label} automatique après {MARKET_INACTIVITY_DAYS} jours d'inactivité",
             )
         except discord.DiscordException as exc:
             logger.warning("Clôture automatique marché échouée pour %s: %s", post["thread_id"], exc)
