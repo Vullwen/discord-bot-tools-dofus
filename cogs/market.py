@@ -378,11 +378,12 @@ class MarketCog(commands.Cog):
             logger.info("Présentation marché non normalisée pour %s: %s", thread.id, exc)
 
     async def _archive_market_thread(self, thread: discord.Thread, name: str, reason: str) -> None:
-        await thread.edit(name=name, archived=True, reason=reason)
         try:
-            await thread.edit(archived=True, locked=True, reason=reason)
+            await thread.edit(name=name, locked=True, reason=reason)
         except discord.DiscordException as exc:
-            logger.warning("Verrouillage marché échoué pour %s après archivage: %s", thread.id, exc)
+            logger.warning("Verrouillage marché échoué pour %s avant archivage: %s", thread.id, exc)
+            await thread.edit(name=name, reason=reason)
+        await thread.edit(archived=True, reason=reason)
 
     def _record_activity(self, thread: discord.Thread) -> None:
         guild = getattr(thread, "guild", None)

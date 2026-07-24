@@ -302,8 +302,8 @@ async def test_op_can_close_sale_as_guild_sale(monkeypatch):
     assert thread.name == "[vente guilde] Gelano - 1 500 000 kamas"
     assert thread.archived is True
     assert thread.locked is True
-    assert thread.edits[0]["archived"] is True
-    assert thread.edits[1]["locked"] is True
+    assert thread.edits[0]["locked"] is True
+    assert thread.edits[1]["archived"] is True
     assert interaction.response.deferred is True
     assert interaction.response.defer_kwargs == {"ephemeral": True}
     assert interaction.followup.messages[0][0] == "Vente guilde : post clôturé."
