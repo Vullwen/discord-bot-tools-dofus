@@ -20,10 +20,13 @@ def test_rules_embed_uses_fields_for_readable_sections():
     assert embed.author.name == "Bagarres & Belettes"
     assert embed.author.icon_url == "https://cdn.example/icon.png"
     assert embed.thumbnail.url == "https://cdn.example/icon.png"
-    assert len(embed.fields) == 8
+    assert len(embed.fields) == 9
     assert embed.fields[0].name == "👤 1 — Comportement des membres"
     assert "Respect obligatoire" in embed.fields[0].value
     assert "\n- Aucune insulte" in embed.fields[0].value
+    assert embed.fields[4].name == "🤝 5 — Entraide"
+    assert "rang Fouine" in embed.fields[4].value
+    assert "plus bas niveau" in embed.fields[4].value
 
 
 def test_onboarding_views_include_admin_close_button():

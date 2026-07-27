@@ -62,7 +62,17 @@ DEFAULT_RULE_SECTIONS = (
         ),
     ),
     (
-        "🔐 5 — Sécurité et confidentialité",
+        "🤝 5 — Entraide",
+        (
+            "L'entraide doit rester réciproque et raisonnable",
+            "Les demandes répétées sans participation aux besoins des autres pourront entraîner un avertissement",
+            "Après un avertissement, le membre concerné reçoit le rang Fouine pendant la période de suivi",
+            "En cas de récidive, une exclusion temporaire pourra être appliquée",
+            "Les membres plus bas niveau ne seront pas pénalisés lorsqu'ils ne peuvent pas aider sur du contenu trop avancé",
+        ),
+    ),
+    (
+        "🔐 6 — Sécurité et confidentialité",
         (
             "Ne partage jamais tes identifiants",
             "Ne partage jamais les informations personnelles d'un membre",
@@ -71,7 +81,7 @@ DEFAULT_RULE_SECTIONS = (
         ),
     ),
     (
-        "🎙️ 6 — Vocal",
+        "🎙️ 7 — Vocal",
         (
             "Micro propre et audible si possible",
             "Push-to-talk recommandé si environnement bruyant",
@@ -79,7 +89,7 @@ DEFAULT_RULE_SECTIONS = (
         ),
     ),
     (
-        "🚫 7 — Contenus interdits",
+        "🚫 8 — Contenus interdits",
         (
             "Contenus NSFW",
             "Liens douteux / malware",
@@ -88,7 +98,7 @@ DEFAULT_RULE_SECTIONS = (
         ),
     ),
     (
-        "✍️ 8 — Acceptation",
+        "✍️ 9 — Acceptation",
         (
             "Toute présence sur le serveur vaut acceptation du règlement",
             "Les règles peuvent évoluer ; les membres seront informés",
