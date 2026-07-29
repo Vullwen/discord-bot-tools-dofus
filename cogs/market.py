@@ -348,9 +348,10 @@ class MarketCog(commands.Cog):
 
         operation = _market_operation(thread)
         label = _choice_label(operation, status)
+        reason = f"{label} par {interaction.user}"
         await interaction.response.defer(ephemeral=True)
         try:
-            await self._archive_market_thread(thread, _closed_name(thread.name, status, operation), f"{label} par {interaction.user}")
+            await self._prepare_market_thread_close(thread, _closed_name(thread.name, status, operation), reason)
         except discord.Forbidden:
             await interaction.followup.send(
                 "Je n'ai pas les permissions pour clôturer ce post.",
@@ -362,8 +363,21 @@ class MarketCog(commands.Cog):
             await interaction.followup.send("Impossible de clôturer ce post.", ephemeral=True)
             return
 
+        await self._send_close_confirmation(interaction, f"{label} : post clôturé.")
+        try:
+            await self._archive_market_thread(thread, reason)
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "Je n'ai pas les permissions pour archiver ce post.",
+                ephemeral=True,
+            )
+            return
+        except discord.DiscordException as exc:
+            logger.warning("Archivage marché échoué pour %s: %s", thread.id, exc)
+            await interaction.followup.send("Impossible d'archiver ce post.", ephemeral=True)
+            return
+
         db.mark_market_post_closed(thread.id, status, now_paris())
-        await interaction.followup.send(f"{label} : post clôturé.", ephemeral=True)
 
     async def _ensure_thread_presentation(self, thread: discord.Thread) -> None:
         if STATUS_PREFIX_RE.match(getattr(thread, "name", "")):
@@ -377,13 +391,21 @@ class MarketCog(commands.Cog):
         except discord.DiscordException as exc:
             logger.info("Présentation marché non normalisée pour %s: %s", thread.id, exc)
 
-    async def _archive_market_thread(self, thread: discord.Thread, name: str, reason: str) -> None:
+    async def _prepare_market_thread_close(self, thread: discord.Thread, name: str, reason: str) -> None:
         try:
             await thread.edit(name=name, locked=True, reason=reason)
         except discord.DiscordException as exc:
             logger.warning("Verrouillage marché échoué pour %s avant archivage: %s", thread.id, exc)
             await thread.edit(name=name, reason=reason)
+
+    async def _archive_market_thread(self, thread: discord.Thread, reason: str) -> None:
         await thread.edit(archived=True, reason=reason)
+
+    async def _send_close_confirmation(self, interaction: discord.Interaction, content: str) -> None:
+        try:
+            await interaction.followup.send(content, ephemeral=True)
+        except discord.DiscordException as exc:
+            logger.info("Confirmation clôture marché non envoyée dans %s: %s", interaction.channel_id, exc)
 
     def _record_activity(self, thread: discord.Thread) -> None:
         guild = getattr(thread, "guild", None)
@@ -512,11 +534,13 @@ class MarketCog(commands.Cog):
         label = _choice_label(operation, "failed")
         original_name = thread.name
         try:
-            await self._archive_market_thread(
+            reason = f"{label} automatique après {MARKET_INACTIVITY_DAYS} jours d'inactivité"
+            await self._prepare_market_thread_close(
                 thread,
                 _closed_name(thread.name, "failed", operation),
-                f"{label} automatique après {MARKET_INACTIVITY_DAYS} jours d'inactivité",
+                reason,
             )
+            await self._archive_market_thread(thread, reason)
         except discord.DiscordException as exc:
             logger.warning("Clôture automatique marché échouée pour %s: %s", post["thread_id"], exc)
             return

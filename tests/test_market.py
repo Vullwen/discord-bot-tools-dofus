@@ -74,11 +74,15 @@ class FakeResponse:
 
 
 class FakeFollowup:
-    def __init__(self):
+    def __init__(self, *, channel=None):
+        self.channel = channel
         self.messages = []
 
     async def send(self, content=None, **kwargs):
         self.messages.append((content, kwargs))
+        events = getattr(self.channel, "events", None)
+        if events is not None:
+            events.append(("followup", content))
 
 
 class FakeInteraction:
@@ -88,7 +92,7 @@ class FakeInteraction:
         self.channel = channel
         self.channel_id = getattr(channel, "id", None)
         self.response = FakeResponse()
-        self.followup = FakeFollowup()
+        self.followup = FakeFollowup(channel=channel)
 
 
 class FakeThread:
@@ -113,6 +117,7 @@ class FakeThread:
         self.jump_url = f"https://discord.test/channels/{self.id}"
         self.sent = []
         self.edits = []
+        self.events = []
         self._messages = {}
         self._next_id = 1000
 
@@ -125,6 +130,7 @@ class FakeThread:
 
     async def edit(self, **kwargs):
         self.edits.append(kwargs)
+        self.events.append(("edit", kwargs))
         if "name" in kwargs:
             self.name = kwargs["name"]
         if "archived" in kwargs:
@@ -304,6 +310,8 @@ async def test_op_can_close_sale_as_guild_sale(monkeypatch):
     assert thread.locked is True
     assert thread.edits[0]["locked"] is True
     assert thread.edits[1]["archived"] is True
+    assert [event[0] for event in thread.events] == ["edit", "followup", "edit"]
+    assert thread.events[-1][1]["archived"] is True
     assert interaction.response.deferred is True
     assert interaction.response.defer_kwargs == {"ephemeral": True}
     assert interaction.followup.messages[0][0] == "Vente guilde : post clôturé."
