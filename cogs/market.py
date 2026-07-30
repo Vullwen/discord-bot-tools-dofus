@@ -22,6 +22,12 @@ from utils.perms import is_bot_admin
 logger = logging.getLogger("dofus-raid-bot.market")
 
 MARKET_FORUM_NAMES = {"le marche", "marche", "le-marché", "marché", "market"}
+PRICE_SUFFIX_RE = re.compile(r"\s+-\s+[\d ]+\s+kamas?$", re.IGNORECASE)
+MARKET_PREFIX_RE = re.compile(
+    r"^\s*\[(?:vente|achat|finalis[ée]?|vente (?:annulée|échouée|guilde|hdv)|achat (?:annulé|échoué|guilde|hdv))\]\s*",
+    re.IGNORECASE,
+)
+MAX_THREAD_NAME_LENGTH = 100
 MARKET_INACTIVITY_DAYS = 30
 MARKET_INACTIVITY_CHECK_SECONDS = 60 * 60
 MARKET_OPERATIONS = {
@@ -76,6 +82,35 @@ def _choice_label(operation: str, status: str) -> str:
     status_config = CLOSE_STATUSES[status]
     suffix = status_config["buy_suffix"] if operation == "buy" else status_config["suffix"]
     return f"{config['title']} {suffix}"
+
+
+def _market_prefix(operation: str) -> str:
+    return f"[{MARKET_OPERATIONS[operation]['tag']}]"
+
+
+def _base_market_name(name: str, operation: str = "sale") -> str:
+    without_prefix = MARKET_PREFIX_RE.sub("", name).strip()
+    without_price = PRICE_SUFFIX_RE.sub("", without_prefix).strip()
+    return without_price or MARKET_OPERATIONS[operation]["title"]
+
+
+def _open_name(name: str, operation: str = "sale") -> str:
+    prefix = f"{_market_prefix(operation)} "
+    base = _base_market_name(name, operation)
+    max_base_len = MAX_THREAD_NAME_LENGTH - len(prefix)
+    if len(base) > max_base_len:
+        base = base[:max_base_len].rstrip()
+    return f"{prefix}{base}"
+
+
+def _with_price(name: str, price: int, operation: str = "sale") -> str:
+    suffix = f" - {_format_kamas(price)} kamas"
+    prefix = f"{_market_prefix(operation)} "
+    base = _base_market_name(name, operation)
+    max_base_len = MAX_THREAD_NAME_LENGTH - len(prefix) - len(suffix)
+    if len(base) > max_base_len:
+        base = base[:max_base_len].rstrip()
+    return f"{prefix}{base}{suffix}"
 
 
 def _parse_kamas(raw: str) -> Optional[int]:
@@ -192,6 +227,7 @@ class MarketCog(commands.Cog):
         self.bot = bot
         self._cleanup_task: Optional[asyncio.Task] = None
         self._control_sends: set[int] = set()
+        self._closing_threads: set[int] = set()
 
     async def cog_load(self) -> None:
         self.bot.add_view(MarketPostView(self))
@@ -228,6 +264,7 @@ class MarketCog(commands.Cog):
         if not self.is_market_thread(thread):
             return
         self._record_activity(thread)
+        await self._ensure_thread_presentation(thread)
         await self._ensure_control_message(thread)
 
     @commands.Cog.listener()
@@ -254,9 +291,22 @@ class MarketCog(commands.Cog):
             return
 
         price_label = _format_kamas(price)
+        operation = _market_operation(thread)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await thread.edit(name=_with_price(thread.name, price, operation), reason=f"Prix marché défini par {interaction.user}")
+        except discord.DiscordException as exc:
+            logger.warning("Renommage prix marché échoué pour %s: %s", thread.id, exc)
+            await interaction.followup.send(
+                f"Prix défini : **{price_label} kamas**. Le titre n'a pas pu être renommé pour l'instant.",
+                ephemeral=True,
+            )
+            self._record_activity(thread)
+            await self._edit_control_message(thread, control_message_id, price_label)
+            return
         self._record_activity(thread)
         await self._edit_control_message(thread, control_message_id, price_label)
-        await interaction.response.send_message(f"Prix défini : **{price_label} kamas**.", ephemeral=True)
+        await interaction.followup.send(f"Prix défini : **{price_label} kamas**.", ephemeral=True)
 
     async def prompt_close_sale(self, interaction: discord.Interaction) -> None:
         if not self.is_market_thread(interaction.channel):
@@ -283,11 +333,15 @@ class MarketCog(commands.Cog):
         if not self.can_manage_post(interaction):
             await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer cette annonce.", ephemeral=True)
             return
+        if thread.id in self._closing_threads:
+            await interaction.response.send_message("Clôture déjà en cours pour ce post.", ephemeral=True)
+            return
 
         operation = _market_operation(thread)
         label = _choice_label(operation, status)
         reason = f"{label} par {interaction.user}"
         await interaction.response.defer(ephemeral=True)
+        self._closing_threads.add(thread.id)
         try:
             await self._archive_market_thread(thread, reason)
         except discord.Forbidden:
@@ -300,12 +354,23 @@ class MarketCog(commands.Cog):
             logger.warning("Clôture marché échouée pour %s: %s", thread.id, exc)
             await interaction.followup.send("Impossible de clôturer ce post.", ephemeral=True)
             return
+        finally:
+            self._closing_threads.discard(thread.id)
 
         db.mark_market_post_closed(thread.id, status, now_paris())
         logger.info("Post marché %s archivé avec le statut %s", thread.id, status)
 
     async def _archive_market_thread(self, thread: discord.Thread, reason: str) -> None:
         await thread.edit(archived=True, reason=reason)
+
+    async def _ensure_thread_presentation(self, thread: discord.Thread) -> None:
+        if MARKET_PREFIX_RE.match(getattr(thread, "name", "")):
+            return
+        operation = _market_operation(thread)
+        try:
+            await thread.edit(name=_open_name(thread.name, operation), reason="Présentation marché normalisée")
+        except discord.DiscordException as exc:
+            logger.info("Présentation marché non normalisée pour %s: %s", thread.id, exc)
 
     def _record_activity(self, thread: discord.Thread) -> None:
         guild = getattr(thread, "guild", None)

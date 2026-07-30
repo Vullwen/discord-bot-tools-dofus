@@ -158,8 +158,8 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
 
     await cog.on_thread_create(thread)
 
-    assert thread.name == "Gelano"
-    assert thread.edits == []
+    assert thread.name == "[vente] Gelano"
+    assert thread.edits == [{"name": "[vente] Gelano", "reason": "Présentation marché normalisée"}]
     assert len(thread.sent) == 1
     assert "Prix" in thread.sent[0].content
     assert thread.sent[0].view is not None
@@ -174,8 +174,8 @@ async def test_buy_thread_gets_buy_controls(monkeypatch):
 
     await cog.on_thread_create(thread)
 
-    assert thread.name == "Gelano"
-    assert thread.edits == []
+    assert thread.name == "[achat] Gelano"
+    assert thread.edits == [{"name": "[achat] Gelano", "reason": "Présentation marché normalisée"}]
     labels = [item.label for item in thread.sent[0].view.children]
     assert "✅ Clôturer l'achat" in labels
     assert "gérer l'achat" in thread.sent[0].content
@@ -229,7 +229,7 @@ def test_configured_market_forum_channel_takes_priority(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_op_can_set_price_without_renaming_thread(monkeypatch):
+async def test_op_can_set_price_and_thread_is_renamed(monkeypatch):
     thread = FakeThread(name="Dofus turquoise")
     cog = market.MarketCog(FakeBot(channel=thread))
     user = FakeUser(10)
@@ -238,9 +238,11 @@ async def test_op_can_set_price_without_renaming_thread(monkeypatch):
 
     await cog.set_price(interaction, 1500000, None)
 
-    assert thread.name == "Dofus turquoise"
-    assert thread.edits == []
-    assert interaction.response.messages[0][0] == "Prix défini : **1 500 000 kamas**."
+    assert thread.name == "[vente] Dofus turquoise - 1 500 000 kamas"
+    assert thread.edits == [{"name": "[vente] Dofus turquoise - 1 500 000 kamas", "reason": "Prix marché défini par user-10"}]
+    assert interaction.response.deferred is True
+    assert interaction.response.defer_kwargs == {"ephemeral": True}
+    assert interaction.followup.messages[0][0] == "Prix défini : **1 500 000 kamas**."
 
 
 @pytest.mark.asyncio
@@ -253,9 +255,11 @@ async def test_admin_can_set_price(monkeypatch):
 
     await cog.set_price(interaction, 1500000, None)
 
-    assert thread.name == "Dofus turquoise"
-    assert thread.edits == []
-    assert interaction.response.messages[0][0] == "Prix défini : **1 500 000 kamas**."
+    assert thread.name == "[vente] Dofus turquoise - 1 500 000 kamas"
+    assert thread.edits == [{"name": "[vente] Dofus turquoise - 1 500 000 kamas", "reason": "Prix marché défini par user-99"}]
+    assert interaction.response.deferred is True
+    assert interaction.response.defer_kwargs == {"ephemeral": True}
+    assert interaction.followup.messages[0][0] == "Prix défini : **1 500 000 kamas**."
 
 
 @pytest.mark.asyncio
@@ -354,6 +358,20 @@ async def test_close_sale_statuses_archive_without_extra_thread_edits(monkeypatc
     assert thread.archived is True
     assert not hasattr(thread, "locked")
     assert thread.edits == [{"archived": True, "reason": f"{market._choice_label('sale', status)} par user-10"}]
+
+
+@pytest.mark.asyncio
+async def test_close_sale_ignores_duplicate_close_in_progress(monkeypatch):
+    thread = FakeThread(name="Gelano", owner_id=10)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+    cog._closing_threads.add(thread.id)
+
+    await cog.close_sale(interaction, "guild")
+
+    assert thread.edits == []
+    assert interaction.response.messages[0][0] == "Clôture déjà en cours pour ce post."
 
 
 @pytest.mark.asyncio
