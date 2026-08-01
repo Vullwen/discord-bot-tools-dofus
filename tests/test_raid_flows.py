@@ -101,6 +101,7 @@ async def test_raid_choice_with_fixed_time_transitions_to_scheduled(tmp_path):
     channel = FakeChannel(300)
     creator = FakeUser(10, "Creator")
     cog = _cog(channel=channel, users=[creator])
+    db.set_guild_setting(2, db.SETTING_RAID_NOTIFY_ROLE, "555")
 
     raid_id = await cog.create_raid(_guild(), channel, creator, None, "28/08/2026 20h")
     db.cast_vote(raid_id, 100, "raid", "Jardins Éternels")
@@ -113,6 +114,7 @@ async def test_raid_choice_with_fixed_time_transitions_to_scheduled(tmp_path):
     assert raid["scheduled_at"] == "2026-08-28T20:00:00+02:00"
     assert raid["raid_poll_message_id"] is None
     assert raid["scheduled_message_id"] == channel.sent[-1].id
+    assert channel.sent[-1].content == "<@&555>"
 
 
 @pytest.mark.asyncio

@@ -942,7 +942,7 @@ class RaidCog(commands.Cog):
         fixed_time = dates_utils.parse_time(date_text)
         now = now_paris()
         fixed_label = f"{fixed_time:%Hh%M}" if fixed_time else None
-        # Rôle mentionné à l'annonce du raid (1er message seulement) — None si non configuré.
+        # Rôle mentionné à l'annonce du raid — None si non configuré.
         notify_role_id = db.get_guild_setting_int(guild.id, db.SETTING_RAID_NOTIFY_ROLE)
 
         if fixed_time is not None:
@@ -1051,6 +1051,8 @@ class RaidCog(commands.Cog):
         if channel is None:
             logger.warning("Salon introuvable pour le raid #%d", raid_id)
             return
+        if notify_role_id is None:
+            notify_role_id = db.get_guild_setting_int(raid["guild_id"], db.SETTING_RAID_NOTIFY_ROLE)
         msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
         db.update_raid(raid_id, scheduled_message_id=msg.id)
 
