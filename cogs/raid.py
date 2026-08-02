@@ -741,6 +741,10 @@ class RaidCog(commands.Cog):
         db.add_participant(raid_id, user_id, status, level_group)
         return status
 
+    def _register_creator(self, raid_id: int, user: discord.abc.User, raid_name: Optional[str]) -> str:
+        """Inscrit automatiquement le créateur du raid avec le palier par défaut."""
+        return self._register_user(raid_id, user.id, raid_name, LEVEL_200_PLUS)
+
     def _waitlist_message(self, raid, raid_id: int, level_group: str, position: Optional[int]) -> str:
         if level_group == LEVEL_199_MINUS and raid_low_level_cap(raid["name"]) > 0:
             if self._count_confirmed_level_group(raid_id, LEVEL_199_MINUS) >= raid_low_level_cap(raid["name"]):
@@ -964,6 +968,7 @@ class RaidCog(commands.Cog):
                 fixed_time=f"{fixed_time:%H:%M}",
                 poll_hours=poll_hours,
             )
+            self._register_creator(raid_id, user, raid_name)
             logger.info("Raid #%d créé par %s (heure fixée %s)", raid_id, user, fixed_label)
             await self._post_scheduled(raid_id, notify_role_id=notify_role_id)
             self._schedule_reminder(raid_id, scheduled_at)
@@ -1006,6 +1011,7 @@ class RaidCog(commands.Cog):
             fixed_time=f"{fixed_time:%H:%M}" if fixed_time else None,
             poll_hours=poll_hours,
         )
+        self._register_creator(raid_id, user, raid_name)
         logger.info("Raid #%d créé par %s (state=%s, clôture %s)", raid_id, user, state, closes_at.isoformat())
 
         if state == STATE_VOTING_HOUR:

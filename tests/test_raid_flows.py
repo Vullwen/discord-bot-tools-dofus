@@ -60,6 +60,9 @@ async def test_create_fixed_raid_posts_scheduled_and_persists_contract(tmp_path)
     assert raid["fixed_time"] == "19:30"
     assert raid["scheduled_at"] == "2026-08-28T19:30:00+02:00"
     assert raid["scheduled_message_id"] == channel.sent[0].id
+    assert db.get_participant_status(raid_id, creator.id) == "confirmed"
+    assert db.get_participant_level_group(raid_id, creator.id) == LEVEL_200_PLUS
+    assert db.count_confirmed(raid_id) == 1
     assert channel.sent[0].content == "<@&555>"
     assert [kind for _rid, kind, _when, _fn in cog.scheduled] == [
         "del_raid_msgs",
@@ -90,6 +93,9 @@ async def test_create_known_raid_without_time_opens_hour_poll(tmp_path):
     assert raid["poll_hours"] == "19,20,21"
     assert raid["poll_close_hour"] == 18
     assert raid["hour_poll_message_id"] == channel.sent[0].id
+    assert db.get_participant_status(raid_id, creator.id) == "confirmed"
+    assert db.get_participant_level_group(raid_id, creator.id) == LEVEL_200_PLUS
+    assert db.count_confirmed(raid_id) == 1
     assert [(kind, fn) for _rid, kind, _when, fn in cog.scheduled] == [
         ("hour_close", "_close_hour_poll")
     ]
@@ -114,6 +120,8 @@ async def test_raid_choice_with_fixed_time_transitions_to_scheduled(tmp_path):
     assert raid["scheduled_at"] == "2026-08-28T20:00:00+02:00"
     assert raid["raid_poll_message_id"] is None
     assert raid["scheduled_message_id"] == channel.sent[-1].id
+    assert db.get_participant_status(raid_id, creator.id) == "confirmed"
+    assert db.count_confirmed(raid_id) == 1
     assert channel.sent[-1].content == "<@&555>"
 
 
