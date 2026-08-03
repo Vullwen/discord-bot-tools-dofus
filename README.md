@@ -180,6 +180,9 @@ Les valeurs complètes sont dans `.env.example`. Les plus importantes :
   sync globale.
 - `ADMIN_IDS` : IDs Discord des admins, séparés par des virgules.
 - `BOT_NAME` : nom affiché côté bot. Par défaut : `Dofus Raid Bot`.
+- `BOT_COGS` : cogs chargés (`all` par défaut, ou une liste comme `absence`).
+- `ABSENCE_DISCORD_TOKEN` : token de la 2e instance dédiée aux absences.
+- `ABSENCE_BOT_NAME` : nom affiché de la 2e instance absence.
 - `RAID_NAMES` : raids proposés dans les menus.
 - `RAID_CAPS` : nombre de places par raid, par exemple `Gigalodon:12`.
 - `RAID_LOW_LEVEL_CAPS` : places réservées aux personnages 199-.
@@ -206,6 +209,17 @@ docker compose up -d --build beb-raid
 docker compose ps
 docker compose logs --tail=100 beb-raid
 ```
+
+Instance dédiée aux absences uniquement :
+
+```bash
+docker compose --profile absence up -d --build beb-absence
+docker compose ps
+docker compose logs --tail=100 beb-absence
+```
+
+Cette instance charge seulement `cogs.absence`. Elle utilise la même base SQLite
+que le bot principal pour retrouver la configuration des salons et rôles.
 
 En local :
 

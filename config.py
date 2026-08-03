@@ -14,6 +14,65 @@ DISCORD_GUILD_ID = int(_raw_guild_id) if _raw_guild_id.isdigit() else 0
 BOT_NAME = os.getenv("BOT_NAME", "Dofus Raid Bot")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
+DEFAULT_BOT_COGS = [
+    "cogs.core",
+    "cogs.admin",
+    "cogs.settings",
+    "cogs.raid",
+    "cogs.ticket",
+    "cogs.verification",
+    "cogs.absence",
+    "cogs.rolemenu",
+    "cogs.stuff",
+    "cogs.market",
+    "cogs.metamob",
+]
+
+_COG_ALIASES = {
+    cog.rsplit(".", 1)[-1]: cog
+    for cog in DEFAULT_BOT_COGS
+}
+_COG_ALIASES.update({cog: cog for cog in DEFAULT_BOT_COGS})
+
+
+def parse_bot_cogs(raw: str) -> list[str]:
+    """Retourne les cogs à charger depuis BOT_COGS.
+
+    Exemples:
+    - vide/all/default = bot complet
+    - absence = uniquement cogs.absence
+    - raid,ticket = cogs.raid + cogs.ticket
+    """
+    value = raw.strip()
+    if not value or value.lower() in {"all", "default", "*"}:
+        return list(DEFAULT_BOT_COGS)
+
+    cogs = []
+    unknown = []
+    for item in value.split(","):
+        key = item.strip()
+        if not key:
+            continue
+        cog = _COG_ALIASES.get(key) or _COG_ALIASES.get(key.lower())
+        if cog is None:
+            unknown.append(key)
+            continue
+        if cog not in cogs:
+            cogs.append(cog)
+
+    if unknown:
+        allowed = ", ".join(sorted(_COG_ALIASES))
+        raise ValueError(
+            f"BOT_COGS contient des cogs inconnus: {', '.join(unknown)}. "
+            f"Cogs connus: {allowed}"
+        )
+    if not cogs:
+        raise ValueError("BOT_COGS ne contient aucun cog valide")
+    return cogs
+
+
+BOT_COGS = parse_bot_cogs(os.getenv("BOT_COGS", "all"))
+
 ADMIN_IDS = {
     int(user_id.strip())
     for user_id in os.getenv("ADMIN_IDS", "").split(",")

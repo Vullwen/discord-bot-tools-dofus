@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
 
-from config import BOT_NAME, DISCORD_GUILD_ID, DISCORD_TOKEN, LOG_LEVEL
+from config import BOT_COGS, BOT_NAME, DISCORD_GUILD_ID, DISCORD_TOKEN, LOG_LEVEL
 
 _handler = logging.StreamHandler()
 _handler.setFormatter(
@@ -41,19 +41,13 @@ bot = commands.Bot(
     description=BOT_NAME,
 )
 
-COGS = [
-    "cogs.core",
-    "cogs.admin",
-    "cogs.settings",
-    "cogs.raid",
-    "cogs.ticket",
-    "cogs.verification",
-    "cogs.absence",
-    "cogs.rolemenu",
-    "cogs.stuff",
-    "cogs.market",
-    "cogs.metamob",
-]
+COGS = BOT_COGS
+
+
+def _presence_name() -> str:
+    if COGS == ["cogs.absence"]:
+        return "les absences"
+    return "les raids"
 
 
 async def sync_commands() -> None:
@@ -89,7 +83,7 @@ async def on_ready():
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="les raids",
+            name=_presence_name(),
         )
     )
 
@@ -125,6 +119,7 @@ async def main():
                 logger.info(f"Loaded cog: {cog}")
             except Exception as exc:
                 logger.error(f"Failed to load cog {cog}: {exc}", exc_info=True)
+        logger.info("Cog set: %s", ", ".join(COGS))
 
         await bot.start(DISCORD_TOKEN)
 
