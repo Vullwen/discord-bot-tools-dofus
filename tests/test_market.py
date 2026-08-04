@@ -316,10 +316,12 @@ async def test_op_can_close_sale_as_guild_sale(monkeypatch):
 
     assert thread.name == "[vente] Gelano - 1 500 000 kamas"
     assert thread.archived is True
-    assert not hasattr(thread, "locked")
+    assert thread.locked is True
     assert thread.edits[0]["archived"] is True
+    assert thread.edits[0]["locked"] is True
     assert [event[0] for event in thread.events] == ["edit"]
     assert thread.events[-1][1]["archived"] is True
+    assert thread.events[-1][1]["locked"] is True
     assert interaction.response.deferred is True
     assert interaction.response.defer_kwargs == {"ephemeral": True}
     assert interaction.followup.messages == []
@@ -336,7 +338,7 @@ async def test_buy_post_close_uses_buy_prefix(monkeypatch):
 
     assert thread.name == "[achat] Dofus turquoise - 1 500 000 kamas"
     assert thread.archived is True
-    assert not hasattr(thread, "locked")
+    assert thread.locked is True
     assert interaction.response.deferred is True
     assert interaction.followup.messages == []
 
@@ -356,8 +358,8 @@ async def test_close_sale_statuses_archive_without_extra_thread_edits(monkeypatc
 
     assert thread.name == "Gelano"
     assert thread.archived is True
-    assert not hasattr(thread, "locked")
-    assert thread.edits == [{"archived": True, "reason": f"{market._choice_label('sale', status)} par user-10"}]
+    assert thread.locked is True
+    assert thread.edits == [{"locked": True, "archived": True, "reason": f"{market._choice_label('sale', status)} par user-10"}]
 
 
 @pytest.mark.asyncio
@@ -393,7 +395,7 @@ async def test_inactive_market_post_is_closed_and_owner_notified(monkeypatch):
 
     assert thread.name == "Anneau rare"
     assert thread.archived is True
-    assert not hasattr(thread, "locked")
+    assert thread.locked is True
     assert owner.dms
     assert "30 jours sans activité" in owner.dms[0][0]
     assert db.list_inactive_market_posts(market.now_paris()) == []

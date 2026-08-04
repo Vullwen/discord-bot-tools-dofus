@@ -361,7 +361,7 @@ class MarketCog(commands.Cog):
         logger.info("Post marché %s archivé avec le statut %s", thread.id, status)
 
     async def _archive_market_thread(self, thread: discord.Thread, reason: str) -> None:
-        await thread.edit(archived=True, reason=reason)
+        await thread.edit(locked=True, archived=True, reason=reason)
 
     async def _ensure_thread_presentation(self, thread: discord.Thread) -> None:
         if MARKET_PREFIX_RE.match(getattr(thread, "name", "")):
