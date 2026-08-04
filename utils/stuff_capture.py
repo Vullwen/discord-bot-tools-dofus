@@ -65,9 +65,9 @@ async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
                 await _hide_ad_overlays(page)
                 await asyncio.sleep(1)
 
-                title = await page.title()
-                body_text = await page.locator("body").inner_text(timeout=5_000)
-                if any(marker in title or marker in body_text for marker in BLOCKED_MARKERS):
+                title = await _read_page_title(page)
+                body_text = await _read_body_text(page)
+                if _has_blocked_marker(title, body_text):
                     return None, "Dofusbook a bloque la capture automatique."
 
                 await _hide_ad_overlays(page)
@@ -76,7 +76,31 @@ async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
             finally:
                 await browser.close()
     except Exception as exc:
-        return None, f"Capture navigateur impossible: {type(exc).__name__}: {exc}"
+        return None, _format_capture_error(exc)
+
+
+async def _read_page_title(page) -> str:
+    try:
+        return await page.title()
+    except Exception:
+        return ""
+
+
+async def _read_body_text(page) -> str:
+    try:
+        return await page.locator("body").inner_text(timeout=2_000)
+    except Exception:
+        return ""
+
+
+def _has_blocked_marker(*values: str) -> bool:
+    return any(marker in value for marker in BLOCKED_MARKERS for value in values)
+
+
+def _format_capture_error(exc: Exception) -> str:
+    if type(exc).__name__ == "TimeoutError":
+        return "Capture navigateur impossible: Dofusbook n'a pas repondu a temps."
+    return f"Capture navigateur impossible: {type(exc).__name__}: {exc}"
 
 
 async def _dismiss_consent_dialog(page) -> None:
