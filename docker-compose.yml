@@ -5,7 +5,8 @@ services:
     build: .
     container_name: beb-raid
     env_file: .env
-    mem_limit: 512m
+    mem_limit: 1g
+    shm_size: 256m
     volumes:
       - ./data:/app/data
     restart: unless-stopped

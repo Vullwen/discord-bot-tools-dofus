@@ -10,6 +10,15 @@ VIEWPORT = {"width": 1540, "height": 920}
 CAPTURE_CLIP = {"x": 70, "y": 206, "width": 1470, "height": 690}
 TOP_PADDING = 12
 CAPTURE_BACKGROUND = "#241f1b"
+CHROMIUM_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-extensions",
+    "--disable-gpu",
+]
 
 BLOCKED_MARKERS = (
     "Attention Required",
@@ -39,11 +48,7 @@ async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                ],
+                args=CHROMIUM_ARGS,
             )
             page = await browser.new_page(
                 viewport=VIEWPORT,

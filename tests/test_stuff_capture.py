@@ -1,4 +1,4 @@
-from utils.stuff_capture import _format_capture_error, _has_blocked_marker
+from utils.stuff_capture import CHROMIUM_ARGS, _format_capture_error, _has_blocked_marker
 
 
 def test_has_blocked_marker_detects_cloudflare_message():
@@ -13,3 +13,10 @@ def test_format_capture_error_hides_playwright_timeout_details():
     reason = _format_capture_error(TimeoutError("Locator.inner_text: Timeout exceeded"))
 
     assert reason == "Capture navigateur impossible: Dofusbook n'a pas repondu a temps."
+
+
+def test_chromium_args_keep_capture_lightweight():
+    assert "--disable-dev-shm-usage" in CHROMIUM_ARGS
+    assert "--disable-background-networking" in CHROMIUM_ARGS
+    assert "--disable-extensions" in CHROMIUM_ARGS
+    assert "--disable-gpu" in CHROMIUM_ARGS
