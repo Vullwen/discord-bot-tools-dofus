@@ -98,9 +98,11 @@ Usages de `/config role` :
 
 - `/absence declare` : ouvre le formulaire d'absence.
 - `/absence panel` : poste le bouton public de déclaration.
-- `/absence search [member]` : cherche les absences actives ou à venir.
+- `/absence search [member]` : cherche les absences actives ou à venir et affiche
+  leur ID.
 - `/absence add member debut fin [motif]` : ajoute une absence pour quelqu'un.
-- `/absence stop member [absence_id]` : stoppe une absence.
+- `/absence stop member [absence_id]` : stoppe une absence. Si plusieurs absences
+  existent pour le membre, l'ID est obligatoire.
 - `/absence kick user` : prévient qu'un membre est kick AFK, envoie le MP et remet
   le rôle de base configuré.
 

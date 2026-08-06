@@ -81,7 +81,7 @@ def _search_absences_embed(rows: list, title: str = "Absences") -> discord.Embed
         start = date.fromisoformat(row["start_date"])
         end = date.fromisoformat(row["end_date"])
         embed.add_field(
-            name=row["user_display"],
+            name=f"#{row['id']} - {row['user_display']}",
             value=_format_absence_period(start, end),
             inline=False,
         )
@@ -505,6 +505,17 @@ class AbsenceCog(commands.Cog):
                 today_iso=today_iso,
                 limit=100,
             )
+            if len(rows) > 1:
+                embed = _search_absences_embed(
+                    rows,
+                    title=f"Absences - {_user_display(member)}",
+                )
+                await interaction.response.send_message(
+                    "Plusieurs absences trouvées. Relance `/absence stop` avec l'`absence_id` voulu.",
+                    embed=embed,
+                    ephemeral=True,
+                )
+                return
 
         if not rows:
             await interaction.response.send_message(

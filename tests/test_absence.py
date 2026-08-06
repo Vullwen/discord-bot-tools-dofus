@@ -5,7 +5,7 @@ import pytest
 import discord
 
 import db
-from cogs.absence import AbsenceCog, _cleanup_when, _format_absence_period
+from cogs.absence import AbsenceCog, _cleanup_when, _format_absence_period, _search_absences_embed
 
 
 def test_format_absence_period_one_day():
@@ -22,6 +22,23 @@ def test_format_absence_period_range():
 def test_cleanup_when_is_day_after_end_at_midnight():
     cleanup = _cleanup_when(date(2026, 7, 12))
     assert cleanup.isoformat() == "2026-07-13T00:00:00+02:00"
+
+
+def test_search_absences_embed_shows_absence_ids(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    absence_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2099-08-28",
+        end_date="2099-08-30",
+        public_channel_id=100,
+        public_message_id=1000,
+    )
+
+    embed = _search_absences_embed(db.search_absences(guild_id=2, today_iso="2099-08-01"))
+
+    assert embed.fields[0].name == f"#{absence_id} - Bob"
 
 
 class _FakeResponse:
@@ -177,6 +194,55 @@ async def test_stop_abs_marks_member_absence_deleted(tmp_path, monkeypatch):
     assert public_message.deleted is True
     assert db.get_absence(absence_id)["public_deleted_at"] is not None
     assert interaction.followup.messages[0] == ("1 absence(s) stoppée(s) pour user-20.", {"ephemeral": True})
+
+
+@pytest.mark.asyncio
+async def test_stop_abs_requires_id_when_member_has_multiple_absences(tmp_path, monkeypatch):
+    monkeypatch.setattr("cogs.absence.is_raid_organizer", lambda _interaction: True)
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    public_channel = _FakeChannel()
+    first_message = await public_channel.send(embed=None)
+    second_message = await public_channel.send(embed=None)
+    first_absence_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2099-08-28",
+        end_date="2099-08-30",
+        public_channel_id=public_channel.id,
+        public_message_id=first_message.id,
+    )
+    second_absence_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2099-09-05",
+        end_date="2099-09-06",
+        public_channel_id=public_channel.id,
+        public_message_id=second_message.id,
+    )
+    cog = AbsenceCog(SimpleNamespace(get_channel=lambda _channel_id: public_channel))
+    member = _FakeUser(20)
+    interaction = SimpleNamespace(
+        user=_FakeUser(10),
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+        followup=_FakeFollowup(),
+    )
+
+    await AbsenceCog.stop_abs.callback(cog, interaction, member)
+
+    assert first_message.deleted is False
+    assert second_message.deleted is False
+    assert db.get_absence(first_absence_id)["public_deleted_at"] is None
+    assert db.get_absence(second_absence_id)["public_deleted_at"] is None
+    content, kwargs = interaction.response.messages[0]
+    assert "Plusieurs absences trouvées" in content
+    assert kwargs["ephemeral"] is True
+    assert [field.name for field in kwargs["embed"].fields] == [
+        f"#{first_absence_id} - Bob",
+        f"#{second_absence_id} - Bob",
+    ]
 
 
 @pytest.mark.asyncio
