@@ -72,12 +72,13 @@ class _FakeChannel:
         self.id = channel_id
         self.sent = []
 
-    async def send(self, *, content=None, embed=None, view=None):
+    async def send(self, *, content=None, embed=None, view=None, allowed_mentions=None):
         msg = SimpleNamespace(
             id=1000 + len(self.sent),
             content=content,
             embed=embed,
             view=view,
+            allowed_mentions=allowed_mentions,
             channel=self,
         )
         self.sent.append(msg)
@@ -105,6 +106,14 @@ def _async_return(value):
 
 async def _async_noop(*_args, **_kwargs):
     return None
+
+
+def _allowed_role_ids(message) -> set[int]:
+    assert message.allowed_mentions is not None
+    data = message.allowed_mentions.to_dict()
+    assert "everyone" not in data.get("parse", [])
+    assert "users" not in data.get("parse", [])
+    return {int(role_id) for role_id in data.get("roles", [])}
 
 
 @pytest.mark.asyncio
@@ -137,6 +146,7 @@ async def test_hour_poll_after_raid_choice_mentions_notify_role(tmp_path):
     assert raid["name"] == "Gigalodon"
     assert raid["hour_poll_message_id"] == channel.sent[0].id
     assert channel.sent[0].content == "<@&555>"
+    assert _allowed_role_ids(channel.sent[0]) == {555}
     assert [(kind, fn) for _rid, kind, _when, fn in scheduled] == [
         ("hour_close", "_close_hour_poll")
     ]

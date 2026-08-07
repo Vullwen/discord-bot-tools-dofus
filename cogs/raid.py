@@ -1028,13 +1028,30 @@ class RaidCog(commands.Cog):
         """Contenu de mention pour l'annonce d'un raid (None si aucun rôle configuré)."""
         return f"<@&{notify_role_id}>" if notify_role_id else None
 
+    @staticmethod
+    def _announce_allowed_mentions(notify_role_id) -> Optional[discord.AllowedMentions]:
+        """Autorise uniquement le rôle configuré à ping dans les annonces de raid."""
+        if not notify_role_id:
+            return None
+        return discord.AllowedMentions(
+            everyone=False,
+            users=False,
+            roles=[discord.Object(id=int(notify_role_id))],
+            replied_user=False,
+        )
+
     async def _send_raid_choice(self, channel, raid_id: int, notify_role_id=None) -> None:
         raid = db.get_raid(raid_id)
         counts = db.get_vote_counts(raid_id, "raid")
         creator = await self._creator_display(raid["created_by"])
         embed = embeds.raid_choice_embed(raid, counts, creator)
         view = RaidChoiceView(self, raid_id)
-        msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
+        msg = await channel.send(
+            content=self._announce_content(notify_role_id),
+            embed=embed,
+            view=view,
+            allowed_mentions=self._announce_allowed_mentions(notify_role_id),
+        )
         db.update_raid(raid_id, raid_poll_message_id=msg.id)
 
     async def _send_hour_poll(self, channel, raid_id: int, notify_role_id=None) -> None:
@@ -1044,7 +1061,12 @@ class RaidCog(commands.Cog):
         confirmed, waitlist = self._counts(raid_id)
         embed = embeds.hour_poll_embed(raid, counts, creator, confirmed, waitlist, _raid_hours(raid))
         view = HourPollView(self, raid_id)
-        msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
+        msg = await channel.send(
+            content=self._announce_content(notify_role_id),
+            embed=embed,
+            view=view,
+            allowed_mentions=self._announce_allowed_mentions(notify_role_id),
+        )
         db.update_raid(raid_id, hour_poll_message_id=msg.id)
 
     async def _post_scheduled(self, raid_id: int, notify_role_id=None) -> None:
@@ -1059,7 +1081,12 @@ class RaidCog(commands.Cog):
             return
         if notify_role_id is None:
             notify_role_id = db.get_guild_setting_int(raid["guild_id"], db.SETTING_RAID_NOTIFY_ROLE)
-        msg = await channel.send(content=self._announce_content(notify_role_id), embed=embed, view=view)
+        msg = await channel.send(
+            content=self._announce_content(notify_role_id),
+            embed=embed,
+            view=view,
+            allowed_mentions=self._announce_allowed_mentions(notify_role_id),
+        )
         db.update_raid(raid_id, scheduled_message_id=msg.id)
 
     # --------------------------------------------------------------- votes

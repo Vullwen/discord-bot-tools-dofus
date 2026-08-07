@@ -32,6 +32,14 @@ def _cog(channel=None, users=()):
     return cog
 
 
+def _allowed_role_ids(message) -> set[int]:
+    assert message.allowed_mentions is not None
+    data = message.allowed_mentions.to_dict()
+    assert "everyone" not in data.get("parse", [])
+    assert "users" not in data.get("parse", [])
+    return {int(role_id) for role_id in data.get("roles", [])}
+
+
 @pytest.fixture(autouse=True)
 def fixed_now(monkeypatch):
     monkeypatch.setattr(raid_module, "now_paris", lambda: NOW)
@@ -64,6 +72,7 @@ async def test_create_fixed_raid_posts_scheduled_and_persists_contract(tmp_path)
     assert db.get_participant_level_group(raid_id, creator.id) == LEVEL_200_PLUS
     assert db.count_confirmed(raid_id) == 1
     assert channel.sent[0].content == "<@&555>"
+    assert _allowed_role_ids(channel.sent[0]) == {555}
     assert [kind for _rid, kind, _when, _fn in cog.scheduled] == [
         "del_raid_msgs",
         "remind",
@@ -123,6 +132,7 @@ async def test_raid_choice_with_fixed_time_transitions_to_scheduled(tmp_path):
     assert db.get_participant_status(raid_id, creator.id) == "confirmed"
     assert db.count_confirmed(raid_id) == 1
     assert channel.sent[-1].content == "<@&555>"
+    assert _allowed_role_ids(channel.sent[-1]) == {555}
 
 
 @pytest.mark.asyncio
