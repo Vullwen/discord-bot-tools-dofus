@@ -160,7 +160,29 @@ async def test_onboarding_visitor_choice_waits_for_admin_review(tmp_path):
     assert ticket["status"] == "visitor_pending"
     assert ticket["close_after"] is None
     assert visitor.roles == []
-    assert "peuvent accepter ou refuser" in interaction.response.messages[0][0]
+    assert "Un administrateur regardera ta demande" in interaction.response.messages[0][0]
+    assert "Le bouton Accepter est réservé aux admins" in interaction.response.messages[0][0]
+    assert interaction.response.messages[0][1]["view"] is not None
+
+
+@pytest.mark.asyncio
+async def test_onboarding_guild_choice_waits_for_admin_review(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    guild = FakeGuild(members=(applicant,))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+    interaction = FakeInteraction(user=applicant, guild=guild, channel=channel)
+
+    await cog.choose_onboarding_path(interaction, choice="guild")
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["choice"] == "guild"
+    assert ticket["status"] == "guild_pending"
+    assert "un administrateur regardera ta demande" in interaction.response.messages[0][0]
+    assert "Le bouton Accepter est réservé aux admins" in interaction.response.messages[0][0]
     assert interaction.response.messages[0][1]["view"] is not None
 
 

@@ -613,7 +613,8 @@ class TicketCog(commands.Cog):
             await interaction.response.send_message(
                 content=(
                     f"<@{ticket['user_id']}> souhaite rejoindre la guilde. "
-                    "Les admins bot pourront accepter ou refuser après sa présentation."
+                    "Présente-toi ici, puis un administrateur regardera ta demande. "
+                    "Le bouton Accepter est réservé aux admins."
                 ),
                 embed=self._guild_application_embed(),
                 view=OnboardingReviewView(self),
@@ -628,7 +629,8 @@ class TicketCog(commands.Cog):
         await interaction.response.send_message(
             content=(
                 f"<@{ticket['user_id']}> demande l'accès au marché. "
-                "Les admins bot peuvent accepter ou refuser cette demande."
+                "Un administrateur regardera ta demande. "
+                "Le bouton Accepter est réservé aux admins."
             ),
             ephemeral=False,
             view=OnboardingReviewView(self),
