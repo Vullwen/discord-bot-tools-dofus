@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
@@ -17,6 +18,29 @@ JOURS_FR = {
     "dimanche": 6,
 }
 
+MOIS_FR = {
+    "janvier": 1,
+    "janv": 1,
+    "fevrier": 2,
+    "fevr": 2,
+    "mars": 3,
+    "avril": 4,
+    "avr": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "juil": 7,
+    "aout": 8,
+    "septembre": 9,
+    "sept": 9,
+    "octobre": 10,
+    "oct": 10,
+    "novembre": 11,
+    "nov": 11,
+    "decembre": 12,
+    "dec": 12,
+}
+
 
 class InvalidRaidDate(ValueError):
     """Date de raid invalide ou dans le passé."""
@@ -25,6 +49,38 @@ class InvalidRaidDate(ValueError):
 # Une heure : "15h", "21h30", "9:05", "demain 15h"... (group 1 = heure, group 2 = minutes).
 # Le lookbehind/ahead évite de matcher une année ou un jour de date ("2026", "28/06").
 _HOUR_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[:h]\s*(\d{1,2})?(?!\d)")
+_NAMED_MONTH_RE = re.compile(r"(\d{1,2})(?:er)?\s+([a-zéèêëàâäîïôöùûüç.]+)(?:\s+(\d{4}))?")
+
+
+def _fold_accents(text: str) -> str:
+    return "".join(
+        char for char in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(char)
+    )
+
+
+def _parse_named_month_date(text: str, today: date) -> Optional[date]:
+    folded = _fold_accents(text).replace(".", "")
+    match = _NAMED_MONTH_RE.fullmatch(folded)
+    if match is None:
+        return None
+
+    day_raw, month_raw, year_raw = match.groups()
+    month = MOIS_FR.get(month_raw)
+    if month is None:
+        return None
+
+    year = int(year_raw) if year_raw is not None else today.year
+    try:
+        result = date(year, month, int(day_raw))
+    except ValueError as exc:
+        raise InvalidRaidDate(f"date invalide : {text!r} ({exc})")
+
+    if year_raw is None and result < today:
+        result = date(year + 1, month, int(day_raw))
+    if result < today:
+        raise InvalidRaidDate(f"date dans le passé : {result.isoformat()}")
+    return result
 
 
 def parse_time(text: str) -> Optional[time]:
@@ -122,6 +178,10 @@ def parse_raid_date(text: str, now: Optional[datetime] = None) -> date:
         if delta == 0:  # aujourd'hui -> on pousse à la semaine suivante
             delta = 7
         return today + timedelta(days=delta)
+
+    named_month = _parse_named_month_date(raw, today)
+    if named_month is not None:
+        return named_month
 
     # Formats numériques
     cleaned = raw.replace("-", "/")

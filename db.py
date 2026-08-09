@@ -1359,6 +1359,8 @@ def create_absence(
     admin_channel_id: Optional[int] = None,
     admin_message_id: Optional[int] = None,
 ) -> int:
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
     cur = _db().execute(
         """
         INSERT INTO absences
@@ -1393,7 +1395,9 @@ def list_absences_for_cleanup() -> list[sqlite3.Row]:
         SELECT * FROM absences
         WHERE public_deleted_at IS NULL
           AND public_message_id IS NOT NULL
-        ORDER BY end_date, id
+        ORDER BY
+          CASE WHEN start_date <= end_date THEN end_date ELSE start_date END,
+          id
         """
     ).fetchall()
     return list(rows)
@@ -1418,7 +1422,7 @@ def search_absences(
     where = [
         "guild_id = ?",
         "public_deleted_at IS NULL",
-        "end_date >= ?",
+        "CASE WHEN start_date <= end_date THEN end_date ELSE start_date END >= ?",
     ]
     params: list[Any] = [guild_id, today_iso]
     if user_id is not None:
@@ -1428,7 +1432,10 @@ def search_absences(
         f"""
         SELECT * FROM absences
         WHERE {" AND ".join(where)}
-        ORDER BY start_date, end_date, id
+        ORDER BY
+          CASE WHEN start_date <= end_date THEN start_date ELSE end_date END,
+          CASE WHEN start_date <= end_date THEN end_date ELSE start_date END,
+          id
         LIMIT ?
         """,
         (*params, limit),

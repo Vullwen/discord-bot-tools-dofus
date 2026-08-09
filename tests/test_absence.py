@@ -41,6 +41,32 @@ def test_search_absences_embed_shows_absence_ids(tmp_path):
     assert embed.fields[0].name == f"#{absence_id} - Bob"
 
 
+@pytest.mark.asyncio
+async def test_search_abs_is_not_ephemeral(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2099-08-28",
+        end_date="2099-08-30",
+        public_channel_id=100,
+        public_message_id=1000,
+    )
+    cog = AbsenceCog(SimpleNamespace())
+    interaction = SimpleNamespace(
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+
+    await AbsenceCog.search_abs.callback(cog, interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    assert content is None
+    assert kwargs["ephemeral"] is False
+    assert kwargs["embed"].fields[0].name == "#1 - Bob"
+
+
 class _FakeResponse:
     def __init__(self):
         self.deferred = False

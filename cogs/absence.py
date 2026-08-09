@@ -23,9 +23,14 @@ def _user_display(user: discord.abc.User) -> str:
 
 
 def _format_absence_period(start: date, end: date) -> str:
+    start, end = _ordered_absence_dates(start, end)
     if start == end:
         return f"Le {dates_utils.format_date_fr(start)}"
     return f"Du {dates_utils.format_date_fr(start)} au {dates_utils.format_date_fr(end)}"
+
+
+def _ordered_absence_dates(start: date, end: date) -> tuple[date, date]:
+    return (end, start) if end < start else (start, end)
 
 
 def _cleanup_when(end: date) -> datetime:
@@ -348,7 +353,7 @@ class AbsenceCog(commands.Cog):
     def _parse_absence_dates(self, start_raw: str, end_raw: str) -> tuple[date, date]:
         start = dates_utils.parse_absence_date(start_raw)
         end = dates_utils.parse_absence_date(end_raw, reference=start)
-        return start, end
+        return _ordered_absence_dates(start, end)
 
     async def _reset_member_roles_to_base(
         self,
@@ -397,13 +402,6 @@ class AbsenceCog(commands.Cog):
             await interaction.response.send_message(f"Date invalide : {exc}", ephemeral=True)
             return
 
-        if end < start:
-            await interaction.response.send_message(
-                "Date invalide : la date de fin doit être après la date de début.",
-                ephemeral=True,
-            )
-            return
-
         public_channels = await self._absence_channels(interaction)
         if not public_channels:
             await interaction.response.send_message(
@@ -448,13 +446,6 @@ class AbsenceCog(commands.Cog):
             start, end = self._parse_absence_dates(debut, fin)
         except dates_utils.InvalidRaidDate as exc:
             await interaction.response.send_message(f"Date invalide : {exc}", ephemeral=True)
-            return
-
-        if end < start:
-            await interaction.response.send_message(
-                "Date invalide : la date de fin doit être après la date de début.",
-                ephemeral=True,
-            )
             return
 
         public_channels = await self._absence_channels(interaction)
@@ -594,7 +585,7 @@ class AbsenceCog(commands.Cog):
         title = f"Absences - {member.display_name}" if member is not None else "Absences"
         await interaction.response.send_message(
             embed=_search_absences_embed(rows, title=title),
-            ephemeral=True,
+            ephemeral=False,
         )
 
     @absence.command(

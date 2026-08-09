@@ -56,6 +56,12 @@ def test_parse_absence_date_accepts_day_only():
     assert d.parse_absence_date("2", NOW, reference=start).isoformat() == "2026-07-02"
 
 
+def test_parse_absence_date_accepts_french_month_names():
+    assert d.parse_absence_date("3 février", NOW).isoformat() == "2027-02-03"
+    assert d.parse_absence_date("28 janvier", NOW).isoformat() == "2027-01-28"
+    assert d.parse_absence_date("15 aout 2026", NOW).isoformat() == "2026-08-15"
+
+
 def test_combine_and_format():
     day = d.parse_raid_date("28/06/2026", NOW)
     dt = d.combine_date_hour(day, 21)

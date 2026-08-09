@@ -52,15 +52,25 @@ async def test_submit_absence_publishes_public_and_admin_messages_and_persists(t
 
 
 @pytest.mark.asyncio
-async def test_submit_absence_rejects_end_before_start(tmp_path):
+async def test_submit_absence_orders_end_before_start(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
-    cog = AbsenceCog(FakeBot())
-    interaction = FakeInteraction(user=FakeUser(10), guild=_guild())
+    public_channel = FakeChannel(100)
+    cog = AbsenceCog(FakeBot(channel=public_channel))
+    scheduled = []
 
-    await cog.submit_absence(interaction, "30/08/2026", "28/08/2026", "")
+    cog._schedule_cleanup = lambda absence_id, end: scheduled.append((absence_id, end))
+    interaction = FakeInteraction(user=FakeUser(10), guild=_guild(), channel=public_channel)
 
-    assert db.search_absences(guild_id=2, today_iso="2026-08-01") == []
-    assert "date de fin" in interaction.response.messages[0][0]
+    await cog.submit_absence(interaction, "30/08/2099", "28/08/2099", "")
+
+    rows = db.search_absences(guild_id=2, today_iso="2099-08-01")
+    assert len(rows) == 1
+    assert rows[0]["start_date"] == "2099-08-28"
+    assert rows[0]["end_date"] == "2099-08-30"
+    assert public_channel.sent[0].embed.fields[1].value == "Du vendredi 28/08 au dimanche 30/08"
+    assert [(absence_id, end.isoformat()) for absence_id, end in scheduled] == [
+        (rows[0]["id"], "2099-08-30")
+    ]
 
 
 @pytest.mark.asyncio
