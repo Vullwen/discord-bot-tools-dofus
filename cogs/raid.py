@@ -286,7 +286,7 @@ class _ParticipantsButton(discord.ui.Button):
 class _AdminRemoveButton(discord.ui.Button):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(
-            label="🧹 Retirer (admin)",
+            label="🧹 Retirer joueur",
             style=discord.ButtonStyle.danger,
             custom_id=f"bebraid:adminrm:{raid_id}",
         )
@@ -300,7 +300,7 @@ class _AdminRemoveButton(discord.ui.Button):
 class _AdminCancelButton(discord.ui.Button):
     def __init__(self, cog: "RaidCog", raid_id: int):
         super().__init__(
-            label="❌ Annuler (admin)",
+            label="❌ Annuler",
             style=discord.ButtonStyle.danger,
             custom_id=f"bebraid:cancel:{raid_id}",
         )
@@ -309,6 +309,84 @@ class _AdminCancelButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await self.cog.prompt_cancel_raid(interaction, self.raid_id)
+
+
+class _AdminPanelButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="Admin",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"bebraid:admin:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.show_admin_panel(interaction, self.raid_id)
+
+
+class _AdminCapacityButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="Places retirées",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"bebraid:admincap:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.prompt_capacity_removed(interaction, self.raid_id)
+
+
+class _AdminLevelLockButton(discord.ui.Button):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(
+            label="Toggle 200+",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"bebraid:adminlvl:{raid_id}",
+        )
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.toggle_level_200_only(interaction, self.raid_id)
+
+
+class RaidAdminView(discord.ui.View):
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__(timeout=300)
+        raid = db.get_raid(raid_id)
+        state = raid["state"] if raid else None
+        if state in (STATE_CHOOSING_RAID, STATE_VOTING_HOUR):
+            self.add_item(_ClosePollButton(cog, raid_id))
+        if raid is not None and cog._registration_allowed(raid):
+            self.add_item(_AdminRemoveButton(cog, raid_id))
+            self.add_item(_AdminCapacityButton(cog, raid_id))
+            self.add_item(_AdminLevelLockButton(cog, raid_id))
+        if raid is not None and state != STATE_CANCELLED:
+            self.add_item(_AdminCancelButton(cog, raid_id))
+
+
+class RaidCapacityModal(discord.ui.Modal, title="Places retirées"):
+    capacity_input = discord.ui.TextInput(
+        label="Nombre de places à retirer",
+        placeholder="Exemple : 2",
+        required=True,
+        max_length=3,
+    )
+
+    def __init__(self, cog: "RaidCog", raid_id: int):
+        super().__init__()
+        self.cog = cog
+        self.raid_id = raid_id
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = str(self.capacity_input.value).strip()
+        if not raw.isdigit():
+            await interaction.response.send_message("Indique un nombre entier positif ou `0`.", ephemeral=True)
+            return
+        await self.cog.set_capacity_removed(interaction, self.raid_id, int(raw))
 
 
 class _RemoveMemberSelect(discord.ui.UserSelect):
@@ -369,9 +447,7 @@ class HourPollView(discord.ui.View):
             self.add_item(btn)
         self.add_item(_AllHoursButton(cog, raid_id))
         self.add_item(_ClearHourVotesButton(cog, raid_id))
-        if len(hours) <= 21:
-            self.add_item(_ClosePollButton(cog, raid_id))
-        self.add_item(_AdminCancelButton(cog, raid_id))
+        self.add_item(_AdminPanelButton(cog, raid_id))
 
 
 class RaidChoiceView(discord.ui.View):
@@ -379,9 +455,8 @@ class RaidChoiceView(discord.ui.View):
         super().__init__(timeout=None)
         for name in RAID_NAMES:
             self.add_item(_RaidChoiceButton(cog, raid_id, name))
-        self.add_item(_ClosePollButton(cog, raid_id))
         self.add_item(_ParticipantsButton(cog, raid_id))
-        self.add_item(_AdminCancelButton(cog, raid_id))
+        self.add_item(_AdminPanelButton(cog, raid_id))
 
 
 class ScheduledRaidView(discord.ui.View):
@@ -390,8 +465,7 @@ class ScheduledRaidView(discord.ui.View):
         self.add_item(_RegisterButton(cog, raid_id))
         self.add_item(_UnregisterButton(cog, raid_id))
         self.add_item(_ParticipantsButton(cog, raid_id))
-        self.add_item(_AdminRemoveButton(cog, raid_id))
-        self.add_item(_AdminCancelButton(cog, raid_id))
+        self.add_item(_AdminPanelButton(cog, raid_id))
 
 
 class LevelChoiceView(discord.ui.View):
@@ -603,6 +677,44 @@ class RaidCog(commands.Cog):
     def _registration_allowed(self, raid) -> bool:
         return raid is not None and raid["state"] in REGISTRATION_STATES
 
+    def _raid_capacity_removed(self, raid) -> int:
+        try:
+            removed = int(raid["capacity_removed"] or 0)
+        except (KeyError, IndexError, TypeError, ValueError):
+            removed = 0
+        return max(0, removed)
+
+    def _raid_level_200_only(self, raid) -> bool:
+        try:
+            return bool(raid["level_200_only"])
+        except (KeyError, IndexError, TypeError):
+            return False
+
+    def _effective_raid_cap(self, raid) -> Optional[int]:
+        if raid is None:
+            return None
+        cap = raid_cap(raid["name"])
+        if cap is None:
+            return None
+        return max(0, cap - self._raid_capacity_removed(raid))
+
+    def _admin_panel_content(self, raid, confirmed: int, waitlist: int) -> str:
+        base_cap = raid_cap(raid["name"])
+        removed = self._raid_capacity_removed(raid)
+        effective = self._effective_raid_cap(raid)
+        cap_line = (
+            "Capacité : illimitée"
+            if base_cap is None
+            else f"Capacité : {effective}/{base_cap} place(s) ({removed} retirée(s))"
+        )
+        level_line = "Niveau : 200+ uniquement" if self._raid_level_200_only(raid) else "Niveau : 199- autorisés selon les places"
+        return (
+            f"**Panel admin raid #{raid['id']}**\n"
+            f"{cap_line}\n"
+            f"{level_line}\n"
+            f"Inscriptions : {confirmed} confirmé(s), {waitlist} en attente"
+        )
+
     def _raid_ban_message(self, guild_id: int, user_id: int) -> Optional[str]:
         ban = db.get_active_raid_ban(guild_id=guild_id, user_id=user_id, now=now_paris())
         if ban is None:
@@ -674,6 +786,8 @@ class RaidCog(commands.Cog):
             logger.warning("Notification warn raid échouée pour %s: %s", warned_user.id, exc)
 
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
+        if self._raid_level_200_only(raid):
+            return "Ce raid est bloqué aux niveaux **200+**."
         low_level_cap = raid_low_level_cap(raid["name"])
         if low_level_cap <= 0:
             return f"{raid['name']} n'a pas de place ouverte aux 199-. Choisis **200+** si tu es 200 ou plus."
@@ -688,6 +802,8 @@ class RaidCog(commands.Cog):
     def _hour_vote_level_block_message(self, raid, raid_id: int, user_id: int) -> Optional[str]:
         if db.get_level_choice(raid_id, user_id) != LEVEL_199_MINUS:
             return None
+        if self._raid_level_200_only(raid):
+            return "Ce raid est bloqué aux niveaux **200+**."
         if db.get_user_votes(raid_id, user_id, "hour"):
             return None
         if raid_low_level_cap(raid["name"]) <= 0:
@@ -729,6 +845,11 @@ class RaidCog(commands.Cog):
         existing = db.get_participant_status(raid_id, user_id)
         if existing:
             return existing
+        raid = db.get_raid(raid_id)
+        if raid is not None:
+            name = raid["name"] or name
+        if level_group == LEVEL_199_MINUS and raid is not None and self._raid_level_200_only(raid):
+            return "level_200_only"
         if level_group == LEVEL_199_MINUS:
             low_level_cap = raid_low_level_cap(name)
             if low_level_cap <= 0:
@@ -736,7 +857,7 @@ class RaidCog(commands.Cog):
             if self._count_confirmed_level_group(raid_id, LEVEL_199_MINUS) >= low_level_cap:
                 db.add_participant(raid_id, user_id, "waitlist", level_group)
                 return "waitlist"
-        cap = raid_cap(name)
+        cap = self._effective_raid_cap(raid) if raid is not None else raid_cap(name)
         status = "confirmed" if (cap is None or db.count_confirmed(raid_id) < cap) else "waitlist"
         db.add_participant(raid_id, user_id, status, level_group)
         return status
@@ -763,7 +884,7 @@ class RaidCog(commands.Cog):
         if removed is None or removed[1] != "confirmed":
             return []
 
-        cap = raid_cap(raid["name"])
+        cap = self._effective_raid_cap(raid)
         confirmed_after = sum(
             1 for uid, status, _level in participants
             if status == "confirmed" and uid != removed_user_id
@@ -781,7 +902,7 @@ class RaidCog(commands.Cog):
             if status != "waitlist":
                 continue
             if level == LEVEL_199_MINUS:
-                if low_level_cap <= 0 or confirmed_low_after >= low_level_cap:
+                if self._raid_level_200_only(raid) or low_level_cap <= 0 or confirmed_low_after >= low_level_cap:
                     continue
             eligible.append(uid)
         return eligible
@@ -1224,7 +1345,7 @@ class RaidCog(commands.Cog):
                 return
             if level_group == LEVEL_199_MINUS:
                 blocked = self._low_level_full_message(raid, raid_id)
-                if blocked and raid_low_level_cap(raid["name"]) <= 0:
+                if blocked and (self._raid_level_200_only(raid) or raid_low_level_cap(raid["name"]) <= 0):
                     await interaction.response.edit_message(content=blocked, view=None)
                     return
             db.set_level_choice(raid_id, interaction.user.id, level_group)
@@ -1256,6 +1377,12 @@ class RaidCog(commands.Cog):
             await interaction.response.edit_message(content=ban_message, view=None)
             return
         status = self._register_user(raid_id, interaction.user.id, raid["name"], level_group)
+        if status == "level_200_only":
+            await interaction.response.edit_message(
+                content="Ce raid est bloqué aux niveaux **200+**.",
+                view=None,
+            )
+            return
         if status == "low_level_full":
             low_level_cap = raid_low_level_cap(raid["name"])
             if low_level_cap <= 0:
@@ -1314,6 +1441,143 @@ class RaidCog(commands.Cog):
     def _is_raid_manager(self, interaction: discord.Interaction, raid) -> bool:
         """Organisateur (admin/rôle) ou créateur du raid : peut gérer les participants."""
         return can_manage_raid(interaction, raid)
+
+    async def _refresh_raid_public_message(self, raid_id: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid:
+            return
+        creator = await self._creator_display(raid["created_by"])
+        confirmed, waitlist = self._counts(raid_id)
+        if raid["state"] == STATE_VOTING_HOUR and raid["hour_poll_message_id"]:
+            await self._edit_message(
+                raid["channel_id"],
+                raid["hour_poll_message_id"],
+                embed=embeds.hour_poll_embed(
+                    raid,
+                    db.get_vote_counts(raid_id, "hour"),
+                    creator,
+                    confirmed,
+                    waitlist,
+                    _raid_hours(raid),
+                ),
+            )
+        elif raid["state"] in REGISTRATION_STATES and raid["scheduled_message_id"]:
+            await self._edit_message(
+                raid["channel_id"],
+                raid["scheduled_message_id"],
+                embed=embeds.scheduled_embed(raid, confirmed, waitlist, creator),
+            )
+
+    def _eligible_waitlist_for_open_slot(self, raid, raid_id: int) -> list[int]:
+        cap = self._effective_raid_cap(raid)
+        if cap is not None and db.count_confirmed(raid_id) >= cap:
+            return []
+        low_level_cap = raid_low_level_cap(raid["name"])
+        confirmed_low = self._count_confirmed_level_group(raid_id, LEVEL_199_MINUS)
+        eligible: list[int] = []
+        for uid, status, level in db.get_participants(raid_id):
+            if status != "waitlist":
+                continue
+            if level == LEVEL_199_MINUS:
+                if self._raid_level_200_only(raid) or low_level_cap <= 0 or confirmed_low >= low_level_cap:
+                    continue
+            eligible.append(uid)
+        return eligible
+
+    async def _promote_waitlist_until_full(self, raid_id: int) -> list[int]:
+        promoted: list[int] = []
+        while True:
+            raid = db.get_raid(raid_id)
+            if not raid:
+                break
+            eligible = self._eligible_waitlist_for_open_slot(raid, raid_id)
+            if not eligible:
+                break
+            user_id = db.promote_waitlist(raid_id, eligible)
+            if user_id is None:
+                break
+            promoted.append(user_id)
+        raid = db.get_raid(raid_id)
+        if raid:
+            for user_id in promoted:
+                await self._notify_promoted(raid, user_id)
+        return promoted
+
+    async def show_admin_panel(self, interaction: discord.Interaction, raid_id: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not raid:
+            await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            return
+        if not self._is_raid_manager(interaction, raid):
+            await interaction.response.send_message(
+                "🔒 Réservé aux admins et au créateur du raid.", ephemeral=True
+            )
+            return
+        confirmed, waitlist = self._counts(raid_id)
+        view = RaidAdminView(self, raid_id)
+        await interaction.response.send_message(
+            self._admin_panel_content(raid, confirmed, waitlist),
+            view=view if view.children else None,
+            ephemeral=True,
+        )
+
+    async def prompt_capacity_removed(self, interaction: discord.Interaction, raid_id: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not self._is_raid_manager(interaction, raid):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if not raid:
+            await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            return
+        if raid_cap(raid["name"]) is None:
+            await interaction.response.send_message("Ce raid n'a pas de capacité configurée.", ephemeral=True)
+            return
+        await interaction.response.send_modal(RaidCapacityModal(self, raid_id))
+
+    async def set_capacity_removed(self, interaction: discord.Interaction, raid_id: int, removed: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not self._is_raid_manager(interaction, raid):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if not raid:
+            await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            return
+        base_cap = raid_cap(raid["name"])
+        if base_cap is None:
+            await interaction.response.send_message("Ce raid n'a pas de capacité configurée.", ephemeral=True)
+            return
+        removed = min(max(0, removed), base_cap)
+        db.update_raid(raid_id, capacity_removed=removed)
+        promoted = await self._promote_waitlist_until_full(raid_id)
+        await self._refresh_raid_public_message(raid_id)
+        raid = db.get_raid(raid_id)
+        confirmed, waitlist = self._counts(raid_id)
+        suffix = f"\n{len(promoted)} personne(s) promue(s) depuis la liste d'attente." if promoted else ""
+        await interaction.response.send_message(
+            f"✅ Places retirées mises à jour.\n{self._admin_panel_content(raid, confirmed, waitlist)}{suffix}",
+            ephemeral=True,
+        )
+
+    async def toggle_level_200_only(self, interaction: discord.Interaction, raid_id: int) -> None:
+        raid = db.get_raid(raid_id)
+        if not self._is_raid_manager(interaction, raid):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        if not raid:
+            await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            return
+        enabled = not self._raid_level_200_only(raid)
+        db.update_raid(raid_id, level_200_only=1 if enabled else 0)
+        promoted = await self._promote_waitlist_until_full(raid_id)
+        await self._refresh_raid_public_message(raid_id)
+        raid = db.get_raid(raid_id)
+        confirmed, waitlist = self._counts(raid_id)
+        state = "activé" if enabled else "désactivé"
+        suffix = f"\n{len(promoted)} personne(s) promue(s) depuis la liste d'attente." if promoted else ""
+        await interaction.response.send_message(
+            f"✅ Blocage 200+ {state}.\n{self._admin_panel_content(raid, confirmed, waitlist)}{suffix}",
+            ephemeral=True,
+        )
 
     async def prompt_admin_remove(self, interaction: discord.Interaction, raid_id: int) -> None:
         """Bouton admin : ouvre un sélecteur pour retirer des participants."""

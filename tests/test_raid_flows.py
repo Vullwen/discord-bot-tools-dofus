@@ -73,6 +73,8 @@ async def test_create_fixed_raid_posts_scheduled_and_persists_contract(tmp_path)
     assert db.count_confirmed(raid_id) == 1
     assert channel.sent[0].content == "<@&555>"
     assert _allowed_role_ids(channel.sent[0]) == {555}
+    labels = [item.label for item in channel.sent[0].view.children]
+    assert labels == ["Je participe 📌", "❌ Me désinscrire", "👥 Participants", "Admin"]
     assert [kind for _rid, kind, _when, _fn in cog.scheduled] == [
         "del_raid_msgs",
         "remind",
@@ -255,3 +257,104 @@ async def test_unregister_low_level_can_promote_low_level_waitlist(tmp_path):
     assert db.is_participant(raid_id, 10) is False
     assert db.get_participant_status(raid_id, 20) == "confirmed"
     assert len(users[2].dms) == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_panel_contains_scheduled_admin_actions(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(300)
+    user = FakeUser(1)
+    cog = _cog(channel=channel, users=[user])
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-08-28",
+        created_by=user.id,
+        guild_id=2,
+        channel_id=channel.id,
+        state="scheduled",
+        scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS),
+    )
+
+    interaction = FakeInteraction(user=user, guild=_guild(), channel=channel)
+    await cog.show_admin_panel(interaction, raid_id)
+
+    content, kwargs = interaction.response.messages[0]
+    labels = [item.label for item in kwargs["view"].children]
+    assert "Panel admin raid" in content
+    assert labels == ["🧹 Retirer joueur", "Places retirées", "Toggle 200+", "❌ Annuler"]
+
+
+@pytest.mark.asyncio
+async def test_capacity_removed_reduces_available_places(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(300)
+    user = FakeUser(1)
+    cog = _cog(channel=channel, users=[user])
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-08-28",
+        created_by=user.id,
+        guild_id=2,
+        channel_id=channel.id,
+        state="scheduled",
+        scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS),
+    )
+    db.update_raid(raid_id, capacity_removed=10)
+
+    assert cog._register_user(raid_id, 10, "Gigalodon", LEVEL_200_PLUS) == "confirmed"
+    assert cog._register_user(raid_id, 20, "Gigalodon", LEVEL_200_PLUS) == "confirmed"
+    assert cog._register_user(raid_id, 30, "Gigalodon", LEVEL_200_PLUS) == "waitlist"
+
+
+@pytest.mark.asyncio
+async def test_capacity_increase_promotes_waitlist_and_refreshes_message(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(300)
+    admin = FakeUser(1)
+    promoted = FakeUser(20)
+    cog = _cog(channel=channel, users=[admin, promoted])
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-08-28",
+        created_by=admin.id,
+        guild_id=2,
+        channel_id=channel.id,
+        state="scheduled",
+        scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS),
+    )
+    scheduled = await channel.send(embed=None)
+    db.update_raid(raid_id, scheduled_message_id=scheduled.id, capacity_removed=11)
+    db.add_participant(raid_id, 10, "confirmed", LEVEL_200_PLUS)
+    db.add_participant(raid_id, 20, "waitlist", LEVEL_200_PLUS)
+
+    interaction = FakeInteraction(user=admin, guild=_guild(), channel=channel)
+    await cog.set_capacity_removed(interaction, raid_id, 10)
+
+    assert db.get_participant_status(raid_id, 20) == "confirmed"
+    assert len(promoted.dms) == 1
+    assert scheduled.edits
+    assert "1 personne(s) promue(s)" in interaction.response.messages[0][0]
+
+
+@pytest.mark.asyncio
+async def test_level_200_only_blocks_low_level_registration(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(300)
+    user = FakeUser(10)
+    cog = _cog(channel=channel, users=[user])
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-08-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=channel.id,
+        state="scheduled",
+        scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS),
+    )
+    db.update_raid(raid_id, level_200_only=1)
+
+    interaction = FakeInteraction(user=user, guild=_guild(), channel=channel)
+    await cog.handle_level_choice(interaction, raid_id, LEVEL_199_MINUS)
+
+    assert db.is_participant(raid_id, user.id) is False
+    assert interaction.response.edits[0][0] == "Ce raid est bloqué aux niveaux **200+**."

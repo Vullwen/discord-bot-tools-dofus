@@ -26,6 +26,8 @@ def test_create_and_get(tmp_path):
     assert raid["name"] == "Gigalodon"
     assert raid["state"] == "voting_hour"
     assert raid["poll_duration_seconds"] == 3600
+    assert raid["capacity_removed"] == 0
+    assert raid["level_200_only"] == 0
 
 
 def test_hot_path_indexes_are_created(tmp_path):

@@ -45,6 +45,8 @@ def init(db_path: str = DB_PATH) -> None:
             fixed_time               TEXT,
             reminder_message_id      INTEGER,
             reminder_sent_at         TEXT,
+            capacity_removed         INTEGER NOT NULL DEFAULT 0,
+            level_200_only           INTEGER NOT NULL DEFAULT 0,
             created_at               TEXT NOT NULL
         );
 
@@ -256,6 +258,8 @@ def init(db_path: str = DB_PATH) -> None:
     _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
     _migrate("ALTER TABLE raids ADD COLUMN poll_hours TEXT")
     _migrate("ALTER TABLE raids ADD COLUMN poll_close_hour INTEGER")
+    _migrate("ALTER TABLE raids ADD COLUMN capacity_removed INTEGER NOT NULL DEFAULT 0")
+    _migrate("ALTER TABLE raids ADD COLUMN level_200_only INTEGER NOT NULL DEFAULT 0")
     _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
     _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
     _migrate("ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'")

@@ -26,10 +26,38 @@ def _parse_day(raid) -> date:
 def _format_spots(confirmed: int, waitlist: int, cap) -> str:
     """Affichage 'X/cap' (+N en attente) avec marqueur COMPLET."""
     wait = f" (+{waitlist} en attente)" if waitlist else ""
-    if cap:
+    if cap is not None:
         full = " 🟥 COMPLET" if confirmed >= cap else ""
         return f"{confirmed}/{cap}{full}{wait}"
     return f"{confirmed} participant(s){wait}"
+
+
+def _raid_value(raid, key: str, default=None):
+    try:
+        return raid[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+def _effective_raid_cap(raid):
+    cap = raid_cap(_raid_value(raid, "name"))
+    if cap is None:
+        return None
+    try:
+        removed = int(_raid_value(raid, "capacity_removed", 0) or 0)
+    except (TypeError, ValueError):
+        removed = 0
+    return max(0, cap - max(0, removed))
+
+
+def _raid_rules_line(raid) -> str:
+    parts: list[str] = []
+    removed = _raid_value(raid, "capacity_removed", 0) or 0
+    if removed:
+        parts.append(f"{removed} place(s) retirée(s)")
+    if _raid_value(raid, "level_200_only", 0):
+        parts.append("niveau 200+ uniquement")
+    return f"\n**Règles admin :** {', '.join(parts)}" if parts else ""
 
 
 def _scheduled_dt(raid) -> datetime | None:
@@ -76,13 +104,14 @@ def raid_choice_result_embed(
 
 def hour_poll_embed(raid, counts, creator: str, confirmed: int, waitlist: int, hours) -> discord.Embed:
     name = raid["name"] or "à définir"
-    cap = raid_cap(raid["name"])
+    cap = _effective_raid_cap(raid)
     embed = discord.Embed(
         title=f"🗓️ Sondage — heure du raid {name}",
         description=(
             f"**Date :** {dates_utils.format_date_fr(_parse_day(raid))}\n"
             "Clique sur les créneaux qui te conviennent. Si un de tes créneaux gagne, "
             "tu seras inscrit automatiquement. Tu peux aussi tout cocher ou tout annuler."
+            f"{_raid_rules_line(raid)}"
         ),
         color=GREEN,
     )
@@ -146,13 +175,14 @@ def hour_tie_break_dm_embed(raid, tied_hours: Iterable[int], counts: Mapping[str
 
 def scheduled_embed(raid, confirmed: int, waitlist: int, creator: str) -> discord.Embed:
     dt = _scheduled_dt(raid)
-    cap = raid_cap(raid["name"])
+    cap = _effective_raid_cap(raid)
     embed = discord.Embed(
         title=f"🎯 Raid planifié : {raid['name']}",
         description=(
             f"**Quand :** {dates_utils.format_dt_fr(dt)}\n"
             f"**Participants :** {_format_spots(confirmed, waitlist, cap)}\n"
             "Clique sur **Je participe 📌** pour le rappel MP, **❌ Me désinscrire** pour l'annuler."
+            f"{_raid_rules_line(raid)}"
         ),
         color=GOLD,
     )
@@ -179,7 +209,7 @@ def reminder_channel_embed(raid, confirmed: int, waitlist: int) -> discord.Embed
         title=f"⚡ Rappel — raid {raid['name']} bientôt",
         description=(
             f"**Début prévu : {dates_utils.format_dt_fr(dt)}**\n"
-            f"Inscriptions : {_format_spots(confirmed, waitlist, raid_cap(raid['name']))}."
+            f"Inscriptions : {_format_spots(confirmed, waitlist, _effective_raid_cap(raid))}."
         ),
         color=BLUE,
     )
@@ -197,7 +227,7 @@ def cancelled_embed(raid) -> discord.Embed:
 
 def participants_embed(raid, confirmed_names, waitlist_names) -> discord.Embed:
     """Liste les participants confirmés puis la liste d'attente (noms déjà résolus)."""
-    cap = raid_cap(raid["name"])
+    cap = _effective_raid_cap(raid)
     embed = discord.Embed(
         title=f"📌 Participants — {raid['name'] or 'Raid'}",
         color=BLUE,

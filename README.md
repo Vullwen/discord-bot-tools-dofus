@@ -59,8 +59,9 @@ raids limitent les places ouvertes aux personnages 199-.
 - `/raid bans` : liste les bans raid actifs.
 
 Sur les messages de raid, les boutons permettent de voter, s'inscrire, se
-désinscrire, voir les participants, retirer quelqu'un et annuler le raid avec
-confirmation.
+désinscrire et voir les participants. Le bouton **Admin** ouvre un panneau
+éphémère pour clôturer/annuler, retirer quelqu'un, enlever des places
+disponibles et bloquer le raid aux niveaux 200+.
 
 ### Configuration
 
