@@ -14,6 +14,7 @@ def test_import_cogs():
     import cogs.stuff  # noqa: F401
     import cogs.market  # noqa: F401
     import cogs.metamob  # noqa: F401
+    import cogs.deathnote  # noqa: F401
 
 
 def test_import_modules():

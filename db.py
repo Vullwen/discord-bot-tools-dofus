@@ -126,6 +126,17 @@ def init(db_path: str = DB_PATH) -> None:
             created_at  TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS deathnote_blacklist (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id           INTEGER NOT NULL,
+            pseudo             TEXT NOT NULL,
+            normalized_pseudo  TEXT NOT NULL,
+            reason             TEXT NOT NULL,
+            created_by         INTEGER NOT NULL,
+            created_at         TEXT NOT NULL,
+            UNIQUE(guild_id, normalized_pseudo)
+        );
+
         CREATE TABLE IF NOT EXISTS verification_requests (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id        INTEGER NOT NULL,
@@ -302,6 +313,8 @@ def _create_indexes() -> None:
             ON raid_warns(guild_id, user_id, created_at DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_raid_warns_guild_created
             ON raid_warns(guild_id, created_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_deathnote_guild_pseudo
+            ON deathnote_blacklist(guild_id, normalized_pseudo);
         CREATE INDEX IF NOT EXISTS idx_verification_pending_user
             ON verification_requests(guild_id, discord_id, status, expires_at);
         CREATE INDEX IF NOT EXISTS idx_dofus_characters_user_active
@@ -877,6 +890,71 @@ def list_raid_warn_counts(*, guild_id: int, limit: int = 50) -> list[sqlite3.Row
         (guild_id, limit),
     ).fetchall()
     return list(rows)
+
+
+# --------------------------------------------------------------------- deathnote
+
+
+def upsert_deathnote_entry(
+    *,
+    guild_id: int,
+    pseudo: str,
+    normalized_pseudo: str,
+    reason: str,
+    created_by: int,
+) -> int:
+    cur = _db().execute(
+        """
+        INSERT INTO deathnote_blacklist
+            (guild_id, pseudo, normalized_pseudo, reason, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id, normalized_pseudo) DO UPDATE SET
+            pseudo = excluded.pseudo,
+            reason = excluded.reason,
+            created_by = excluded.created_by,
+            created_at = excluded.created_at
+        """,
+        (guild_id, pseudo, normalized_pseudo, reason, created_by, _now_iso()),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_deathnote_entry(*, guild_id: int, normalized_pseudo: str) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        """
+        SELECT * FROM deathnote_blacklist
+        WHERE guild_id = ?
+          AND normalized_pseudo = ?
+        """,
+        (guild_id, normalized_pseudo),
+    ).fetchone()
+
+
+def list_deathnote_entries(*, guild_id: int, limit: int = 50) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM deathnote_blacklist
+        WHERE guild_id = ?
+        ORDER BY pseudo COLLATE NOCASE ASC
+        LIMIT ?
+        """,
+        (guild_id, limit),
+    ).fetchall()
+    return list(rows)
+
+
+def delete_deathnote_entry(*, guild_id: int, normalized_pseudo: str) -> bool:
+    cur = _db().execute(
+        """
+        DELETE FROM deathnote_blacklist
+        WHERE guild_id = ?
+          AND normalized_pseudo = ?
+        """,
+        (guild_id, normalized_pseudo),
+    )
+    _db().commit()
+    return cur.rowcount > 0
 
 
 # --------------------------------------------------------------- vérifications

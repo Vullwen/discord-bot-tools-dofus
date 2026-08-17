@@ -182,6 +182,34 @@ def test_list_active_raid_bans_filters_and_orders(tmp_path):
     assert [row["user_id"] for row in db.list_active_raid_bans(guild_id=2, now=now)] == [20, 10]
 
 
+def test_deathnote_entry_upsert_list_and_delete(tmp_path):
+    _fresh(tmp_path)
+    db.upsert_deathnote_entry(
+        guild_id=2,
+        pseudo="Éni-Bob",
+        normalized_pseudo="eni-bob",
+        reason="toxique",
+        created_by=1,
+    )
+    db.upsert_deathnote_entry(
+        guild_id=2,
+        pseudo="Eni-Bob",
+        normalized_pseudo="eni-bob",
+        reason="reroll suspect",
+        created_by=3,
+    )
+
+    rows = db.list_deathnote_entries(guild_id=2)
+
+    assert len(rows) == 1
+    assert rows[0]["pseudo"] == "Eni-Bob"
+    assert rows[0]["reason"] == "reroll suspect"
+    assert rows[0]["created_by"] == 3
+    assert db.get_deathnote_entry(guild_id=2, normalized_pseudo="eni-bob") is not None
+    assert db.delete_deathnote_entry(guild_id=2, normalized_pseudo="eni-bob") is True
+    assert db.list_deathnote_entries(guild_id=2) == []
+
+
 def test_update_and_state_serializes_datetime(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(

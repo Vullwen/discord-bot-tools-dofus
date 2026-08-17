@@ -53,6 +53,7 @@ COGS = [
     "cogs.stuff",
     "cogs.market",
     "cogs.metamob",
+    "cogs.deathnote",
 ]
 
 
