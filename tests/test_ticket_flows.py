@@ -219,6 +219,40 @@ async def test_guild_application_submit_stores_answers_and_waits_for_admin_revie
 
 
 @pytest.mark.asyncio
+async def test_guild_application_submit_blocks_deathnote_match(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    guild = FakeGuild(members=(applicant,))
+    db.upsert_deathnote_entry(
+        guild_id=guild.id,
+        pseudo="Belette-Royale",
+        normalized_pseudo="belette-royale",
+        reason="ban guilde",
+        created_by=20,
+    )
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+    interaction = FakeInteraction(user=applicant, guild=guild, channel=channel)
+
+    await cog.submit_guild_application(
+        interaction,
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["choice"] == "guild"
+    assert ticket["status"] == "deathnote_blocked"
+    assert "match trouvé dans la deathnote" in interaction.response.messages[0][0]
+    assert "ban guilde" in interaction.response.messages[0][0]
+    labels = [item.label for item in interaction.response.messages[0][1]["view"].children]
+    assert labels == ["Clôturer le ticket"]
+
+
+@pytest.mark.asyncio
 async def test_onboarding_visitor_review_accepts_and_grants_visitor_role(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
@@ -278,6 +312,44 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
     assert ticket["status"] == "accepted"
     assert ticket["close_after"] is None
     assert applicant.roles == [role]
+
+
+@pytest.mark.asyncio
+async def test_onboarding_guild_review_blocks_late_deathnote_match(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    admin = FakeMember(20)
+    role = FakeRole(91, "Guilde")
+    guild = FakeGuild(members=(applicant, admin), roles=(role,))
+    db.set_guild_setting(guild.id, db.SETTING_GUILD_MEMBER_ROLE, str(role.id))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+
+    await cog.submit_guild_application(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+    db.upsert_deathnote_entry(
+        guild_id=guild.id,
+        pseudo="Belette-Royale",
+        normalized_pseudo="belette-royale",
+        reason="ban guilde",
+        created_by=admin.id,
+    )
+
+    await cog.review_onboarding_request(
+        FakeInteraction(user=admin, guild=guild, channel=channel),
+        accepted=True,
+    )
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["status"] == "deathnote_blocked"
+    assert applicant.roles == []
 
 
 @pytest.mark.asyncio

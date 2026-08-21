@@ -15,6 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+from cogs.deathnote import normalize_pseudo
 from config import RAID_NAMES
 from utils import dates as dates_utils
 from utils import names as names_utils
@@ -167,6 +168,26 @@ def _has_onboarding_role(member: discord.Member, guild_id: int) -> bool:
     if not role_ids:
         return False
     return any(getattr(role, "id", None) in role_ids for role in getattr(member, "roles", []))
+
+
+def _deathnote_application_matches(guild_id: int, *texts: Optional[str]):
+    entries = db.list_deathnote_entries(guild_id=guild_id, limit=500)
+    normalized_texts = [normalize_pseudo(text) for text in texts if text]
+    return [
+        entry
+        for entry in entries
+        if any(entry["normalized_pseudo"] in text for text in normalized_texts)
+    ]
+
+
+def _format_deathnote_matches(rows) -> str:
+    lines = ["Candidature bloquée : match trouvé dans la deathnote."]
+    for row in rows[:5]:
+        reason = row["reason"].strip().rstrip(".")
+        lines.append(f"- **{row['pseudo']}** : {reason}")
+    if len(rows) > 5:
+        lines.append(f"- +{len(rows) - 5} autre(s) entrée(s)")
+    return "\n".join(lines)
 
 
 class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
@@ -661,26 +682,47 @@ class TicketCog(commands.Cog):
             await interaction.response.send_message("Tous les champs du formulaire sont obligatoires.", ephemeral=True)
             return
 
+        deathnote_matches = _deathnote_application_matches(
+            interaction.guild.id,
+            clean_pseudo,
+            clean_classes,
+            clean_goals,
+            getattr(interaction.user, "display_name", None),
+            getattr(interaction.user, "global_name", None),
+            getattr(interaction.user, "name", None),
+        )
+        status = "deathnote_blocked" if deathnote_matches else "guild_pending"
         db.update_onboarding_ticket(
             interaction.channel_id,
             choice="guild",
-            status="guild_pending",
+            status=status,
             application_pseudo=clean_pseudo,
             application_classes=clean_classes,
             application_goals=clean_goals,
         )
-        await interaction.response.send_message(
-            content=(
+        if deathnote_matches:
+            content = (
+                f"<@{ticket['user_id']}> souhaite rejoindre la guilde.\n"
+                f"{_format_deathnote_matches(deathnote_matches)}\n"
+                "Aucun rôle ne peut être attribué depuis cette demande. "
+                "Un admin bot peut fermer le ticket avec le bouton ci-dessous."
+            )
+            view = OnboardingCloseView(self)
+        else:
+            content = (
                 f"<@{ticket['user_id']}> souhaite rejoindre la guilde. "
                 "Un administrateur regardera sa demande. "
                 "Le bouton Accepter est réservé aux admins."
-            ),
+            )
+            view = OnboardingReviewView(self)
+        await interaction.response.send_message(
+            content=content,
             embed=self._guild_application_embed(
                 pseudo=clean_pseudo,
                 classes=clean_classes,
                 goals=clean_goals,
             ),
-            view=OnboardingReviewView(self),
+            view=view,
         )
 
     async def choose_onboarding_path(
@@ -751,6 +793,25 @@ class TicketCog(commands.Cog):
                 status = "visitor_granted"
                 message = "Accès marché accepté."
             else:
+                deathnote_matches = _deathnote_application_matches(
+                    interaction.guild.id,
+                    ticket["application_pseudo"],
+                    ticket["application_classes"],
+                    ticket["application_goals"],
+                )
+                if deathnote_matches:
+                    db.update_onboarding_ticket(
+                        interaction.channel_id,
+                        status="deathnote_blocked",
+                    )
+                    await interaction.response.send_message(
+                        f"{_format_deathnote_matches(deathnote_matches)}\n"
+                        "Aucun rôle n'a été attribué. "
+                        "Un admin bot peut fermer le ticket avec le bouton ci-dessous.",
+                        ephemeral=False,
+                        view=OnboardingCloseView(self),
+                    )
+                    return
                 report = await self._grant_guild_role(interaction.guild, ticket["user_id"])
                 status = "accepted"
                 message = "Candidature acceptée."
