@@ -40,9 +40,11 @@ def test_onboarding_views_include_admin_close_button():
 
 
 def test_parse_whois_account_extracts_account_name():
-    line = "[21:55] Molg#3264 (Brouki) se trouve en Île de Frigost sur le serveur Dakal. Guilde [Bagarres et Belettes], alliance [ Nuit Blanche ]"
+    connected_line = "[21:55] Molg#3264 (Brouki) se trouve en Île de Frigost sur le serveur Dakal. Guilde [Bagarres et Belettes], alliance [ Nuit Blanche ]"
+    disconnected_line = "[00:32] ThELeGeNd76#2965 (Soo-Soo) n'est pas connecté sur le serveur Dakal. Guilde [Bagarres et Belettes]"
 
-    assert _parse_whois_account(line) == "Molg#3264"
+    assert _parse_whois_account(connected_line) == "Molg#3264"
+    assert _parse_whois_account(disconnected_line) == "ThELeGeNd76#2965"
     assert _parse_whois_account("Molg#3264") is None
 
 
