@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 import db
-from cogs.ticket import OnboardingChoiceView, OnboardingReviewView, TicketCog, _rules_embed
+from cogs.ticket import OnboardingChoiceView, OnboardingReviewView, TicketCog, _parse_whois_account, _rules_embed
 from tests.fakes import FakeBot, FakeChannel, FakeInteraction, FakeUser
 
 
@@ -37,6 +37,13 @@ def test_onboarding_views_include_admin_close_button():
 
     assert "Clôturer le ticket" in choice_labels
     assert "Clôturer le ticket" in review_labels
+
+
+def test_parse_whois_account_extracts_account_name():
+    line = "[21:55] Molg#3264 (Brouki) se trouve en Île de Frigost sur le serveur Dakal. Guilde [Bagarres et Belettes], alliance [ Nuit Blanche ]"
+
+    assert _parse_whois_account(line) == "Molg#3264"
+    assert _parse_whois_account("Molg#3264") is None
 
 
 class FakeRole:
@@ -305,6 +312,7 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
     await cog.review_onboarding_request(
         FakeInteraction(user=admin, guild=guild, channel=channel),
         accepted=True,
+        whois_result="[21:55] Molg#3264 (Belette-Royale) se trouve en Île de Frigost sur le serveur Dakal.",
     )
 
     ticket = db.get_onboarding_ticket_by_channel(channel.id)
@@ -312,6 +320,97 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
     assert ticket["status"] == "accepted"
     assert ticket["close_after"] is None
     assert applicant.roles == [role]
+
+
+@pytest.mark.asyncio
+async def test_onboarding_guild_accept_button_opens_whois_form(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    admin = FakeMember(20)
+    guild = FakeGuild(members=(applicant, admin))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+    await cog.submit_guild_application(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+    interaction = FakeInteraction(user=admin, guild=guild, channel=channel)
+
+    await cog.start_onboarding_accept(interaction)
+
+    assert interaction.response.modals
+    assert interaction.response.modals[0].title == "Validation /whois"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_guild_review_requires_valid_whois(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    admin = FakeMember(20)
+    role = FakeRole(91, "Guilde")
+    guild = FakeGuild(members=(applicant, admin), roles=(role,))
+    db.set_guild_setting(guild.id, db.SETTING_GUILD_MEMBER_ROLE, str(role.id))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+    await cog.submit_guild_application(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+    interaction = FakeInteraction(user=admin, guild=guild, channel=channel)
+
+    await cog.review_onboarding_request(interaction, accepted=True, whois_result="Molg#3264")
+
+    assert db.get_onboarding_ticket_by_channel(channel.id)["status"] == "guild_pending"
+    assert applicant.roles == []
+    assert "Résultat /whois invalide" in interaction.response.messages[0][0]
+
+
+@pytest.mark.asyncio
+async def test_onboarding_guild_review_blocks_whois_account_in_deathnote(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    admin = FakeMember(20)
+    role = FakeRole(91, "Guilde")
+    guild = FakeGuild(members=(applicant, admin), roles=(role,))
+    db.set_guild_setting(guild.id, db.SETTING_GUILD_MEMBER_ROLE, str(role.id))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+    await cog.submit_guild_application(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+    db.upsert_deathnote_entry(
+        guild_id=guild.id,
+        pseudo="Molg#3264",
+        normalized_pseudo="molg#3264",
+        reason="compte banni",
+        created_by=admin.id,
+    )
+
+    await cog.review_onboarding_request(
+        FakeInteraction(user=admin, guild=guild, channel=channel),
+        accepted=True,
+        whois_result="[21:55] Molg#3264 (Brouki) se trouve en Île de Frigost sur le serveur Dakal. Guilde [Bagarres et Belettes], alliance [ Nuit Blanche ]",
+    )
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["status"] == "deathnote_blocked"
+    assert applicant.roles == []
 
 
 @pytest.mark.asyncio
@@ -345,6 +444,7 @@ async def test_onboarding_guild_review_blocks_late_deathnote_match(tmp_path, mon
     await cog.review_onboarding_request(
         FakeInteraction(user=admin, guild=guild, channel=channel),
         accepted=True,
+        whois_result="[21:55] Molg#3264 (Belette-Royale) se trouve en Île de Frigost sur le serveur Dakal.",
     )
 
     ticket = db.get_onboarding_ticket_by_channel(channel.id)

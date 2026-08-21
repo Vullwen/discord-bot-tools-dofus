@@ -190,6 +190,14 @@ def _format_deathnote_matches(rows) -> str:
     return "\n".join(lines)
 
 
+def _parse_whois_account(value: str) -> Optional[str]:
+    match = re.search(r"\]\s*(?P<account>.+?)\s+\([^)]+\)\s+se trouve\b", value.strip(), flags=re.IGNORECASE)
+    if match is None:
+        return None
+    account = match.group("account").strip()
+    return account or None
+
+
 class RaidCreateModal(discord.ui.Modal, title="🎯 Créer un raid"):
     raid_input = discord.ui.TextInput(
         label="Raid",
@@ -368,7 +376,7 @@ class _AcceptGuildButton(discord.ui.Button):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self.cog.review_onboarding_request(interaction, accepted=True)
+        await self.cog.start_onboarding_accept(interaction)
 
 
 class _RejectGuildButton(discord.ui.Button):
@@ -442,6 +450,27 @@ class GuildApplicationModal(discord.ui.Modal, title="Candidature guilde"):
             pseudo=str(self.pseudo_input.value),
             classes=str(self.classes_input.value),
             goals=str(self.goals_input.value),
+        )
+
+
+class WhoisValidationModal(discord.ui.Modal, title="Validation /whois"):
+    whois_input = discord.ui.TextInput(
+        label="Résultat /whois",
+        placeholder="[21:55] Molg#3264 (Brouki) se trouve en Île de Frigost sur le serveur Dakal...",
+        required=True,
+        max_length=500,
+        style=discord.TextStyle.paragraph,
+    )
+
+    def __init__(self, cog: "TicketCog"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.cog.review_onboarding_request(
+            interaction,
+            accepted=True,
+            whois_result=str(self.whois_input.value),
         )
 
 
@@ -764,11 +793,31 @@ class TicketCog(commands.Cog):
             view=OnboardingReviewView(self),
         )
 
+    async def start_onboarding_accept(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if not is_bot_admin(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        ticket = db.get_onboarding_ticket_by_channel(interaction.channel_id)
+        if ticket is None or ticket["status"] in ("closed", "deleted"):
+            await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
+            return
+        if ticket["status"] not in ("guild_pending", "visitor_pending"):
+            await interaction.response.send_message("Cette demande a déjà été traitée.", ephemeral=True)
+            return
+        if ticket["choice"] == "guild":
+            await interaction.response.send_modal(WhoisValidationModal(self))
+            return
+        await self.review_onboarding_request(interaction, accepted=True)
+
     async def review_onboarding_request(
         self,
         interaction: discord.Interaction,
         *,
         accepted: bool,
+        whois_result: Optional[str] = None,
     ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
@@ -793,8 +842,16 @@ class TicketCog(commands.Cog):
                 status = "visitor_granted"
                 message = "Accès marché accepté."
             else:
+                account_name = _parse_whois_account(whois_result or "")
+                if account_name is None:
+                    await interaction.response.send_message(
+                        "Résultat /whois invalide. Colle la ligne complète du jeu avant d'accepter.",
+                        ephemeral=True,
+                    )
+                    return
                 deathnote_matches = _deathnote_application_matches(
                     interaction.guild.id,
+                    account_name,
                     ticket["application_pseudo"],
                     ticket["application_classes"],
                     ticket["application_goals"],
@@ -806,6 +863,7 @@ class TicketCog(commands.Cog):
                     )
                     await interaction.response.send_message(
                         f"{_format_deathnote_matches(deathnote_matches)}\n"
+                        f"Compte /whois vérifié : `{account_name}`.\n"
                         "Aucun rôle n'a été attribué. "
                         "Un admin bot peut fermer le ticket avec le bouton ci-dessous.",
                         ephemeral=False,
@@ -814,7 +872,7 @@ class TicketCog(commands.Cog):
                     return
                 report = await self._grant_guild_role(interaction.guild, ticket["user_id"])
                 status = "accepted"
-                message = "Candidature acceptée."
+                message = f"Candidature acceptée.\nCompte /whois vérifié : `{account_name}`."
             db.update_onboarding_ticket(
                 interaction.channel_id,
                 status=status,
@@ -848,6 +906,9 @@ class TicketCog(commands.Cog):
         *,
         accepted: bool,
     ) -> None:
+        if accepted:
+            await self.start_onboarding_accept(interaction)
+            return
         await self.review_onboarding_request(interaction, accepted=accepted)
 
     async def _grant_guild_role(self, guild: discord.Guild, user_id: int) -> str:
