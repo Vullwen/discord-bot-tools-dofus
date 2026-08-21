@@ -192,7 +192,7 @@ def _format_deathnote_matches(rows) -> str:
 
 def _parse_whois_account(value: str) -> Optional[str]:
     match = re.search(
-        r"\]\s*(?P<account>.+?)\s+\([^)]+\)\s+.+?\bsur le serveur\b",
+        r"^(?:\[[^\]]+\]\s*)?(?P<account>.+?)\s+\([^)]+\)\s+.+?\bsur le serveur\b",
         value.strip(),
         flags=re.IGNORECASE,
     )
