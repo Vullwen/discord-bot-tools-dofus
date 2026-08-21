@@ -178,6 +178,19 @@ class _CloseSaleButton(discord.ui.Button):
         await self.cog.prompt_close_sale(interaction)
 
 
+class _AdminCloseSaleButton(discord.ui.Button):
+    def __init__(self, cog: "MarketCog"):
+        super().__init__(
+            label="🔒 Clôture admin",
+            style=discord.ButtonStyle.danger,
+            custom_id="bebraid:market:admin_close",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.prompt_close_sale(interaction, admin_only=True)
+
+
 class _LegacyFinalizeSaleButton(discord.ui.Button):
     def __init__(self, cog: "MarketCog"):
         super().__init__(
@@ -220,6 +233,7 @@ class MarketPostView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(_SetPriceButton(cog))
         self.add_item(_CloseSaleButton(cog, operation))
+        self.add_item(_AdminCloseSaleButton(cog))
 
 
 class MarketCog(commands.Cog):
@@ -308,11 +322,14 @@ class MarketCog(commands.Cog):
         await self._edit_control_message(thread, control_message_id, price_label)
         await interaction.followup.send(f"Prix défini : **{price_label} kamas**.", ephemeral=True)
 
-    async def prompt_close_sale(self, interaction: discord.Interaction) -> None:
+    async def prompt_close_sale(self, interaction: discord.Interaction, *, admin_only: bool = False) -> None:
         if not self.is_market_thread(interaction.channel):
             await interaction.response.send_message("Ce bouton n'est utilisable que dans le forum marché.", ephemeral=True)
             return
-        if not self.can_manage_post(interaction):
+        if admin_only and not is_bot_admin(interaction):
+            await interaction.response.send_message("Seuls les admins peuvent utiliser cette clôture.", ephemeral=True)
+            return
+        if not admin_only and not self.can_manage_post(interaction):
             await interaction.response.send_message("Seuls l'OP et les admins peuvent clôturer cette annonce.", ephemeral=True)
             return
         operation = _market_operation(interaction.channel)

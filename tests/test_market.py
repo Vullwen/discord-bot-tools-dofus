@@ -163,6 +163,8 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
     assert len(thread.sent) == 1
     assert "Prix" in thread.sent[0].content
     assert thread.sent[0].view is not None
+    labels = [item.label for item in thread.sent[0].view.children]
+    assert "🔒 Clôture admin" in labels
     assert db.get_market_post(thread.id)["control_message_id"] == thread.sent[0].id
 
 
@@ -283,6 +285,33 @@ async def test_op_can_prompt_close_choices(monkeypatch):
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
 
     await cog.prompt_close_sale(interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    assert content == "Choisis comment clôturer cette vente :"
+    assert kwargs["ephemeral"] is True
+    assert kwargs["view"] is not None
+
+
+@pytest.mark.asyncio
+async def test_admin_close_button_requires_admin(monkeypatch):
+    thread = FakeThread(owner_id=10)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    interaction = FakeInteraction(user=FakeUser(99), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.prompt_close_sale(interaction, admin_only=True)
+
+    assert interaction.response.messages[0][0] == "Seuls les admins peuvent utiliser cette clôture."
+
+
+@pytest.mark.asyncio
+async def test_admin_close_button_prompts_close_choices(monkeypatch):
+    thread = FakeThread(owner_id=10)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    interaction = FakeInteraction(user=FakeUser(99), guild=type("Guild", (), {"owner_id": 99, "id": 1})(), channel=thread)
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.prompt_close_sale(interaction, admin_only=True)
 
     content, kwargs = interaction.response.messages[0]
     assert content == "Choisis comment clôturer cette vente :"
