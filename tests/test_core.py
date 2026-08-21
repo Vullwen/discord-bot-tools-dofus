@@ -27,7 +27,6 @@ def test_help_embed_lists_main_commands():
         "/raid ban",
         "/raid unban",
         "/raid bans",
-        "/blacklist",
         "/deathnote add",
         "/deathnote list",
         "/deathnote remove",

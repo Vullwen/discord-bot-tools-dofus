@@ -156,19 +156,6 @@ class DeathnoteCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="blacklist", description="Ajoute ou met à jour un pseudo dans la deathnote")
-    @app_commands.describe(
-        pseudo="Pseudo à surveiller",
-        raison="Raison de la blacklist",
-    )
-    async def blacklist(
-        self,
-        interaction: discord.Interaction,
-        pseudo: str,
-        raison: str,
-    ) -> None:
-        await self._add_blacklist_entry(interaction, pseudo, raison)
-
     @deathnote.command(name="add", description="Ajoute ou met à jour un pseudo blacklisté")
     @app_commands.describe(
         pseudo="Pseudo à surveiller",

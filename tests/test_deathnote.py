@@ -48,13 +48,13 @@ def test_normalize_pseudo_is_case_and_accent_insensitive():
 
 
 @pytest.mark.asyncio
-async def test_blacklist_command_persists_entry(tmp_path, monkeypatch):
+async def test_deathnote_add_command_persists_entry(tmp_path, monkeypatch):
     db.reset_for_tests(str(tmp_path / "t.db"))
     monkeypatch.setattr("cogs.deathnote.is_raid_organizer", lambda _interaction: True)
     cog = DeathnoteCog(SimpleNamespace())
     interaction = _interaction()
 
-    await DeathnoteCog.blacklist.callback(cog, interaction, "Éni-Bob", "reroll suspect")
+    await DeathnoteCog.add_entry.callback(cog, interaction, "Éni-Bob", "reroll suspect")
 
     row = db.get_deathnote_entry(guild_id=2, normalized_pseudo="eni-bob")
     assert row is not None

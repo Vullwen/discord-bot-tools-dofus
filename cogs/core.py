@@ -27,7 +27,6 @@ HELP_SECTIONS = (
     (
         "Deathnote",
         (
-            ("`/blacklist`", "ajoute ou met à jour un pseudo blacklisté"),
             ("`/deathnote add`", "ajoute ou met à jour un pseudo blacklisté"),
             ("`/deathnote list`", "liste les pseudos blacklistés"),
             ("`/deathnote remove`", "retire un pseudo de la blacklist"),
