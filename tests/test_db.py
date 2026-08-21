@@ -249,10 +249,16 @@ def test_onboarding_tickets(tmp_path):
         111,
         choice="visitor",
         status="visitor_granted",
+        application_pseudo="Belette-Royale",
+        application_classes="Eniripsa 200",
+        application_goals="PvM",
         close_after=close_after,
     )
     pending_close = db.list_onboarding_tickets_with_close_after()
     assert pending_close[0]["choice"] == "visitor"
+    assert pending_close[0]["application_pseudo"] == "Belette-Royale"
+    assert pending_close[0]["application_classes"] == "Eniripsa 200"
+    assert pending_close[0]["application_goals"] == "PvM"
     assert pending_close[0]["close_after"] == "2026-06-28T21:00:00+02:00"
 
     db.close_onboarding_ticket(111)

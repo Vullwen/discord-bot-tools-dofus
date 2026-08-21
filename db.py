@@ -79,6 +79,9 @@ def init(db_path: str = DB_PATH) -> None:
             guild_id     INTEGER NOT NULL,
             user_id      INTEGER NOT NULL,
             choice       TEXT,
+            application_pseudo   TEXT,
+            application_classes  TEXT,
+            application_goals    TEXT,
             status       TEXT NOT NULL,
             close_after  TEXT,
             created_at   TEXT NOT NULL,
@@ -275,6 +278,9 @@ def init(db_path: str = DB_PATH) -> None:
     _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
     _migrate("ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'")
     _migrate("ALTER TABLE market_posts ADD COLUMN control_message_id INTEGER")
+    _migrate("ALTER TABLE onboarding_tickets ADD COLUMN application_pseudo TEXT")
+    _migrate("ALTER TABLE onboarding_tickets ADD COLUMN application_classes TEXT")
+    _migrate("ALTER TABLE onboarding_tickets ADD COLUMN application_goals TEXT")
     # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
     _conn.execute(
         "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "

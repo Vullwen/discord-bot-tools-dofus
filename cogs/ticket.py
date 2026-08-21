@@ -313,7 +313,7 @@ class _JoinGuildButton(discord.ui.Button):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self.cog.choose_onboarding_path(interaction, choice="guild")
+        await self.cog.start_guild_application(interaction)
 
 
 class _VisitorButton(discord.ui.Button):
@@ -388,6 +388,40 @@ class OnboardingCloseView(discord.ui.View):
     def __init__(self, cog: "TicketCog"):
         super().__init__(timeout=None)
         self.add_item(_CloseOnboardingButton(cog))
+
+
+class GuildApplicationModal(discord.ui.Modal, title="Candidature guilde"):
+    pseudo_input = discord.ui.TextInput(
+        label="Pseudo en jeu",
+        placeholder="Exemple : Belette-Royale",
+        required=True,
+        max_length=80,
+    )
+    classes_input = discord.ui.TextInput(
+        label="Classe(s) / Niveau(x)",
+        placeholder="Exemple : Eniripsa 200, Iop 199",
+        required=True,
+        max_length=200,
+    )
+    goals_input = discord.ui.TextInput(
+        label="Objectifs dans le jeu",
+        placeholder="Koli, PvM, fun, opti...",
+        required=True,
+        max_length=500,
+        style=discord.TextStyle.paragraph,
+    )
+
+    def __init__(self, cog: "TicketCog"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.cog.submit_guild_application(
+            interaction,
+            pseudo=str(self.pseudo_input.value),
+            classes=str(self.classes_input.value),
+            goals=str(self.goals_input.value),
+        )
 
 
 class _AcceptRulesButton(discord.ui.Button):
@@ -571,18 +605,83 @@ class TicketCog(commands.Cog):
         )
         return embed
 
-    def _guild_application_embed(self) -> discord.Embed:
+    def _guild_application_embed(self, *, pseudo: str, classes: str, goals: str) -> discord.Embed:
         embed = discord.Embed(
-            title="🐾 Bienvenue chez B&B 🐾",
-            description=(
-                "Merci de te présenter en remplissant les informations suivantes :\n\n"
-                "Pseudo en jeu :\n"
-                "Classe(s) / Niveau(x) :\n"
-                "Objectifs dans le jeu : (koli, pvm, fun, opti...)"
-            ),
+            title="Candidature guilde",
+            description="Réponses envoyées via le formulaire d'inscription.",
             color=0xF1C40F,
         )
+        embed.add_field(name="Pseudo en jeu", value=pseudo.strip() or "Non renseigné", inline=False)
+        embed.add_field(name="Classe(s) / Niveau(x)", value=classes.strip() or "Non renseigné", inline=False)
+        embed.add_field(name="Objectifs", value=goals.strip() or "Non renseigné", inline=False)
         return embed
+
+    async def start_guild_application(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        ticket = db.get_onboarding_ticket_by_channel(interaction.channel_id)
+        if ticket is None or ticket["status"] in ("closed", "deleted"):
+            await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
+            return
+        if ticket["status"] != "pending":
+            await interaction.response.send_message("Un choix a déjà été enregistré pour ce ticket.", ephemeral=True)
+            return
+        if interaction.user.id != ticket["user_id"]:
+            await interaction.response.send_message("Seul le nouveau membre peut choisir ici.", ephemeral=True)
+            return
+        await interaction.response.send_modal(GuildApplicationModal(self))
+
+    async def submit_guild_application(
+        self,
+        interaction: discord.Interaction,
+        *,
+        pseudo: str,
+        classes: str,
+        goals: str,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        ticket = db.get_onboarding_ticket_by_channel(interaction.channel_id)
+        if ticket is None or ticket["status"] in ("closed", "deleted"):
+            await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
+            return
+        if ticket["status"] != "pending":
+            await interaction.response.send_message("Un choix a déjà été enregistré pour ce ticket.", ephemeral=True)
+            return
+        if interaction.user.id != ticket["user_id"]:
+            await interaction.response.send_message("Seul le nouveau membre peut choisir ici.", ephemeral=True)
+            return
+
+        clean_pseudo = pseudo.strip()
+        clean_classes = classes.strip()
+        clean_goals = goals.strip()
+        if not clean_pseudo or not clean_classes or not clean_goals:
+            await interaction.response.send_message("Tous les champs du formulaire sont obligatoires.", ephemeral=True)
+            return
+
+        db.update_onboarding_ticket(
+            interaction.channel_id,
+            choice="guild",
+            status="guild_pending",
+            application_pseudo=clean_pseudo,
+            application_classes=clean_classes,
+            application_goals=clean_goals,
+        )
+        await interaction.response.send_message(
+            content=(
+                f"<@{ticket['user_id']}> souhaite rejoindre la guilde. "
+                "Un administrateur regardera sa demande. "
+                "Le bouton Accepter est réservé aux admins."
+            ),
+            embed=self._guild_application_embed(
+                pseudo=clean_pseudo,
+                classes=clean_classes,
+                goals=clean_goals,
+            ),
+            view=OnboardingReviewView(self),
+        )
 
     async def choose_onboarding_path(
         self,
@@ -605,20 +704,7 @@ class TicketCog(commands.Cog):
             return
 
         if choice == "guild":
-            db.update_onboarding_ticket(
-                interaction.channel_id,
-                choice="guild",
-                status="guild_pending",
-            )
-            await interaction.response.send_message(
-                content=(
-                    f"<@{ticket['user_id']}> souhaite rejoindre la guilde. "
-                    "Présente-toi ici, puis un administrateur regardera ta demande. "
-                    "Le bouton Accepter est réservé aux admins."
-                ),
-                embed=self._guild_application_embed(),
-                view=OnboardingReviewView(self),
-            )
+            await interaction.response.send_modal(GuildApplicationModal(self))
             return
 
         db.update_onboarding_ticket(

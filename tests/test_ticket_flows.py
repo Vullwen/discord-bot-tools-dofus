@@ -166,7 +166,7 @@ async def test_onboarding_visitor_choice_waits_for_admin_review(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_onboarding_guild_choice_waits_for_admin_review(tmp_path):
+async def test_onboarding_guild_choice_opens_application_form(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
     channel = FakeChannel(500)
     applicant = FakeMember(10)
@@ -179,10 +179,42 @@ async def test_onboarding_guild_choice_waits_for_admin_review(tmp_path):
     await cog.choose_onboarding_path(interaction, choice="guild")
 
     ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["choice"] is None
+    assert ticket["status"] == "pending"
+    assert interaction.response.modals
+
+
+@pytest.mark.asyncio
+async def test_guild_application_submit_stores_answers_and_waits_for_admin_review(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    guild = FakeGuild(members=(applicant,))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+    interaction = FakeInteraction(user=applicant, guild=guild, channel=channel)
+
+    await cog.submit_guild_application(
+        interaction,
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM, fun, opti",
+    )
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
     assert ticket["choice"] == "guild"
     assert ticket["status"] == "guild_pending"
-    assert "un administrateur regardera ta demande" in interaction.response.messages[0][0]
+    assert ticket["application_pseudo"] == "Belette-Royale"
+    assert ticket["application_classes"] == "Eniripsa 200"
+    assert ticket["application_goals"] == "PvM, fun, opti"
+    assert "Un administrateur regardera sa demande" in interaction.response.messages[0][0]
     assert "Le bouton Accepter est réservé aux admins" in interaction.response.messages[0][0]
+    embed = interaction.response.messages[0][1]["embed"]
+    assert embed.title == "Candidature guilde"
+    assert embed.fields[0].value == "Belette-Royale"
+    assert embed.fields[1].value == "Eniripsa 200"
+    assert embed.fields[2].value == "PvM, fun, opti"
     assert interaction.response.messages[0][1]["view"] is not None
 
 
@@ -230,9 +262,11 @@ async def test_onboarding_guild_review_accepts_and_grants_guild_role(tmp_path, m
     db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
     cog = TicketCog(FakeBot(channel=channel))
 
-    await cog.choose_onboarding_path(
+    await cog.submit_guild_application(
         FakeInteraction(user=applicant, guild=guild, channel=channel),
-        choice="guild",
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
     )
     await cog.review_onboarding_request(
         FakeInteraction(user=admin, guild=guild, channel=channel),

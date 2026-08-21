@@ -112,10 +112,14 @@ class FakeResponse:
     def __init__(self):
         self.messages = []
         self.edits = []
+        self.modals = []
         self.deferred = False
 
     async def send_message(self, content=None, **kwargs):
         self.messages.append((content, kwargs))
+
+    async def send_modal(self, modal):
+        self.modals.append(modal)
 
     async def edit_message(self, content=None, **kwargs):
         self.edits.append((content, kwargs))
@@ -125,7 +129,7 @@ class FakeResponse:
         self.defer_kwargs = kwargs
 
     def is_done(self):
-        return bool(self.messages or self.edits or self.deferred)
+        return bool(self.messages or self.edits or self.modals or self.deferred)
 
 
 class FakeFollowup:
