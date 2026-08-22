@@ -196,7 +196,11 @@ class _CloseChoiceButton(discord.ui.Button):
     def __init__(self, cog: "MarketCog", status: str, operation: str):
         choice = CLOSE_STATUSES[status]
         label = "🔒 Clôture admin" if status == "admin" else _choice_label(operation, status)
-        super().__init__(label=label, style=choice["style"])
+        super().__init__(
+            label=label,
+            style=choice["style"],
+            custom_id=f"bebraid:market:close_choice:{operation}:{status}",
+        )
         self.cog = cog
         self.status = status
 
@@ -205,8 +209,8 @@ class _CloseChoiceButton(discord.ui.Button):
 
 
 class MarketCloseChoiceView(discord.ui.View):
-    def __init__(self, cog: "MarketCog", operation: str):
-        super().__init__(timeout=300)
+    def __init__(self, cog: "MarketCog", operation: str, *, persistent: bool = False):
+        super().__init__(timeout=None if persistent else 300)
         for status in CLOSE_STATUSES:
             self.add_item(_CloseChoiceButton(cog, status, operation))
 
@@ -234,6 +238,8 @@ class MarketCog(commands.Cog):
     async def cog_load(self) -> None:
         self.bot.add_view(MarketPostView(self))
         self.bot.add_view(MarketLegacyPostView(self))
+        self.bot.add_view(MarketCloseChoiceView(self, "sale", persistent=True))
+        self.bot.add_view(MarketCloseChoiceView(self, "buy", persistent=True))
         self._cleanup_task = asyncio.create_task(self._inactive_cleanup_loop())
         logger.info("MarketCog prêt")
 
@@ -365,6 +371,7 @@ class MarketCog(commands.Cog):
         db.mark_market_post_closed(thread.id, status, now_paris())
         if status == "admin":
             await self._notify_admin_closed_owner(thread)
+            await interaction.followup.send("Post marché clôturé pour non-respect des règles.", ephemeral=True)
         logger.info("Post marché %s archivé avec le statut %s", thread.id, status)
 
     async def _archive_market_thread(self, thread: discord.Thread, reason: str) -> None:

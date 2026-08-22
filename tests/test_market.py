@@ -335,7 +335,9 @@ async def test_op_can_prompt_close_choices(monkeypatch):
     assert content == "Choisis comment clôturer cette vente :"
     assert kwargs["ephemeral"] is True
     labels = [item.label for item in kwargs["view"].children]
+    custom_ids = [item.custom_id for item in kwargs["view"].children]
     assert labels == ["Vente annulée", "Vente guilde", "Vente HDV", "🔒 Clôture admin"]
+    assert custom_ids[-1] == "bebraid:market:close_choice:sale:admin"
 
 
 @pytest.mark.asyncio
@@ -367,7 +369,7 @@ async def test_admin_close_choice_closes_for_admin(monkeypatch):
     assert "clôturé pour non-respect des règles" in owner.dms[0][0]
     assert "Gelano" in owner.dms[0][0]
     assert interaction.response.deferred is True
-    assert interaction.followup.messages == []
+    assert interaction.followup.messages[0][0] == "Post marché clôturé pour non-respect des règles."
 
 
 @pytest.mark.asyncio
@@ -381,8 +383,34 @@ async def test_buy_post_prompts_buy_close_choices(monkeypatch):
 
     content, kwargs = interaction.response.messages[0]
     labels = [item.label for item in kwargs["view"].children]
+    custom_ids = [item.custom_id for item in kwargs["view"].children]
     assert content == "Choisis comment clôturer cet achat :"
     assert labels == ["Achat annulé", "Achat guilde", "Achat HDV", "🔒 Clôture admin"]
+    assert custom_ids[-1] == "bebraid:market:close_choice:buy:admin"
+
+
+@pytest.mark.asyncio
+async def test_market_cog_registers_close_choice_fallback_views(monkeypatch):
+    bot = FakeBot()
+    cog = market.MarketCog(bot)
+    task = SimpleNamespace(cancel=lambda: None)
+
+    def create_task(coro):
+        coro.close()
+        return task
+
+    monkeypatch.setattr(market.asyncio, "create_task", create_task)
+
+    await cog.cog_load()
+
+    custom_ids = [
+        item.custom_id
+        for view, _message_id in bot.added_views
+        for item in view.children
+    ]
+    assert "bebraid:market:close_choice:sale:admin" in custom_ids
+    assert "bebraid:market:close_choice:buy:admin" in custom_ids
+    assert cog._cleanup_task is task
 
 
 @pytest.mark.asyncio
