@@ -95,6 +95,19 @@ class FakeInteraction:
         self.followup = FakeFollowup(channel=channel)
 
 
+class FakeSentMessage:
+    def __init__(self, *, message_id, content=None, view=None):
+        self.id = message_id
+        self.content = content
+        self.view = view
+        self.edits = []
+
+    async def edit(self, **kwargs):
+        self.edits.append(kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
 class FakeThread:
     def __init__(
         self,
@@ -122,7 +135,7 @@ class FakeThread:
         self._next_id = 1000
 
     async def send(self, *, content=None, view=None):
-        message = type("Message", (), {"id": self._next_id, "content": content, "view": view})()
+        message = FakeSentMessage(message_id=self._next_id, content=content, view=view)
         self._next_id += 1
         self.sent.append(message)
         self._messages[message.id] = message
@@ -148,6 +161,12 @@ class FakeMessage:
         self.author = author or SimpleNamespace(bot=False)
         self.id = message_id
         self.components = components or []
+        self.edits = []
+
+    async def edit(self, **kwargs):
+        self.edits.append(kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 @pytest.mark.asyncio
@@ -200,12 +219,13 @@ async def test_market_message_backfills_missing_control_buttons(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_existing_market_controls_are_recorded_without_duplicate(monkeypatch):
+async def test_existing_market_controls_are_recorded_and_refreshed_without_duplicate(monkeypatch):
     guild = SimpleNamespace(id=2)
     thread = FakeThread(name="Cape", owner_id=10, guild=guild)
     component = SimpleNamespace(custom_id="bebraid:market:close")
     row = SimpleNamespace(children=[component])
     existing = FakeMessage(channel=thread, message_id=777, components=[row])
+    thread._messages[existing.id] = existing
 
     async def history(*, limit):
         yield existing
@@ -218,6 +238,31 @@ async def test_existing_market_controls_are_recorded_without_duplicate(monkeypat
 
     assert thread.sent == []
     assert db.get_market_post(thread.id)["control_message_id"] == 777
+    labels = [item.label for item in existing.view.children]
+    assert "🔒 Clôture admin" in labels
+
+
+@pytest.mark.asyncio
+async def test_recorded_market_control_message_is_refreshed_without_duplicate(monkeypatch):
+    guild = SimpleNamespace(id=2)
+    thread = FakeThread(name="Cape", owner_id=10, guild=guild)
+    existing = FakeMessage(channel=thread, message_id=777)
+    thread._messages[existing.id] = existing
+    db.upsert_market_post(
+        thread_id=thread.id,
+        guild_id=guild.id,
+        owner_id=thread.owner_id,
+        last_activity_at=market.now_paris(),
+    )
+    db.set_market_post_control_message(thread.id, existing.id)
+    cog = market.MarketCog(FakeBot(channel=thread))
+    monkeypatch.setattr(market.discord, "Thread", FakeThread)
+
+    await cog.on_message(FakeMessage(channel=thread))
+
+    assert thread.sent == []
+    labels = [item.label for item in existing.view.children]
+    assert "🔒 Clôture admin" in labels
 
 
 def test_configured_market_forum_channel_takes_priority(tmp_path, monkeypatch):

@@ -405,13 +405,17 @@ class MarketCog(commands.Cog):
         if thread.id in self._control_sends:
             return
         post = db.get_market_post(thread.id)
-        if post is not None and (post["closed_at"] or post["control_message_id"]):
-            return
+        if post is not None:
+            if post["closed_at"]:
+                return
+            if post["control_message_id"] and await self._refresh_control_view(thread, post["control_message_id"]):
+                return
         self._control_sends.add(thread.id)
         try:
             existing_id = await self._find_existing_control_message(thread)
             if existing_id is not None:
                 db.set_market_post_control_message(thread.id, existing_id)
+                await self._refresh_control_view(thread, existing_id)
                 return
             try:
                 operation = _market_operation(thread)
@@ -423,6 +427,16 @@ class MarketCog(commands.Cog):
             logger.info("Boutons marché postés dans le thread %s", thread.id)
         finally:
             self._control_sends.discard(thread.id)
+
+    async def _refresh_control_view(self, thread: discord.Thread, control_message_id: int) -> bool:
+        try:
+            message = await thread.fetch_message(control_message_id)
+            operation = _market_operation(thread)
+            await message.edit(view=MarketPostView(self, operation))
+        except discord.DiscordException as exc:
+            logger.info("Boutons marché non rafraîchis dans %s: %s", thread.id, exc)
+            return False
+        return True
 
     async def _find_existing_control_message(self, thread: discord.Thread) -> Optional[int]:
         history = getattr(thread, "history", None)
