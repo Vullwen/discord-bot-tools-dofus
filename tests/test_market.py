@@ -183,7 +183,7 @@ async def test_new_market_thread_gets_control_buttons(monkeypatch):
     assert "Prix" in thread.sent[0].content
     assert thread.sent[0].view is not None
     labels = [item.label for item in thread.sent[0].view.children]
-    assert "🔒 Clôture admin" in labels
+    assert labels == ["💰 Mettre le prix", "✅ Clôturer la vente"]
     assert db.get_market_post(thread.id)["control_message_id"] == thread.sent[0].id
 
 
@@ -239,7 +239,7 @@ async def test_existing_market_controls_are_recorded_and_refreshed_without_dupli
     assert thread.sent == []
     assert db.get_market_post(thread.id)["control_message_id"] == 777
     labels = [item.label for item in existing.view.children]
-    assert "🔒 Clôture admin" in labels
+    assert labels == ["💰 Mettre le prix", "✅ Clôturer la vente"]
 
 
 @pytest.mark.asyncio
@@ -262,7 +262,7 @@ async def test_recorded_market_control_message_is_refreshed_without_duplicate(mo
 
     assert thread.sent == []
     labels = [item.label for item in existing.view.children]
-    assert "🔒 Clôture admin" in labels
+    assert labels == ["💰 Mettre le prix", "✅ Clôturer la vente"]
 
 
 def test_configured_market_forum_channel_takes_priority(tmp_path, monkeypatch):
@@ -334,34 +334,36 @@ async def test_op_can_prompt_close_choices(monkeypatch):
     content, kwargs = interaction.response.messages[0]
     assert content == "Choisis comment clôturer cette vente :"
     assert kwargs["ephemeral"] is True
-    assert kwargs["view"] is not None
+    labels = [item.label for item in kwargs["view"].children]
+    assert labels == ["Vente annulée", "Vente guilde", "Vente HDV", "🔒 Clôture admin"]
 
 
 @pytest.mark.asyncio
-async def test_admin_close_button_requires_admin(monkeypatch):
+async def test_admin_close_choice_requires_admin(monkeypatch):
     thread = FakeThread(owner_id=10)
     cog = market.MarketCog(FakeBot(channel=thread))
-    interaction = FakeInteraction(user=FakeUser(99), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
+    interaction = FakeInteraction(user=FakeUser(10), guild=type("Guild", (), {"owner_id": 1, "id": 1})(), channel=thread)
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
 
-    await cog.prompt_close_sale(interaction, admin_only=True)
+    await cog.close_sale(interaction, "admin")
 
+    assert thread.edits == []
     assert interaction.response.messages[0][0] == "Seuls les admins peuvent utiliser cette clôture."
 
 
 @pytest.mark.asyncio
-async def test_admin_close_button_prompts_close_choices(monkeypatch):
+async def test_admin_close_choice_closes_for_admin(monkeypatch):
     thread = FakeThread(owner_id=10)
     cog = market.MarketCog(FakeBot(channel=thread))
     interaction = FakeInteraction(user=FakeUser(99), guild=type("Guild", (), {"owner_id": 99, "id": 1})(), channel=thread)
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
 
-    await cog.prompt_close_sale(interaction, admin_only=True)
+    await cog.close_sale(interaction, "admin")
 
-    content, kwargs = interaction.response.messages[0]
-    assert content == "Choisis comment clôturer cette vente :"
-    assert kwargs["ephemeral"] is True
-    assert kwargs["view"] is not None
+    assert thread.archived is True
+    assert thread.locked is True
+    assert interaction.response.deferred is True
+    assert interaction.followup.messages == []
 
 
 @pytest.mark.asyncio
@@ -376,7 +378,7 @@ async def test_buy_post_prompts_buy_close_choices(monkeypatch):
     content, kwargs = interaction.response.messages[0]
     labels = [item.label for item in kwargs["view"].children]
     assert content == "Choisis comment clôturer cet achat :"
-    assert labels == ["Achat annulé", "Achat guilde", "Achat HDV"]
+    assert labels == ["Achat annulé", "Achat guilde", "Achat HDV", "🔒 Clôture admin"]
 
 
 @pytest.mark.asyncio
