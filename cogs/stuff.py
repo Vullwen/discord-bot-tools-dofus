@@ -9,6 +9,7 @@ from discord.ext import commands
 
 from utils.stuff_capture import capture_dofusbook_page
 from utils.stuff_card import StuffLink, build_stuff_fallback_card, parse_dofusbook_url
+from utils.perms import is_bot_admin
 
 
 DOFUSBOOK_LINK_RE = re.compile(
@@ -20,6 +21,25 @@ RECENT_HISTORY_LIMIT = 80
 STUFF_IMAGE_FILENAME = "stuff-dofusbook.png"
 
 
+class _AdminCloseStuffButton(discord.ui.Button):
+    def __init__(self, cog: "StuffCog"):
+        super().__init__(
+            label="🔒 Clôture admin",
+            style=discord.ButtonStyle.danger,
+            custom_id="bebraid:stuff:admin_close",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.close_stuff(interaction)
+
+
+class StuffCloseView(discord.ui.View):
+    def __init__(self, cog: "StuffCog"):
+        super().__init__(timeout=None)
+        self.add_item(_AdminCloseStuffButton(cog))
+
+
 class StuffCog(commands.Cog):
     stuff = app_commands.Group(
         name="stuff",
@@ -28,6 +48,9 @@ class StuffCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    async def cog_load(self) -> None:
+        self.bot.add_view(StuffCloseView(self))
 
     @stuff.command(
         name="refresh",
@@ -59,7 +82,7 @@ class StuffCog(commands.Cog):
 
         async with channel.typing():
             content, file = await _build_stuff_response(stuff_link)
-            await interaction.followup.send(content=content, file=file)
+            await interaction.followup.send(content=content, file=file, view=StuffCloseView(self))
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -72,7 +95,44 @@ class StuffCog(commands.Cog):
 
         async with message.channel.typing():
             content, file = await _build_stuff_response(stuff_link)
-            await message.reply(content=content, file=file, mention_author=False)
+            await message.reply(content=content, file=file, mention_author=False, view=StuffCloseView(self))
+
+    async def close_stuff(self, interaction: discord.Interaction) -> None:
+        if not is_bot_admin(interaction):
+            await interaction.response.send_message("Seuls les admins peuvent utiliser cette clôture.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        channel = interaction.channel
+        if isinstance(channel, discord.Thread):
+            try:
+                await channel.edit(
+                    archived=True,
+                    locked=True,
+                    reason=f"Stuff clôturé par {interaction.user}",
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "Je n'ai pas les permissions pour clôturer ce stuff.",
+                    ephemeral=True,
+                )
+                return
+            except discord.DiscordException:
+                await interaction.followup.send("Impossible de clôturer ce stuff.", ephemeral=True)
+                return
+            await interaction.followup.send("Stuff clôturé.", ephemeral=True)
+            return
+
+        message = getattr(interaction, "message", None)
+        if message is None:
+            await interaction.followup.send("Rien à clôturer ici.", ephemeral=True)
+            return
+        try:
+            await message.delete()
+        except discord.DiscordException:
+            await interaction.followup.send("Impossible de supprimer ce message stuff.", ephemeral=True)
+            return
+        await interaction.followup.send("Message stuff supprimé.", ephemeral=True)
 
 
 async def _build_stuff_response(stuff_link):
