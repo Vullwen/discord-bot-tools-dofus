@@ -354,7 +354,8 @@ async def test_admin_close_choice_requires_admin(monkeypatch):
 @pytest.mark.asyncio
 async def test_admin_close_choice_closes_for_admin(monkeypatch):
     thread = FakeThread(owner_id=10)
-    cog = market.MarketCog(FakeBot(channel=thread))
+    owner = FakeUser(10)
+    cog = market.MarketCog(FakeBot(channel=thread, users=[owner]))
     interaction = FakeInteraction(user=FakeUser(99), guild=type("Guild", (), {"owner_id": 99, "id": 1})(), channel=thread)
     monkeypatch.setattr(market.discord, "Thread", FakeThread)
 
@@ -362,6 +363,9 @@ async def test_admin_close_choice_closes_for_admin(monkeypatch):
 
     assert thread.archived is True
     assert thread.locked is True
+    assert owner.dms
+    assert "clôturé pour non-respect des règles" in owner.dms[0][0]
+    assert "Gelano" in owner.dms[0][0]
     assert interaction.response.deferred is True
     assert interaction.followup.messages == []
 

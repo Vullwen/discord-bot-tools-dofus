@@ -363,6 +363,8 @@ class MarketCog(commands.Cog):
             self._closing_threads.discard(thread.id)
 
         db.mark_market_post_closed(thread.id, status, now_paris())
+        if status == "admin":
+            await self._notify_admin_closed_owner(thread)
         logger.info("Post marché %s archivé avec le statut %s", thread.id, status)
 
     async def _archive_market_thread(self, thread: discord.Thread, reason: str) -> None:
@@ -558,6 +560,27 @@ class MarketCog(commands.Cog):
             )
         except discord.DiscordException as exc:
             logger.info("MP clôture marché échoué pour %s: %s", owner_id, exc)
+
+    async def _notify_admin_closed_owner(self, thread: discord.Thread) -> None:
+        owner_id = getattr(thread, "owner_id", None)
+        if owner_id is None:
+            return
+        try:
+            user = self.bot.get_user(owner_id) or await self.bot.fetch_user(owner_id)
+        except discord.DiscordException as exc:
+            logger.info("MP clôture admin marché impossible, utilisateur %s introuvable: %s", owner_id, exc)
+            return
+        link = getattr(thread, "jump_url", None)
+        suffix = f"\n{link}" if link else ""
+        try:
+            await user.send(
+                content=(
+                    f"Ton post marché **{thread.name}** a été clôturé pour non-respect des règles."
+                    f"{suffix}"
+                )
+            )
+        except discord.DiscordException as exc:
+            logger.info("MP clôture admin marché échoué pour %s: %s", owner_id, exc)
 
     def _control_content(self, operation: str = "sale", price_label: Optional[str] = None) -> str:
         price_text = f"**Prix :** {price_label} kamas" if price_label else "**Prix :** non renseigné"

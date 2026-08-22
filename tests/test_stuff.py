@@ -7,11 +7,18 @@ from utils.stuff_card import build_stuff_fallback_card, parse_dofusbook_url
 
 
 class FakeBot:
-    def __init__(self):
+    def __init__(self, users=()):
         self.views = []
+        self.users = {user.id: user for user in users}
 
     def add_view(self, view):
         self.views.append(view)
+
+    def get_user(self, user_id):
+        return self.users.get(user_id)
+
+    async def fetch_user(self, user_id):
+        return self.users.get(user_id)
 
 
 class FakeResponse:
@@ -36,8 +43,22 @@ class FakeFollowup:
         self.messages.append((content, kwargs))
 
 
+class FakeUser:
+    def __init__(self, user_id: int):
+        self.id = user_id
+        self.bot = False
+        self.dms = []
+
+    async def send(self, *, content=None, **kwargs):
+        self.dms.append((content, kwargs))
+
+
 class FakeMessage:
-    def __init__(self):
+    def __init__(self, *, author=None, content="", jump_url=None, reference=None):
+        self.author = author
+        self.content = content
+        self.jump_url = jump_url
+        self.reference = reference
         self.deleted = False
 
     async def delete(self):
@@ -45,7 +66,10 @@ class FakeMessage:
 
 
 class FakeThread:
-    def __init__(self):
+    def __init__(self, *, owner_id=None, name="Stuff PvM"):
+        self.owner_id = owner_id
+        self.name = name
+        self.jump_url = "https://discord.test/thread"
         self.edits = []
         self.archived = False
         self.locked = False
@@ -135,8 +159,9 @@ async def test_close_stuff_denies_non_admin(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_close_stuff_archives_thread_for_admin(monkeypatch):
-    thread = FakeThread()
-    cog = StuffCog(FakeBot())
+    owner = FakeUser(42)
+    thread = FakeThread(owner_id=owner.id)
+    cog = StuffCog(FakeBot(users=[owner]))
     interaction = FakeInteraction(channel=thread)
     monkeypatch.setattr(stuff, "is_bot_admin", lambda _interaction: True)
     monkeypatch.setattr(stuff.discord, "Thread", FakeThread)
@@ -146,12 +171,20 @@ async def test_close_stuff_archives_thread_for_admin(monkeypatch):
     assert interaction.response.deferred is True
     assert thread.archived is True
     assert thread.locked is True
+    assert owner.dms
+    assert "Ton post stuff **Stuff PvM** a été clôturé pour non-respect des règles." in owner.dms[0][0]
     assert interaction.followup.messages[0][0] == "Stuff clôturé."
 
 
 @pytest.mark.asyncio
 async def test_close_stuff_deletes_message_outside_thread_for_admin(monkeypatch):
-    message = FakeMessage()
+    owner = FakeUser(42)
+    source = FakeMessage(
+        author=owner,
+        content="https://d-bk.net/fr/d/1XUQs",
+        jump_url="https://discord.test/message",
+    )
+    message = FakeMessage(reference=type("Reference", (), {"resolved": source})())
     cog = StuffCog(FakeBot())
     interaction = FakeInteraction(channel=object(), message=message)
     monkeypatch.setattr(stuff, "is_bot_admin", lambda _interaction: True)
@@ -161,4 +194,7 @@ async def test_close_stuff_deletes_message_outside_thread_for_admin(monkeypatch)
 
     assert interaction.response.deferred is True
     assert message.deleted is True
+    assert owner.dms
+    assert "https://d-bk.net/fr/d/1XUQs" in owner.dms[0][0]
+    assert "clôturé pour non-respect des règles" in owner.dms[0][0]
     assert interaction.followup.messages[0][0] == "Message stuff supprimé."

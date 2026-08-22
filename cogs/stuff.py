@@ -105,6 +105,7 @@ class StuffCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         channel = interaction.channel
         if isinstance(channel, discord.Thread):
+            await self._notify_stuff_owner(channel, None)
             try:
                 await channel.edit(
                     archived=True,
@@ -127,12 +128,46 @@ class StuffCog(commands.Cog):
         if message is None:
             await interaction.followup.send("Rien à clôturer ici.", ephemeral=True)
             return
+        await self._notify_stuff_owner(channel, message)
         try:
             await message.delete()
         except discord.DiscordException:
             await interaction.followup.send("Impossible de supprimer ce message stuff.", ephemeral=True)
             return
         await interaction.followup.send("Message stuff supprimé.", ephemeral=True)
+
+    async def _notify_stuff_owner(self, channel, control_message) -> None:
+        owner, label, link = await self._resolve_stuff_owner(channel, control_message)
+        if owner is None or getattr(owner, "bot", False):
+            return
+        suffix = f"\n{link}" if link else ""
+        try:
+            await owner.send(
+                content=(
+                    f"Ton post stuff **{label}** a été clôturé pour non-respect des règles."
+                    f"{suffix}"
+                )
+            )
+        except discord.DiscordException:
+            return
+
+    async def _resolve_stuff_owner(self, channel, control_message):
+        owner_id = getattr(channel, "owner_id", None)
+        if owner_id is not None:
+            user = self.bot.get_user(owner_id)
+            if user is None:
+                try:
+                    user = await self.bot.fetch_user(owner_id)
+                except discord.DiscordException:
+                    user = None
+            if user is not None:
+                return user, getattr(channel, "name", None) or "Dofusbook", getattr(channel, "jump_url", None)
+
+        source_message = _referenced_message(control_message)
+        if source_message is None:
+            return None, "Dofusbook", None
+        author = getattr(source_message, "author", None)
+        return author, _stuff_message_label(source_message), getattr(source_message, "jump_url", None)
 
 
 async def _build_stuff_response(stuff_link):
@@ -173,6 +208,22 @@ def _extract_stuff_link(content: str) -> StuffLink | None:
 
 def _clean_detected_url(url: str) -> str:
     return url.rstrip(TRAILING_URL_PUNCTUATION)
+
+
+def _referenced_message(message):
+    reference = getattr(message, "reference", None)
+    if reference is None:
+        return None
+    return getattr(reference, "resolved", None) or getattr(reference, "cached_message", None)
+
+
+def _stuff_message_label(message) -> str:
+    content = (getattr(message, "content", None) or "").strip().replace("\n", " ")
+    if not content:
+        return "Dofusbook"
+    if len(content) > 80:
+        return f"{content[:77].rstrip()}..."
+    return content
 
 
 async def setup(bot: commands.Bot):
