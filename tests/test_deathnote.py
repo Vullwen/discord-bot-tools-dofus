@@ -35,11 +35,20 @@ class _FakeResponse:
         self.messages.append((content, kwargs))
 
 
+class _FakeFollowup:
+    def __init__(self):
+        self.messages = []
+
+    async def send(self, content=None, **kwargs):
+        self.messages.append((content, kwargs))
+
+
 def _interaction(*, user_id=1, guild_id=2):
     return SimpleNamespace(
         user=SimpleNamespace(id=user_id),
         guild=SimpleNamespace(id=guild_id),
         response=_FakeResponse(),
+        followup=_FakeFollowup(),
     )
 
 
@@ -61,6 +70,58 @@ async def test_deathnote_add_command_persists_entry(tmp_path, monkeypatch):
     assert row["pseudo"] == "Éni-Bob"
     assert row["reason"] == "reroll suspect"
     assert "ajouté à la deathnote" in interaction.response.messages[0][0]
+
+
+@pytest.mark.asyncio
+async def test_deathnote_list_splits_long_output(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.deathnote.is_raid_organizer", lambda _interaction: True)
+    cog = DeathnoteCog(SimpleNamespace())
+    interaction = _interaction()
+
+    reason = "raison très détaillée " * 8
+    for index in range(30):
+        pseudo = f"Joueur-{index:02d}"
+        db.upsert_deathnote_entry(
+            guild_id=2,
+            pseudo=pseudo,
+            normalized_pseudo=normalize_pseudo(pseudo),
+            reason=reason,
+            created_by=1,
+        )
+
+    await DeathnoteCog.list_entries.callback(cog, interaction)
+
+    messages = interaction.response.messages + interaction.followup.messages
+    assert len(messages) > 1
+    assert all(len(content) <= 2000 for content, _kwargs in messages)
+    assert all(kwargs["ephemeral"] is True for _content, kwargs in messages)
+    assert messages[0][0].startswith("**Deathnote**")
+
+
+@pytest.mark.asyncio
+async def test_deathnote_list_truncates_single_overlong_entry(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.deathnote.is_raid_organizer", lambda _interaction: True)
+    cog = DeathnoteCog(SimpleNamespace())
+    interaction = _interaction()
+
+    db.upsert_deathnote_entry(
+        guild_id=2,
+        pseudo="Joueur",
+        normalized_pseudo="joueur",
+        reason="x" * 3000,
+        created_by=1,
+    )
+
+    await DeathnoteCog.list_entries.callback(cog, interaction)
+
+    content, kwargs = interaction.response.messages[0]
+    assert len(content) <= 2000
+    assert "..." in content
+    assert "(par <@1>" in content
+    assert kwargs["ephemeral"] is True
+    assert interaction.followup.messages == []
 
 
 @pytest.mark.asyncio

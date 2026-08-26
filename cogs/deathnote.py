@@ -16,6 +16,8 @@ from utils.perms import is_raid_organizer
 logger = logging.getLogger("dofus-raid-bot.deathnote")
 
 MIN_PSEUDO_LENGTH = 2
+DISCORD_MESSAGE_LIMIT = 2000
+DEATHNOTE_HEADER = "**Deathnote**"
 
 
 def normalize_pseudo(value: str) -> str:
@@ -47,13 +49,39 @@ def _member_texts(member: discord.Member) -> list[Optional[str]]:
     ]
 
 
+def _truncate_text(value: str, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    suffix = "..."
+    return value[: max_length - len(suffix)].rstrip() + suffix
+
+
 def _format_entry_line(row) -> str:
     created_at = datetime.fromisoformat(row["created_at"])
     reason = row["reason"].strip().rstrip(".")
-    return (
-        f"- **{row['pseudo']}** : {reason} "
-        f"(par <@{row['created_by']}>, le {created_at:%d/%m/%Y %Hh%M})"
-    )
+    prefix = f"- **{row['pseudo']}** : "
+    suffix = f" (par <@{row['created_by']}>, le {created_at:%d/%m/%Y %Hh%M})"
+    max_line_length = DISCORD_MESSAGE_LIMIT - len(DEATHNOTE_HEADER) - 1
+    max_reason_length = max_line_length - len(prefix) - len(suffix)
+    if max_reason_length > 3:
+        reason = _truncate_text(reason, max_reason_length)
+    return _truncate_text(f"{prefix}{reason}{suffix}", max_line_length)
+
+
+def _chunk_deathnote_lines(lines: Iterable[str]) -> list[str]:
+    chunks: list[str] = []
+    current = DEATHNOTE_HEADER
+
+    for line in lines:
+        candidate = f"{current}\n{line}"
+        if len(candidate) <= DISCORD_MESSAGE_LIMIT:
+            current = candidate
+            continue
+        chunks.append(current)
+        current = f"{DEATHNOTE_HEADER}\n{line}"
+
+    chunks.append(current)
+    return chunks
 
 
 class DeathnoteCog(commands.Cog):
@@ -183,10 +211,10 @@ class DeathnoteCog(commands.Cog):
             await interaction.response.send_message("Aucun pseudo dans la deathnote.", ephemeral=True)
             return
 
-        await interaction.response.send_message(
-            "\n".join(["**Deathnote**", *[_format_entry_line(row) for row in rows]]),
-            ephemeral=True,
-        )
+        chunks = _chunk_deathnote_lines(_format_entry_line(row) for row in rows)
+        await interaction.response.send_message(chunks[0], ephemeral=True)
+        for chunk in chunks[1:]:
+            await interaction.followup.send(chunk, ephemeral=True)
 
     @deathnote.command(name="remove", description="Retire un pseudo de la deathnote")
     @app_commands.describe(pseudo="Pseudo à retirer")
