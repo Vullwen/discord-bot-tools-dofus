@@ -110,8 +110,8 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             await interaction.followup.send(msg, ephemeral=True)
         else:
             await interaction.response.send_message(msg, ephemeral=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Unable to report command error to Discord: %s", exc, exc_info=True)
 
 
 async def main():

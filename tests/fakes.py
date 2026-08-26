@@ -87,6 +87,9 @@ class FakeBot:
         self.channel = channel or FakeChannel()
         self.users = {user.id: user for user in users}
         self.added_views = []
+        self.latency = 0.042
+        self.guilds = []
+        self.cogs = {}
 
     def get_channel(self, channel_id: int):
         return self.channel if self.channel.id == channel_id else None

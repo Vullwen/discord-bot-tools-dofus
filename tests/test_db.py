@@ -50,6 +50,33 @@ def test_hot_path_indexes_are_created(tmp_path):
         assert name in index_names
 
 
+def test_schema_migrations_are_tracked(tmp_path):
+    _fresh(tmp_path)
+    migrations = db.list_schema_migrations()
+
+    assert len(migrations) == len(db.MIGRATIONS)
+    assert migrations[0]["version"] == "001_raids_fixed_hour"
+
+
+def test_health_check_reports_db_and_activity(tmp_path):
+    _fresh(tmp_path)
+    db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-06-28",
+        poll_duration_seconds=3600,
+        created_by=1,
+        guild_id=2,
+        channel_id=3,
+        state="scheduled",
+    )
+
+    health = db.health_check()
+
+    assert health["quick_check"] == "ok"
+    assert health["migration_count"] == len(db.MIGRATIONS)
+    assert health["active_raid_count"] == 1
+
+
 def test_votes_changeable_and_counts(tmp_path):
     _fresh(tmp_path)
     rid = db.create_raid(

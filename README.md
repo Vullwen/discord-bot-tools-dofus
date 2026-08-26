@@ -155,6 +155,8 @@ réservé aux raids.
 - `/rolemenu ...` : crée et maintient les panneaux de rôles.
 - `/sync` : resynchronise les commandes Discord.
 - `/reload cog` : recharge un cog à chaud.
+- `/health` : affiche l'état technique du bot (latence Discord, uptime, DB,
+  migrations, raids actifs).
 
 Le forum marché n'a pas besoin de commande au quotidien : les boutons apparaissent
 sur les posts du forum configuré.
@@ -222,6 +224,7 @@ python main.py
 
 ```bash
 pytest -q
+ruff check .
 ```
 
 Avec le venv du serveur :
@@ -236,4 +239,5 @@ Dans Docker :
 docker compose run --rm --no-deps --entrypoint pytest beb-raid -q
 ```
 
-Le projet n'a pas encore de configuration mypy officielle.
+Une CI GitHub Actions lance `ruff check .` et `pytest -q` sur `dev` et les pull
+requests vers `dev`.

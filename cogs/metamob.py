@@ -1393,7 +1393,7 @@ class MetamobCog(commands.Cog):
         you_give = find_trade_opportunities(own_archs, target_archs)
         they_give = find_trade_opportunities(target_archs, own_archs)
         lines = [
-            f"**Comparaison Metamob**",
+            "**Comparaison Metamob**",
             f"Toi: {_link_label(own_link)}",
             f"{user.display_name}: {_link_label(target_link)}",
             "",

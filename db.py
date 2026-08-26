@@ -6,6 +6,7 @@ Les datetimes sont stockées en ISO aware (Europe/Paris), les dates en ISO 'YYYY
 from __future__ import annotations
 
 import os
+import logging
 import sqlite3
 from datetime import datetime
 from typing import Any, Collection, Optional
@@ -13,6 +14,49 @@ from typing import Any, Collection, Optional
 from config import DB_PATH
 
 _conn: Optional[sqlite3.Connection] = None
+logger = logging.getLogger(__name__)
+
+MIGRATIONS = (
+    ("001_raids_fixed_hour", "ALTER TABLE raids ADD COLUMN fixed_hour INTEGER"),
+    ("002_raids_fixed_time", "ALTER TABLE raids ADD COLUMN fixed_time TEXT"),
+    ("003_raids_reminder_message_id", "ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER"),
+    ("004_raids_reminder_sent_at", "ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT"),
+    ("005_raids_poll_hours", "ALTER TABLE raids ADD COLUMN poll_hours TEXT"),
+    ("006_raids_poll_close_hour", "ALTER TABLE raids ADD COLUMN poll_close_hour INTEGER"),
+    (
+        "007_raids_capacity_removed",
+        "ALTER TABLE raids ADD COLUMN capacity_removed INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "008_raids_level_200_only",
+        "ALTER TABLE raids ADD COLUMN level_200_only INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "009_participants_status",
+        "ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
+    ),
+    ("010_participants_joined_at", "ALTER TABLE participants ADD COLUMN joined_at TEXT"),
+    (
+        "011_participants_level_group",
+        "ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'",
+    ),
+    (
+        "012_market_posts_control_message_id",
+        "ALTER TABLE market_posts ADD COLUMN control_message_id INTEGER",
+    ),
+    (
+        "013_onboarding_application_pseudo",
+        "ALTER TABLE onboarding_tickets ADD COLUMN application_pseudo TEXT",
+    ),
+    (
+        "014_onboarding_application_classes",
+        "ALTER TABLE onboarding_tickets ADD COLUMN application_classes TEXT",
+    ),
+    (
+        "015_onboarding_application_goals",
+        "ALTER TABLE onboarding_tickets ADD COLUMN application_goals TEXT",
+    ),
+)
 
 
 def init(db_path: str = DB_PATH) -> None:
@@ -263,31 +307,15 @@ def init(db_path: str = DB_PATH) -> None:
             FOREIGN KEY(trade_id) REFERENCES metamob_trades(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version     TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            applied_at  TEXT NOT NULL
+        );
+
         """
     )
-    # Migrations : colonnes ajoutées a posteriori (idempotent).
-    _migrate("ALTER TABLE raids ADD COLUMN fixed_hour INTEGER")
-    _migrate("ALTER TABLE raids ADD COLUMN fixed_time TEXT")
-    _migrate("ALTER TABLE raids ADD COLUMN reminder_message_id INTEGER")
-    _migrate("ALTER TABLE raids ADD COLUMN reminder_sent_at TEXT")
-    _migrate("ALTER TABLE raids ADD COLUMN poll_hours TEXT")
-    _migrate("ALTER TABLE raids ADD COLUMN poll_close_hour INTEGER")
-    _migrate("ALTER TABLE raids ADD COLUMN capacity_removed INTEGER NOT NULL DEFAULT 0")
-    _migrate("ALTER TABLE raids ADD COLUMN level_200_only INTEGER NOT NULL DEFAULT 0")
-    _migrate("ALTER TABLE participants ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
-    _migrate("ALTER TABLE participants ADD COLUMN joined_at TEXT")
-    _migrate("ALTER TABLE participants ADD COLUMN level_group TEXT NOT NULL DEFAULT '200_plus'")
-    _migrate("ALTER TABLE market_posts ADD COLUMN control_message_id INTEGER")
-    _migrate("ALTER TABLE onboarding_tickets ADD COLUMN application_pseudo TEXT")
-    _migrate("ALTER TABLE onboarding_tickets ADD COLUMN application_classes TEXT")
-    _migrate("ALTER TABLE onboarding_tickets ADD COLUMN application_goals TEXT")
-    # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
-    _conn.execute(
-        "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
-        "WHERE fixed_hour IS NOT NULL AND fixed_time IS NULL"
-    )
-    # Backfill : joined_at des anciens participants (ordre FIFO arbitraire entre eux).
-    _conn.execute("UPDATE participants SET joined_at = ? WHERE joined_at IS NULL", (_now_iso(),))
+    _run_migrations()
     _create_indexes()
     _conn.commit()
 
@@ -357,12 +385,69 @@ def _create_indexes() -> None:
     )
 
 
-def _migrate(ddl: str) -> None:
-    """Applique un DDL de migration ; ignore l'erreur si la colonne existe déjà."""
-    try:
-        _db().execute(ddl)
-    except sqlite3.OperationalError:
-        pass
+def _run_migrations() -> None:
+    conn = _db()
+    applied = {
+        row["version"]
+        for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
+    }
+    for version, ddl in MIGRATIONS:
+        if version in applied:
+            continue
+        _apply_add_column_migration(conn, ddl)
+        conn.execute(
+            "INSERT INTO schema_migrations (version, description, applied_at) VALUES (?, ?, ?)",
+            (version, ddl, _now_iso()),
+        )
+        logger.info("Applied database migration %s", version)
+
+    # Backfill : convertit l'ancien fixed_hour (heure entière) en fixed_time 'HH:MM'.
+    conn.execute(
+        "UPDATE raids SET fixed_time = printf('%02d:00', fixed_hour) "
+        "WHERE fixed_hour IS NOT NULL AND fixed_time IS NULL"
+    )
+    # Backfill : joined_at des anciens participants (ordre FIFO arbitraire entre eux).
+    conn.execute("UPDATE participants SET joined_at = ? WHERE joined_at IS NULL", (_now_iso(),))
+
+
+def _apply_add_column_migration(conn: sqlite3.Connection, ddl: str) -> None:
+    """Applique un ADD COLUMN en tolérant les bases déjà mises à jour."""
+    parts = ddl.split()
+    if len(parts) < 6 or parts[:4] != ["ALTER", "TABLE", parts[2], "ADD"]:
+        conn.execute(ddl)
+        return
+    table = parts[2]
+    column = parts[5]
+    existing_columns = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column in existing_columns:
+        return
+    conn.execute(ddl)
+
+
+def list_schema_migrations() -> list[sqlite3.Row]:
+    rows = _db().execute(
+        "SELECT * FROM schema_migrations ORDER BY version"
+    ).fetchall()
+    return list(rows)
+
+
+def health_check() -> dict[str, Any]:
+    conn = _db()
+    quick_check = conn.execute("PRAGMA quick_check").fetchone()[0]
+    migration_count = conn.execute("SELECT COUNT(*) AS n FROM schema_migrations").fetchone()["n"]
+    active_raid_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM raids WHERE state IN "
+        "('choosing_raid','voting_hour','breaking_hour_tie','scheduled','reminded')"
+    ).fetchone()["n"]
+    return {
+        "db_path": DB_PATH,
+        "quick_check": quick_check,
+        "migration_count": migration_count,
+        "expected_migration_count": len(MIGRATIONS),
+        "active_raid_count": active_raid_count,
+    }
 
 
 def _db() -> sqlite3.Connection:
