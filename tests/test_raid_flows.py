@@ -15,6 +15,12 @@ from tests.fakes import FakeBot, FakeChannel, FakeInteraction, FakeUser
 NOW = datetime(2026, 6, 25, 12, 0, tzinfo=PARIS)
 
 
+class _FixedDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return NOW if tz is None else NOW.astimezone(tz)
+
+
 def _guild(guild_id: int = 2):
     return SimpleNamespace(id=guild_id, get_channel=lambda _channel_id: None)
 
@@ -43,6 +49,7 @@ def _allowed_role_ids(message) -> set[int]:
 @pytest.fixture(autouse=True)
 def fixed_now(monkeypatch):
     monkeypatch.setattr(raid_module, "now_paris", lambda: NOW)
+    monkeypatch.setattr(raid_module.dates_utils, "datetime", _FixedDatetime)
 
 
 @pytest.mark.asyncio

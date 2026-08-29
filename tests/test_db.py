@@ -385,6 +385,44 @@ def test_absences_search_and_cleanup(tmp_path):
     assert [row["id"] for row in db.list_absences_for_cleanup()] == [a1 + 1, a1 + 2]
 
 
+def test_get_latest_absence_keeps_past_cleaned_absence(tmp_path):
+    _fresh(tmp_path)
+    old_id = db.create_absence(
+        guild_id=2,
+        user_id=10,
+        user_display="Alice",
+        start_date="2026-07-10",
+        end_date="2026-07-12",
+        public_channel_id=100,
+        public_message_id=1000,
+    )
+    latest_id = db.create_absence(
+        guild_id=2,
+        user_id=10,
+        user_display="Alice",
+        start_date="2026-07-20",
+        end_date="2026-07-30",
+        public_channel_id=100,
+        public_message_id=1001,
+    )
+    db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2026-08-01",
+        end_date="2026-08-05",
+        public_channel_id=100,
+        public_message_id=1002,
+    )
+    db.mark_absence_public_deleted(old_id)
+    db.mark_absence_public_deleted(latest_id)
+
+    latest = db.get_latest_absence(guild_id=2, user_id=10)
+
+    assert latest is not None
+    assert latest["id"] == latest_id
+
+
 def test_list_active_excludes_terminal(tmp_path):
     _fresh(tmp_path)
     db.create_raid(

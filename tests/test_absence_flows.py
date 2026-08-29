@@ -34,13 +34,13 @@ async def test_submit_absence_publishes_public_and_admin_messages_and_persists(t
     user = FakeUser(10, "Alice")
     interaction = FakeInteraction(user=user, guild=_guild(), channel=public_channel)
 
-    await cog.submit_absence(interaction, "28/08/2026", "30/08/2026", "Vacances")
+    await cog.submit_absence(interaction, "28/08/2099", "30/08/2099", "Vacances")
 
-    rows = db.search_absences(guild_id=2, today_iso="2026-08-01")
+    rows = db.search_absences(guild_id=2, today_iso="2099-08-01")
     assert len(rows) == 1
     assert rows[0]["user_id"] == 10
-    assert rows[0]["start_date"] == "2026-08-28"
-    assert rows[0]["end_date"] == "2026-08-30"
+    assert rows[0]["start_date"] == "2099-08-28"
+    assert rows[0]["end_date"] == "2099-08-30"
     assert rows[0]["public_channel_id"] == 100
     assert rows[0]["admin_channel_id"] == 200
     assert len(public_channel.sent) == 1
@@ -89,7 +89,7 @@ async def test_submit_absence_warns_when_reason_has_no_admin_channel(tmp_path):
     cog._schedule_cleanup = lambda _absence_id, _end: None
     interaction = FakeInteraction(user=FakeUser(10, "Alice"), guild=_guild(), channel=public_channel)
 
-    await cog.submit_absence(interaction, "28/08/2026", "28/08/2026", "IRL")
+    await cog.submit_absence(interaction, "28/08/2099", "28/08/2099", "IRL")
 
     assert "Motif non envoyé" in interaction.followup.messages[0][0]
     assert len(public_channel.sent) == 1

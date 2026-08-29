@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
 import discord
 
 import db
+from config import PARIS
 from cogs.absence import AbsenceCog, _cleanup_when, _format_absence_period, _search_absences_embed
 
 
@@ -65,6 +66,43 @@ async def test_search_abs_is_not_ephemeral(tmp_path):
     assert content is None
     assert kwargs["ephemeral"] is False
     assert kwargs["embed"].fields[0].name == "#1 - Bob"
+
+
+@pytest.mark.asyncio
+async def test_search_abs_member_shows_latest_past_absence(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "cogs.absence.now_paris",
+        lambda: datetime(2026, 8, 14, 12, 0, tzinfo=PARIS),
+    )
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    absence_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2026-07-10",
+        end_date="2026-07-30",
+        public_channel_id=100,
+        public_message_id=1000,
+    )
+    db.mark_absence_public_deleted(absence_id)
+    cog = AbsenceCog(SimpleNamespace())
+    member = _FakeUser(20)
+    interaction = SimpleNamespace(
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+
+    await AbsenceCog.search_abs.callback(cog, interaction, member)
+
+    content, kwargs = interaction.response.messages[0]
+    assert content is None
+    assert kwargs["ephemeral"] is False
+    assert kwargs["embed"].title == "Dernière absence - user-20"
+    assert kwargs["embed"].fields[0].name == f"#{absence_id} - Bob"
+    assert kwargs["embed"].fields[0].value == (
+        "Du vendredi 10/07 au jeudi 30/07\n"
+        "Retour prévu dépassé depuis 15 jours"
+    )
 
 
 class _FakeResponse:
@@ -184,7 +222,7 @@ async def test_submit_absence_tries_panel_channel_when_configured_channel_fails(
         followup=_FakeFollowup(),
     )
 
-    await cog.submit_absence(interaction, "28/08/2026", "28/08/2026", "")
+    await cog.submit_absence(interaction, "28/08/2099", "28/08/2099", "")
 
     assert len(panel_channel.sent) == 1
     assert interaction.followup.messages[0] == ("Absence publiée dans <#100>.", {"ephemeral": True})

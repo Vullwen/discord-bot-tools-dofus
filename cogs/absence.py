@@ -76,18 +76,36 @@ def _role_label(role: object) -> str:
     return getattr(role, "mention", None) or getattr(role, "name", None) or f"`{getattr(role, 'id', 'rôle')}`"
 
 
-def _search_absences_embed(rows: list, title: str = "Absences") -> discord.Embed:
+def _format_return_delay(end: date, today: date) -> str:
+    days = (today - end).days
+    suffix = "" if abs(days) == 1 else "s"
+    if days <= 0:
+        return "Retour prévu aujourd'hui" if days == 0 else f"Retour prévu dans {-days} jour{suffix}"
+    return f"Retour prévu dépassé depuis {days} jour{suffix}"
+
+
+def _search_absences_embed(
+    rows: list,
+    title: str = "Absences",
+    *,
+    today: Optional[date] = None,
+    empty_description: str = "Aucune absence active ou à venir.",
+) -> discord.Embed:
     embed = discord.Embed(title=title, color=0xF1C40F)
     if not rows:
-        embed.description = "Aucune absence active ou à venir."
+        embed.description = empty_description
         return embed
 
+    today = today or now_paris().date()
     for row in rows[:20]:
         start = date.fromisoformat(row["start_date"])
         end = date.fromisoformat(row["end_date"])
+        value = _format_absence_period(start, end)
+        if end < today:
+            value = f"{value}\n{_format_return_delay(end, today)}"
         embed.add_field(
             name=f"#{row['id']} - {row['user_display']}",
-            value=_format_absence_period(start, end),
+            value=value,
             inline=False,
         )
     return embed
@@ -566,7 +584,10 @@ class AbsenceCog(commands.Cog):
             return
         await interaction.followup.send(f"Bouton absence posté dans {_channel_label(target)}.", ephemeral=True)
 
-    @absence.command(name="search", description="Recherche les absences actives ou à venir")
+    @absence.command(
+        name="search",
+        description="Recherche les absences actives, à venir ou la dernière passée d'un membre",
+    )
     @app_commands.describe(member="Membre à filtrer")
     async def search_abs(
         self,
@@ -577,14 +598,28 @@ class AbsenceCog(commands.Cog):
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
             return
 
+        today = now_paris().date()
         rows = db.search_absences(
             guild_id=interaction.guild.id,
             user_id=member.id if member is not None else None,
-            today_iso=now_paris().date().isoformat(),
+            today_iso=today.isoformat(),
         )
         title = f"Absences - {member.display_name}" if member is not None else "Absences"
+        empty_description = "Aucune absence active ou à venir."
+        if member is not None and not rows:
+            latest = db.get_latest_absence(guild_id=interaction.guild.id, user_id=member.id)
+            if latest is not None:
+                rows = [latest]
+                title = f"Dernière absence - {member.display_name}"
+            else:
+                empty_description = f"Aucune absence trouvée pour {_user_display(member)}."
         await interaction.response.send_message(
-            embed=_search_absences_embed(rows, title=title),
+            embed=_search_absences_embed(
+                rows,
+                title=title,
+                today=today,
+                empty_description=empty_description,
+            ),
             ephemeral=False,
         )
 

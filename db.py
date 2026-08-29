@@ -367,6 +367,8 @@ def _create_indexes() -> None:
             ON absences(public_deleted_at, end_date, id);
         CREATE INDEX IF NOT EXISTS idx_absences_search
             ON absences(guild_id, public_deleted_at, end_date, start_date, id);
+        CREATE INDEX IF NOT EXISTS idx_absences_latest_user
+            ON absences(guild_id, user_id, end_date DESC, start_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_market_posts_inactive
             ON market_posts(closed_at, last_activity_at);
         CREATE INDEX IF NOT EXISTS idx_metamob_links_guild_user
@@ -1614,6 +1616,26 @@ def search_absences(
         (*params, limit),
     ).fetchall()
     return list(rows)
+
+
+def get_latest_absence(
+    *,
+    guild_id: int,
+    user_id: int,
+) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        """
+        SELECT * FROM absences
+        WHERE guild_id = ?
+          AND user_id = ?
+        ORDER BY
+          CASE WHEN start_date <= end_date THEN end_date ELSE start_date END DESC,
+          CASE WHEN start_date <= end_date THEN start_date ELSE end_date END DESC,
+          id DESC
+        LIMIT 1
+        """,
+        (guild_id, user_id),
+    ).fetchone()
 
 
 # ---------------------------------------------------------------------- settings
