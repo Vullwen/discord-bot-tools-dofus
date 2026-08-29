@@ -423,6 +423,49 @@ def test_get_latest_absence_keeps_past_cleaned_absence(tmp_path):
     assert latest["id"] == latest_id
 
 
+def test_get_latest_past_absence_ignores_active_absence(tmp_path):
+    _fresh(tmp_path)
+    old_id = db.create_absence(
+        guild_id=2,
+        user_id=10,
+        user_display="Alice",
+        start_date="2026-07-01",
+        end_date="2026-07-05",
+        public_channel_id=100,
+        public_message_id=1000,
+    )
+    latest_past_id = db.create_absence(
+        guild_id=2,
+        user_id=10,
+        user_display="Alice",
+        start_date="2026-07-10",
+        end_date="2026-07-20",
+        public_channel_id=100,
+        public_message_id=1001,
+    )
+    active_id = db.create_absence(
+        guild_id=2,
+        user_id=10,
+        user_display="Alice",
+        start_date="2026-08-10",
+        end_date="2026-08-30",
+        public_channel_id=100,
+        public_message_id=1002,
+    )
+    db.mark_absence_public_deleted(old_id)
+    db.mark_absence_public_deleted(latest_past_id)
+
+    latest_past = db.get_latest_past_absence(
+        guild_id=2,
+        user_id=10,
+        today_iso="2026-08-15",
+    )
+
+    assert latest_past is not None
+    assert latest_past["id"] == latest_past_id
+    assert db.get_latest_absence(guild_id=2, user_id=10)["id"] == active_id
+
+
 def test_list_active_excludes_terminal(tmp_path):
     _fresh(tmp_path)
     db.create_raid(

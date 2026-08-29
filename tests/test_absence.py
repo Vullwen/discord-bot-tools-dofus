@@ -112,6 +112,69 @@ async def test_search_abs_member_shows_latest_past_absence(tmp_path, monkeypatch
     )
 
 
+@pytest.mark.asyncio
+async def test_search_abs_member_shows_active_and_latest_past_absence(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "cogs.absence.now_paris",
+        lambda: datetime(2026, 8, 14, 12, 0, tzinfo=PARIS),
+    )
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    old_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2026-07-01",
+        end_date="2026-07-05",
+        public_channel_id=100,
+        public_message_id=1000,
+    )
+    latest_past_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2026-07-10",
+        end_date="2026-07-30",
+        public_channel_id=100,
+        public_message_id=1001,
+    )
+    active_id = db.create_absence(
+        guild_id=2,
+        user_id=20,
+        user_display="Bob",
+        start_date="2026-08-10",
+        end_date="2026-08-20",
+        public_channel_id=100,
+        public_message_id=1002,
+    )
+    db.mark_absence_public_deleted(old_id)
+    db.mark_absence_public_deleted(latest_past_id)
+    cog = AbsenceCog(SimpleNamespace())
+    member = _FakeUser(20)
+    interaction = SimpleNamespace(
+        guild=SimpleNamespace(id=2),
+        response=_FakeResponse(),
+    )
+
+    await AbsenceCog.search_abs.callback(cog, interaction, member)
+
+    content, kwargs = interaction.response.messages[0]
+    assert content is None
+    assert kwargs["ephemeral"] is False
+    assert kwargs["embed"].title == "Absences - user-20"
+    assert [field.name for field in kwargs["embed"].fields] == [
+        f"#{active_id} - Bob",
+        f"#{latest_past_id} - Bob",
+    ]
+    assert kwargs["embed"].fields[0].value == (
+        "Du lundi 10/08 au jeudi 20/08\n"
+        "Retour prévu dans 6 jours"
+    )
+    assert kwargs["embed"].fields[1].value == (
+        "Du vendredi 10/07 au jeudi 30/07\n"
+        "Jours d'inactivité non déclarée depuis la date de retour : 15"
+    )
+
+
 class _FakeResponse:
     def __init__(self):
         self.deferred = False

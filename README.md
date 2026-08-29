@@ -100,10 +100,9 @@ Usages de `/config role` :
 - `/absence declare` : ouvre le formulaire d'absence.
 - `/absence panel` : poste le bouton public de déclaration.
 - `/absence search [member]` : cherche les absences actives ou à venir, affiche
-  leur ID et le décompte jusqu'au retour prévu. Si un membre est filtré sans
-  résultat actif, affiche sa dernière absence passée avec le délai depuis le
-  retour prévu sous la forme `Jours d'inactivité non déclarée depuis la date de
-  retour : XX`.
+  leur ID et le décompte jusqu'au retour prévu. Si un membre est filtré, affiche
+  aussi sa dernière absence passée avec le délai depuis le retour prévu sous la
+  forme `Jours d'inactivité non déclarée depuis la date de retour : XX`.
 - `/absence add member debut fin [motif]` : ajoute une absence pour quelqu'un.
 - `/absence stop member [absence_id]` : stoppe une absence. Si plusieurs absences
   existent pour le membre, l'ID est obligatoire.

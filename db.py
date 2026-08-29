@@ -1638,6 +1638,29 @@ def get_latest_absence(
     ).fetchone()
 
 
+def get_latest_past_absence(
+    *,
+    guild_id: int,
+    user_id: int,
+    today_iso: Optional[str] = None,
+) -> Optional[sqlite3.Row]:
+    today_iso = today_iso or _now_iso()[:10]
+    return _db().execute(
+        """
+        SELECT * FROM absences
+        WHERE guild_id = ?
+          AND user_id = ?
+          AND CASE WHEN start_date <= end_date THEN end_date ELSE start_date END < ?
+        ORDER BY
+          CASE WHEN start_date <= end_date THEN end_date ELSE start_date END DESC,
+          CASE WHEN start_date <= end_date THEN start_date ELSE end_date END DESC,
+          id DESC
+        LIMIT 1
+        """,
+        (guild_id, user_id, today_iso),
+    ).fetchone()
+
+
 # ---------------------------------------------------------------------- settings
 
 

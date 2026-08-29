@@ -604,12 +604,22 @@ class AbsenceCog(commands.Cog):
         )
         title = f"Absences - {member.display_name}" if member is not None else "Absences"
         empty_description = "Aucune absence active ou à venir."
-        if member is not None and not rows:
-            latest = db.get_latest_absence(guild_id=interaction.guild.id, user_id=member.id)
-            if latest is not None:
-                rows = [latest]
-                title = f"Dernière absence - {member.display_name}"
+        if member is not None:
+            latest_past = db.get_latest_past_absence(
+                guild_id=interaction.guild.id,
+                user_id=member.id,
+                today_iso=today.isoformat(),
+            )
+            if latest_past is not None:
+                rows = [*rows, latest_past]
+                if len(rows) == 1:
+                    title = f"Dernière absence - {member.display_name}"
             else:
+                latest = db.get_latest_absence(guild_id=interaction.guild.id, user_id=member.id)
+                if latest is not None and not rows:
+                    rows = [latest]
+                    title = f"Dernière absence - {member.display_name}"
+            if not rows:
                 empty_description = f"Aucune absence trouvée pour {_user_display(member)}."
         await interaction.response.send_message(
             embed=_search_absences_embed(
