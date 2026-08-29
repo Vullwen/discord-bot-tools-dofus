@@ -37,9 +37,16 @@ def test_search_absences_embed_shows_absence_ids(tmp_path):
         public_message_id=1000,
     )
 
-    embed = _search_absences_embed(db.search_absences(guild_id=2, today_iso="2099-08-01"))
+    embed = _search_absences_embed(
+        db.search_absences(guild_id=2, today_iso="2099-08-01"),
+        today=date(2099, 8, 1),
+    )
 
     assert embed.fields[0].name == f"#{absence_id} - Bob"
+    assert embed.fields[0].value == (
+        "Du vendredi 28/08 au dimanche 30/08\n"
+        "Retour prévu dans 29 jours"
+    )
 
 
 @pytest.mark.asyncio
@@ -101,7 +108,7 @@ async def test_search_abs_member_shows_latest_past_absence(tmp_path, monkeypatch
     assert kwargs["embed"].fields[0].name == f"#{absence_id} - Bob"
     assert kwargs["embed"].fields[0].value == (
         "Du vendredi 10/07 au jeudi 30/07\n"
-        "Retour prévu dépassé depuis 15 jours"
+        "Jours d'inactivité non déclarée depuis la date de retour : 15"
     )
 
 

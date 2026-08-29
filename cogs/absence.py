@@ -81,7 +81,7 @@ def _format_return_delay(end: date, today: date) -> str:
     suffix = "" if abs(days) == 1 else "s"
     if days <= 0:
         return "Retour prévu aujourd'hui" if days == 0 else f"Retour prévu dans {-days} jour{suffix}"
-    return f"Retour prévu dépassé depuis {days} jour{suffix}"
+    return f"Jours d'inactivité non déclarée depuis la date de retour : {days}"
 
 
 def _search_absences_embed(
@@ -100,9 +100,7 @@ def _search_absences_embed(
     for row in rows[:20]:
         start = date.fromisoformat(row["start_date"])
         end = date.fromisoformat(row["end_date"])
-        value = _format_absence_period(start, end)
-        if end < today:
-            value = f"{value}\n{_format_return_delay(end, today)}"
+        value = f"{_format_absence_period(start, end)}\n{_format_return_delay(end, today)}"
         embed.add_field(
             name=f"#{row['id']} - {row['user_display']}",
             value=value,
