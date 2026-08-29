@@ -785,6 +785,41 @@ class RaidCog(commands.Cog):
         except discord.DiscordException as exc:
             logger.warning("Notification warn raid échouée pour %s: %s", warned_user.id, exc)
 
+    async def _notify_raid_unregister_admin(
+        self,
+        guild_id: int,
+        user: discord.abc.User,
+        raid,
+        status: Optional[str],
+        level_group: Optional[str],
+        promoted_user_id: Optional[int],
+    ) -> None:
+        channel_id = db.get_guild_setting_int(guild_id, db.SETTING_RAID_ADMIN_CHANNEL)
+        if not channel_id:
+            return
+        channel = await self._get_channel(channel_id)
+        if channel is None:
+            return
+        status_label = "liste d'attente" if status == "waitlist" else "confirmé"
+        if raid["scheduled_at"]:
+            when_label = dates_utils.format_dt_fr(_parse_when(raid["scheduled_at"]))
+        else:
+            when_label = dates_utils.format_date_fr(date.fromisoformat(raid["date"]))
+        promoted_line = f"<@{promoted_user_id}> (`{promoted_user_id}`)" if promoted_user_id else "personne"
+        try:
+            await channel.send(
+                content=(
+                    "↩️ **Désinscription raid**\n"
+                    f"Membre : {user.mention} (`{user.id}`)\n"
+                    f"Raid : #{raid['id']} - {raid['name'] or 'Raid'}\n"
+                    f"Date : {when_label}\n"
+                    f"Ancien statut : {status_label} ({_level_label(level_group)})\n"
+                    f"Place reprise par : {promoted_line}"
+                )
+            )
+        except discord.DiscordException as exc:
+            logger.warning("Notification désinscription raid échouée pour %s: %s", user.id, exc)
+
     def _low_level_full_message(self, raid, raid_id: int) -> Optional[str]:
         if self._raid_level_200_only(raid):
             return "Ce raid est bloqué aux niveaux **200+**."
@@ -1417,6 +1452,8 @@ class RaidCog(commands.Cog):
         if not db.is_participant(raid_id, interaction.user.id):
             await interaction.response.send_message("Tu n'es pas inscrit à ce raid.", ephemeral=True)
             return
+        previous_status = db.get_participant_status(raid_id, interaction.user.id)
+        previous_level = db.get_participant_level_group(raid_id, interaction.user.id)
         eligible = self._eligible_waitlist_promotions(raid, raid_id, interaction.user.id)
         promoted = db.remove_participant(
             raid_id,
@@ -1429,6 +1466,14 @@ class RaidCog(commands.Cog):
         await self._edit_message(
             raid["channel_id"], raid["scheduled_message_id"],
             embed=embeds.scheduled_embed(raid, confirmed, waitlist, creator),
+        )
+        await self._notify_raid_unregister_admin(
+            raid["guild_id"],
+            interaction.user,
+            raid,
+            previous_status,
+            previous_level,
+            promoted,
         )
         if promoted:
             await self._notify_promoted(raid, promoted)

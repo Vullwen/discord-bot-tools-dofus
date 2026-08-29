@@ -205,6 +205,45 @@ async def test_unregister_confirmed_promotes_waitlist_and_updates_message(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_unregister_notifies_raid_admin_channel(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(300)
+    admin_channel = FakeChannel(500)
+    users = [FakeUser(10), FakeUser(20)]
+    cog = _cog(channel=channel, users=users)
+    db.set_guild_setting(2, db.SETTING_RAID_ADMIN_CHANNEL, str(admin_channel.id))
+
+    async def get_channel(channel_id: int):
+        return {channel.id: channel, admin_channel.id: admin_channel}.get(channel_id)
+
+    cog._get_channel = get_channel
+    raid_id = db.create_raid(
+        name="Gigalodon",
+        date_iso="2026-08-28",
+        created_by=1,
+        guild_id=2,
+        channel_id=channel.id,
+        state="scheduled",
+        scheduled_at=datetime(2026, 6, 28, 21, 0, tzinfo=PARIS),
+    )
+    scheduled = await channel.send(embed=None)
+    db.update_raid(raid_id, scheduled_message_id=scheduled.id)
+    db.add_participant(raid_id, 10, "confirmed", LEVEL_200_PLUS)
+    db.add_participant(raid_id, 20, "waitlist", LEVEL_200_PLUS)
+
+    interaction = FakeInteraction(user=users[0], guild=_guild(), channel=channel)
+    await cog.handle_unregister(interaction, raid_id)
+
+    assert len(admin_channel.sent) == 1
+    content = admin_channel.sent[0].content
+    assert "Désinscription raid" in content
+    assert "<@10> (`10`)" in content
+    assert f"Raid : #{raid_id} - Gigalodon" in content
+    assert "Ancien statut : confirmé (200+)" in content
+    assert "Place reprise par : <@20> (`20`)" in content
+
+
+@pytest.mark.asyncio
 async def test_unregister_200_skips_low_level_waitlist_when_low_cap_full(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
     channel = FakeChannel(300)
