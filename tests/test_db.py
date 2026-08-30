@@ -287,6 +287,7 @@ def test_onboarding_tickets(tmp_path):
     assert pending_close[0]["application_classes"] == "Eniripsa 200"
     assert pending_close[0]["application_goals"] == "PvM"
     assert pending_close[0]["close_after"] == "2026-06-28T21:00:00+02:00"
+    assert db.get_open_onboarding_ticket_for_user(guild_id=2, user_id=5) is None
 
     db.close_onboarding_ticket(111)
     assert db.get_onboarding_ticket_by_channel(111)["status"] == "closed"

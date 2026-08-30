@@ -23,6 +23,9 @@ from utils.perms import can_manage_ticket, is_bot_admin, is_raid_organizer
 
 logger = logging.getLogger("dofus-raid-bot.ticket")
 
+ONBOARDING_MUTABLE_STATUSES = {"pending", "guild_redirected", "guild_pending", "visitor_pending"}
+ONBOARDING_REVIEW_STATUSES = {"guild_pending", "visitor_pending"}
+
 DEFAULT_RULE_SECTIONS = (
     (
         "👤 1 — Comportement des membres",
@@ -396,11 +399,39 @@ class _RejectGuildButton(discord.ui.Button):
         await self.cog.review_onboarding_request(interaction, accepted=False)
 
 
+class _AdminGuildPathButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="Diriger guilde",
+            style=discord.ButtonStyle.secondary,
+            custom_id="bebraid:onboarding_admin_guild",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.redirect_onboarding_path(interaction, choice="guild")
+
+
+class _AdminVisitorPathButton(discord.ui.Button):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(
+            label="Diriger marché",
+            style=discord.ButtonStyle.secondary,
+            custom_id="bebraid:onboarding_admin_visitor",
+        )
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.redirect_onboarding_path(interaction, choice="visitor")
+
+
 class OnboardingReviewView(discord.ui.View):
     def __init__(self, cog: "TicketCog"):
         super().__init__(timeout=None)
         self.add_item(_AcceptGuildButton(cog))
         self.add_item(_RejectGuildButton(cog))
+        self.add_item(_AdminGuildPathButton(cog))
+        self.add_item(_AdminVisitorPathButton(cog))
         self.add_item(_CloseOnboardingButton(cog))
 
 
@@ -420,6 +451,14 @@ class _CloseOnboardingButton(discord.ui.Button):
 class OnboardingCloseView(discord.ui.View):
     def __init__(self, cog: "TicketCog"):
         super().__init__(timeout=None)
+        self.add_item(_CloseOnboardingButton(cog))
+
+
+class OnboardingGuildRedirectView(discord.ui.View):
+    def __init__(self, cog: "TicketCog"):
+        super().__init__(timeout=None)
+        self.add_item(_JoinGuildButton(cog))
+        self.add_item(_AdminVisitorPathButton(cog))
         self.add_item(_CloseOnboardingButton(cog))
 
 
@@ -509,6 +548,7 @@ class TicketCog(commands.Cog):
         self.bot.add_view(OnboardingChoiceView(self))
         self.bot.add_view(OnboardingReviewView(self))
         self.bot.add_view(OnboardingCloseView(self))
+        self.bot.add_view(OnboardingGuildRedirectView(self))
         self.bot.add_view(RulesAcceptView(self))
         logger.info("TicketCog prêt")
 
@@ -589,6 +629,7 @@ class TicketCog(commands.Cog):
         if existing is not None:
             channel = guild.get_channel(existing["channel_id"])
             if isinstance(channel, discord.TextChannel):
+                await self._restore_onboarding_member_permissions(channel, member)
                 return channel
             db.update_onboarding_ticket(existing["channel_id"], status="deleted")
             db.close_ticket(existing["channel_id"])
@@ -607,6 +648,28 @@ class TicketCog(commands.Cog):
             view=OnboardingChoiceView(self),
         )
         return channel
+
+    async def _restore_onboarding_member_permissions(
+        self,
+        channel: discord.TextChannel,
+        member: discord.Member,
+    ) -> None:
+        try:
+            await channel.set_permissions(
+                member,
+                view_channel=True,
+                send_messages=True,
+                attach_files=True,
+                read_message_history=True,
+                reason="Réouverture ticket d'accueil existant",
+            )
+        except discord.DiscordException as exc:
+            logger.warning(
+                "Restauration permissions ticket accueil %s échouée pour %s: %s",
+                channel.id,
+                member,
+                exc,
+            )
 
     async def _create_onboarding_channel(
         self,
@@ -678,12 +741,21 @@ class TicketCog(commands.Cog):
         if ticket is None or ticket["status"] in ("closed", "deleted"):
             await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
             return
-        if ticket["status"] != "pending":
-            await interaction.response.send_message("Un choix a déjà été enregistré pour ce ticket.", ephemeral=True)
+        if ticket["status"] not in ONBOARDING_MUTABLE_STATUSES:
+            await interaction.response.send_message("Cette demande ne peut plus être modifiée.", ephemeral=True)
             return
         if interaction.user.id != ticket["user_id"]:
             await interaction.response.send_message("Seul le nouveau membre peut choisir ici.", ephemeral=True)
             return
+        if ticket["status"] == "visitor_pending":
+            db.update_onboarding_ticket(
+                interaction.channel_id,
+                choice="guild",
+                status="guild_redirected",
+                application_pseudo=None,
+                application_classes=None,
+                application_goals=None,
+            )
         await interaction.response.send_modal(GuildApplicationModal(self))
 
     async def submit_guild_application(
@@ -701,8 +773,8 @@ class TicketCog(commands.Cog):
         if ticket is None or ticket["status"] in ("closed", "deleted"):
             await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
             return
-        if ticket["status"] != "pending":
-            await interaction.response.send_message("Un choix a déjà été enregistré pour ce ticket.", ephemeral=True)
+        if ticket["status"] not in ONBOARDING_MUTABLE_STATUSES:
+            await interaction.response.send_message("Cette demande ne peut plus être modifiée.", ephemeral=True)
             return
         if interaction.user.id != ticket["user_id"]:
             await interaction.response.send_message("Seul le nouveau membre peut choisir ici.", ephemeral=True)
@@ -771,27 +843,98 @@ class TicketCog(commands.Cog):
         if ticket is None or ticket["status"] in ("closed", "deleted"):
             await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
             return
-        if ticket["status"] != "pending":
-            await interaction.response.send_message("Un choix a déjà été enregistré pour ce ticket.", ephemeral=True)
-            return
         if interaction.user.id != ticket["user_id"]:
             await interaction.response.send_message("Seul le nouveau membre peut choisir ici.", ephemeral=True)
             return
 
         if choice == "guild":
-            await interaction.response.send_modal(GuildApplicationModal(self))
+            await self.start_guild_application(interaction)
+            return
+        if ticket["status"] == "visitor_pending":
+            await interaction.response.send_message("La demande marché est déjà en attente.", ephemeral=True)
+            return
+        if ticket["status"] not in {"pending", "guild_pending"}:
+            await interaction.response.send_message("Cette demande ne peut plus être modifiée.", ephemeral=True)
             return
 
         db.update_onboarding_ticket(
             interaction.channel_id,
             choice="visitor",
             status="visitor_pending",
+            application_pseudo=None,
+            application_classes=None,
+            application_goals=None,
         )
         await interaction.response.send_message(
             content=(
                 f"<@{ticket['user_id']}> demande l'accès au marché. "
                 "Un administrateur regardera ta demande. "
                 "Le bouton Accepter est réservé aux admins."
+            ),
+            ephemeral=False,
+            view=OnboardingReviewView(self),
+        )
+
+    async def redirect_onboarding_path(
+        self,
+        interaction: discord.Interaction,
+        *,
+        choice: str,
+    ) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
+            return
+        if not is_bot_admin(interaction):
+            await interaction.response.send_message("Permission refusée.", ephemeral=True)
+            return
+        ticket = db.get_onboarding_ticket_by_channel(interaction.channel_id)
+        if ticket is None or ticket["status"] in ("closed", "deleted"):
+            await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
+            return
+        if ticket["status"] not in ONBOARDING_MUTABLE_STATUSES:
+            await interaction.response.send_message("Cette demande ne peut plus être redirigée.", ephemeral=True)
+            return
+
+        if choice == "guild":
+            if ticket["status"] == "guild_pending":
+                await interaction.response.send_message("La candidature guilde est déjà en attente.", ephemeral=True)
+                return
+            db.update_onboarding_ticket(
+                interaction.channel_id,
+                choice="guild",
+                status="guild_redirected",
+                application_pseudo=None,
+                application_classes=None,
+                application_goals=None,
+            )
+            await interaction.response.send_message(
+                content=(
+                    f"<@{ticket['user_id']}> est redirigé vers la candidature guilde. "
+                    "Clique sur le bouton pour remplir le formulaire."
+                ),
+                ephemeral=False,
+                view=OnboardingGuildRedirectView(self),
+            )
+            return
+
+        if choice != "visitor":
+            await interaction.response.send_message("Choix inconnu.", ephemeral=True)
+            return
+        if ticket["status"] == "visitor_pending":
+            await interaction.response.send_message("La demande marché est déjà en attente.", ephemeral=True)
+            return
+        db.update_onboarding_ticket(
+            interaction.channel_id,
+            choice="visitor",
+            status="visitor_pending",
+            application_pseudo=None,
+            application_classes=None,
+            application_goals=None,
+        )
+        await interaction.response.send_message(
+            content=(
+                f"<@{ticket['user_id']}> est redirigé vers l'accès marché. "
+                "Un administrateur peut accepter ou refuser avec les boutons ci-dessous."
             ),
             ephemeral=False,
             view=OnboardingReviewView(self),
@@ -808,7 +951,13 @@ class TicketCog(commands.Cog):
         if ticket is None or ticket["status"] in ("closed", "deleted"):
             await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
             return
-        if ticket["status"] not in ("guild_pending", "visitor_pending"):
+        if ticket["status"] == "guild_redirected":
+            await interaction.response.send_message(
+                "La candidature guilde n'a pas encore été remplie.",
+                ephemeral=True,
+            )
+            return
+        if ticket["status"] not in ONBOARDING_REVIEW_STATUSES:
             await interaction.response.send_message("Cette demande a déjà été traitée.", ephemeral=True)
             return
         if ticket["choice"] == "guild":
@@ -833,7 +982,13 @@ class TicketCog(commands.Cog):
         if ticket is None or ticket["status"] in ("closed", "deleted"):
             await interaction.response.send_message("Ticket d'accueil introuvable.", ephemeral=True)
             return
-        if ticket["status"] not in ("guild_pending", "visitor_pending"):
+        if ticket["status"] == "guild_redirected":
+            await interaction.response.send_message(
+                "La candidature guilde n'a pas encore été remplie.",
+                ephemeral=True,
+            )
+            return
+        if ticket["status"] not in ONBOARDING_REVIEW_STATUSES:
             await interaction.response.send_message("Cette demande a déjà été traitée.", ephemeral=True)
             return
         if ticket["choice"] not in ("guild", "visitor"):

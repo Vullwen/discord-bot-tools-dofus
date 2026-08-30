@@ -140,6 +140,9 @@ forcer un retour ligne.
   accepter ou refuser avec les boutons du ticket.
 - choix marché : les admins bot doivent aussi accepter ou refuser la demande
   avant attribution du rôle visiteur.
+- tant qu'une demande n'est pas acceptée/refusée, le membre peut changer entre
+  guilde et marché. Les admins bot peuvent aussi rediriger le ticket vers guilde
+  ou marché avec les boutons dédiés.
 - accepter une candidature guilde : donne le rôle `guild_member` configuré, ou `verified_member` en
   repli si `guild_member` n'est pas défini.
 - accepter une demande marché : donne le rôle `visitor`.
@@ -147,6 +150,8 @@ forcer un retour ligne.
 
 Les tickets d'accueil restent ouverts après une décision. Un admin bot les ferme
 avec le bouton `Clôturer le ticket`.
+Une ancienne demande déjà traitée ne bloque pas une nouvelle ouverture de ticket
+si la personne quitte puis revient sans rôle d'accueil.
 Seuls les admins bot (`bot_admin`, owner, admin Discord ou `ADMIN_IDS`) gèrent
 le panneau règlement et les demandes d'accueil ; le rôle `raid_manager` reste
 réservé aux raids.

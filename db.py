@@ -1266,7 +1266,13 @@ def get_open_onboarding_ticket_for_user(
         SELECT * FROM onboarding_tickets
         WHERE guild_id = ?
           AND user_id = ?
-          AND status NOT IN ('closed', 'deleted')
+          AND status IN (
+              'pending',
+              'guild_redirected',
+              'guild_pending',
+              'visitor_pending',
+              'deathnote_blocked'
+          )
         ORDER BY id DESC
         LIMIT 1
         """,

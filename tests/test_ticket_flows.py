@@ -5,7 +5,14 @@ from types import SimpleNamespace
 import pytest
 
 import db
-from cogs.ticket import OnboardingChoiceView, OnboardingReviewView, TicketCog, _parse_whois_account, _rules_embed
+from cogs.ticket import (
+    OnboardingChoiceView,
+    OnboardingGuildRedirectView,
+    OnboardingReviewView,
+    TicketCog,
+    _parse_whois_account,
+    _rules_embed,
+)
 from tests.fakes import FakeBot, FakeChannel, FakeInteraction, FakeUser
 
 
@@ -34,9 +41,13 @@ def test_onboarding_views_include_admin_close_button():
 
     choice_labels = [item.label for item in OnboardingChoiceView(cog).children]
     review_labels = [item.label for item in OnboardingReviewView(cog).children]
+    guild_redirect_labels = [item.label for item in OnboardingGuildRedirectView(cog).children]
 
     assert "Clôturer le ticket" in choice_labels
     assert "Clôturer le ticket" in review_labels
+    assert "Clôturer le ticket" in guild_redirect_labels
+    assert "Diriger guilde" in review_labels
+    assert "Diriger marché" in review_labels
 
 
 def test_parse_whois_account_extracts_account_name():
@@ -196,6 +207,62 @@ async def test_onboarding_guild_choice_opens_application_form(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_onboarding_visitor_can_switch_to_guild_before_review(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    guild = FakeGuild(members=(applicant,))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+
+    await cog.choose_onboarding_path(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        choice="visitor",
+    )
+    switch_interaction = FakeInteraction(user=applicant, guild=guild, channel=channel)
+    await cog.start_guild_application(switch_interaction)
+    await cog.submit_guild_application(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert switch_interaction.response.modals
+    assert ticket["choice"] == "guild"
+    assert ticket["status"] == "guild_pending"
+    assert ticket["application_pseudo"] == "Belette-Royale"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_guild_can_switch_to_visitor_before_review(tmp_path):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    guild = FakeGuild(members=(applicant,))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+
+    await cog.submit_guild_application(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+    interaction = FakeInteraction(user=applicant, guild=guild, channel=channel)
+    await cog.choose_onboarding_path(interaction, choice="visitor")
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["choice"] == "visitor"
+    assert ticket["status"] == "visitor_pending"
+    assert ticket["application_pseudo"] is None
+    assert "demande l'accès au marché" in interaction.response.messages[0][0]
+
+
+@pytest.mark.asyncio
 async def test_guild_application_submit_stores_answers_and_waits_for_admin_review(tmp_path):
     db.reset_for_tests(str(tmp_path / "t.db"))
     channel = FakeChannel(500)
@@ -291,6 +358,61 @@ async def test_onboarding_visitor_review_accepts_and_grants_visitor_role(tmp_pat
     assert ticket["status"] == "visitor_granted"
     assert ticket["close_after"] is None
     assert visitor.roles == [role]
+
+
+@pytest.mark.asyncio
+async def test_admin_can_redirect_visitor_to_guild_application(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    admin = FakeMember(20)
+    guild = FakeGuild(members=(applicant, admin))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+
+    await cog.choose_onboarding_path(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        choice="visitor",
+    )
+    interaction = FakeInteraction(user=admin, guild=guild, channel=channel)
+    await cog.redirect_onboarding_path(interaction, choice="guild")
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["choice"] == "guild"
+    assert ticket["status"] == "guild_redirected"
+    assert "redirigé vers la candidature guilde" in interaction.response.messages[0][0]
+    labels = [item.label for item in interaction.response.messages[0][1]["view"].children]
+    assert labels == ["Rejoindre la guilde", "Diriger marché", "Clôturer le ticket"]
+
+
+@pytest.mark.asyncio
+async def test_admin_can_redirect_guild_application_to_visitor(tmp_path, monkeypatch):
+    db.reset_for_tests(str(tmp_path / "t.db"))
+    monkeypatch.setattr("cogs.ticket.is_bot_admin", lambda _interaction: True)
+    channel = FakeChannel(500)
+    applicant = FakeMember(10)
+    admin = FakeMember(20)
+    guild = FakeGuild(members=(applicant, admin))
+    db.create_ticket(channel_id=channel.id, guild_id=guild.id, opener_id=applicant.id)
+    db.create_onboarding_ticket(channel_id=channel.id, guild_id=guild.id, user_id=applicant.id)
+    cog = TicketCog(FakeBot(channel=channel))
+
+    await cog.submit_guild_application(
+        FakeInteraction(user=applicant, guild=guild, channel=channel),
+        pseudo="Belette-Royale",
+        classes="Eniripsa 200",
+        goals="PvM",
+    )
+    interaction = FakeInteraction(user=admin, guild=guild, channel=channel)
+    await cog.redirect_onboarding_path(interaction, choice="visitor")
+
+    ticket = db.get_onboarding_ticket_by_channel(channel.id)
+    assert ticket["choice"] == "visitor"
+    assert ticket["status"] == "visitor_pending"
+    assert ticket["application_pseudo"] is None
+    assert "redirigé vers l'accès marché" in interaction.response.messages[0][0]
 
 
 @pytest.mark.asyncio
