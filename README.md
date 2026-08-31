@@ -160,13 +160,18 @@ réservé aux raids.
 
 - `/stuff refresh` : régénère le dernier stuff Dofusbook trouvé dans le salon.
 - `/event nom preset` : ouvre un formulaire de configuration, puis crée un
-  event avec clôture d'inscriptions, compteur validés/en attente, rôle
-  `event_<id>` et salon privé. Les inscriptions passent en attente jusqu'à la
-  validation admin de la cash entry.
-- `/event_submissions event_id` : publie les dépôts anonymes d'un concours de
-  skin pour ouvrir le vote des admins event.
-  Le salon event contient aussi un panneau admin pour fermer les inscriptions,
-  bannir un membre de l'event ou annuler l'event.
+  event dans les salons configurés (`event-inscription`, `event-admin`,
+  `event`). Le formulaire demande la clôture des inscriptions ; le preset
+  `concours de skin` ajoute le thème et la fin du concours/dépôts. Les
+  inscriptions passent en attente jusqu'à la validation admin de la cash entry,
+  avec compteur validés/en attente.
+- `/event_submissions event_id` : force la fermeture des dépôts d'un concours
+  de skin, supprime le bouton de dépôt, puis publie les skins anonymes avec vote
+  populaire. Les admins peuvent ensuite clore le vote populaire, lancer le vote
+  admin et publier le podium avec révélation des auteurs.
+  Le salon admin event contient les validations cash entry, fermeture des
+  inscriptions, ban event, annulation, clôture de vote et publication des
+  résultats.
 - `/rolemenu ...` : crée et maintient les panneaux de rôles.
 - `/sync` : resynchronise les commandes Discord.
 - `/reload cog` : recharge un cog à chaud.
@@ -187,10 +192,6 @@ sur les posts du forum configuré.
 - `guild_member` : rôle donné après acceptation d'une candidature guilde.
 - `visitor` : rôle donné pour l'accès visiteur au marché.
 - `bot_admin` : rôle qui donne les droits admin du bot.
-- `event_<id>` : rôle créé automatiquement pour accéder au salon privé d'un
-  event.
-- `admin_event` : rôle créé automatiquement pour voter sur les participations
-  anonymes des concours de skin.
 
 Si aucun rôle organisateur n'est configuré, les membres avec la permission
 Administrateur Discord gardent la main.

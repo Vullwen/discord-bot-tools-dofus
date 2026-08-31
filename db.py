@@ -66,6 +66,9 @@ MIGRATIONS = (
     ("023_event_members_approval_message_id", "ALTER TABLE event_members ADD COLUMN approval_message_id INTEGER"),
     ("024_event_members_approved_by", "ALTER TABLE event_members ADD COLUMN approved_by INTEGER"),
     ("025_event_members_approved_at", "ALTER TABLE event_members ADD COLUMN approved_at TEXT"),
+    ("026_events_theme", "ALTER TABLE events ADD COLUMN theme TEXT"),
+    ("027_events_admin_channel_id", "ALTER TABLE events ADD COLUMN admin_channel_id INTEGER"),
+    ("028_event_submissions_stage", "ALTER TABLE event_submissions ADD COLUMN stage TEXT NOT NULL DEFAULT 'active'"),
 )
 
 
@@ -322,9 +325,11 @@ def init(db_path: str = DB_PATH) -> None:
             guild_id                 INTEGER NOT NULL,
             name                     TEXT NOT NULL,
             preset                   TEXT,
+            theme                    TEXT,
             participant_role_id      INTEGER,
             admin_role_id            INTEGER,
             channel_id               INTEGER,
+            admin_channel_id         INTEGER,
             announcement_channel_id  INTEGER,
             announcement_message_id  INTEGER,
             control_message_id       INTEGER,
@@ -361,6 +366,7 @@ def init(db_path: str = DB_PATH) -> None:
             url             TEXT NOT NULL,
             reference       TEXT NOT NULL,
             label           TEXT NOT NULL,
+            stage           TEXT NOT NULL DEFAULT 'active',
             image           BLOB,
             capture_reason  TEXT,
             message_id      INTEGER,
@@ -371,6 +377,16 @@ def init(db_path: str = DB_PATH) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS event_votes (
+            event_id       INTEGER NOT NULL,
+            submission_id  INTEGER NOT NULL,
+            voter_id       INTEGER NOT NULL,
+            created_at     TEXT NOT NULL,
+            PRIMARY KEY (event_id, voter_id),
+            FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
+            FOREIGN KEY(submission_id) REFERENCES event_submissions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS event_admin_votes (
             event_id       INTEGER NOT NULL,
             submission_id  INTEGER NOT NULL,
             voter_id       INTEGER NOT NULL,
@@ -476,6 +492,8 @@ def _create_indexes() -> None:
             ON event_submissions(message_id);
         CREATE INDEX IF NOT EXISTS idx_event_votes_submission
             ON event_votes(submission_id);
+        CREATE INDEX IF NOT EXISTS idx_event_admin_votes_submission
+            ON event_admin_votes(submission_id);
         CREATE INDEX IF NOT EXISTS idx_event_bans_user
             ON event_bans(user_id, event_id);
         CREATE INDEX IF NOT EXISTS idx_event_members_status
@@ -1784,6 +1802,12 @@ SETTING_MARKET_FORUM_CHANNEL = "market_forum_channel"
 SETTING_METAMOB_TALK_CHANNEL = "metamob_talk_channel"
 # Forum où créer les posts d'échange Metamob.
 SETTING_METAMOB_FORUM_CHANNEL = "metamob_forum_channel"
+# Salon où poster les boutons d'inscription aux events.
+SETTING_EVENT_REGISTRATION_CHANNEL = "event_registration_channel"
+# Salon admin où valider les inscriptions payées des events.
+SETTING_EVENT_ADMIN_CHANNEL = "event_admin_channel"
+# Salon où poster les dépôts, votes anonymes et résultats des events.
+SETTING_EVENT_CHANNEL = "event_channel"
 # Active ou désactive les commandes Metamob du serveur. Absent/1 = actif, 0 = off.
 SETTING_METAMOB_ENABLED = "metamob_enabled"
 # Rôle Discord qui donne les droits admin bot. Vide = ADMIN_IDS/proprio/admin Discord.
@@ -2110,6 +2134,7 @@ def create_event(
     guild_id: int,
     name: str,
     preset: Optional[str],
+    theme: Optional[str] = None,
     created_by: int,
     state: str,
     registration_close_at: datetime,
@@ -2119,13 +2144,14 @@ def create_event(
     cur = _db().execute(
         """
         INSERT INTO events
-            (guild_id, name, preset, created_by, state, registration_close_at, submissions_close_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (guild_id, name, preset, theme, created_by, state, registration_close_at, submissions_close_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             guild_id,
             name,
             preset,
+            theme,
             created_by,
             state,
             registration_close_at.isoformat(),
@@ -2161,7 +2187,7 @@ def list_events_for_reschedule() -> list[sqlite3.Row]:
     rows = _db().execute(
         """
         SELECT * FROM events
-        WHERE state IN ('open', 'voting')
+        WHERE state IN ('open', 'popular_vote', 'admin_vote')
         ORDER BY id
         """
     ).fetchall()
@@ -2365,13 +2391,41 @@ def list_event_submissions(event_id: int) -> list[sqlite3.Row]:
     return list(rows)
 
 
+def list_event_submissions_by_stage(event_id: int, stage: str) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM event_submissions
+        WHERE event_id = ? AND stage = ?
+        ORDER BY id
+        """,
+        (event_id, stage),
+    ).fetchall()
+    return list(rows)
+
+
+def count_event_submissions(event_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM event_submissions WHERE event_id = ?",
+        (event_id,),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def set_event_submission_stage(submission_id: int, stage: str) -> None:
+    _db().execute(
+        "UPDATE event_submissions SET stage = ?, updated_at = ? WHERE id = ?",
+        (stage, _now_iso(), submission_id),
+    )
+    _db().commit()
+
+
 def list_votable_event_submissions() -> list[sqlite3.Row]:
     rows = _db().execute(
         """
         SELECT event_submissions.*
         FROM event_submissions
         JOIN events ON events.id = event_submissions.event_id
-        WHERE events.state = 'voting'
+        WHERE events.state IN ('popular_vote', 'admin_vote')
           AND event_submissions.message_id IS NOT NULL
         ORDER BY event_submissions.id
         """
@@ -2401,6 +2455,11 @@ def cast_event_vote(event_id: int, submission_id: int, voter_id: int) -> None:
     _db().commit()
 
 
+def clear_event_votes(event_id: int) -> None:
+    _db().execute("DELETE FROM event_votes WHERE event_id = ?", (event_id,))
+    _db().commit()
+
+
 def get_event_vote_counts(event_id: int) -> dict[int, int]:
     rows = _db().execute(
         """
@@ -2417,6 +2476,41 @@ def get_event_vote_counts(event_id: int) -> dict[int, int]:
 def count_event_votes(submission_id: int) -> int:
     row = _db().execute(
         "SELECT COUNT(*) AS n FROM event_votes WHERE submission_id = ?",
+        (submission_id,),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def cast_event_admin_vote(event_id: int, submission_id: int, voter_id: int) -> None:
+    _db().execute(
+        """
+        INSERT INTO event_admin_votes (event_id, submission_id, voter_id, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(event_id, voter_id) DO UPDATE SET
+            submission_id = excluded.submission_id,
+            created_at = excluded.created_at
+        """,
+        (event_id, submission_id, voter_id, _now_iso()),
+    )
+    _db().commit()
+
+
+def get_event_admin_vote_counts(event_id: int) -> dict[int, int]:
+    rows = _db().execute(
+        """
+        SELECT submission_id, COUNT(*) AS n
+        FROM event_admin_votes
+        WHERE event_id = ?
+        GROUP BY submission_id
+        """,
+        (event_id,),
+    ).fetchall()
+    return {row["submission_id"]: row["n"] for row in rows}
+
+
+def count_event_admin_votes(submission_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM event_admin_votes WHERE submission_id = ?",
         (submission_id,),
     ).fetchone()
     return row["n"] if row else 0

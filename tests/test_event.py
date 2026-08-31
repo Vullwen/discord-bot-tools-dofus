@@ -7,6 +7,8 @@ import db
 from cogs.event import (
     EVENT_OPEN,
     PRESET_SKIN,
+    SUBMISSION_ACTIVE,
+    _finalist_target,
     build_skin_fallback_card,
     parse_barbofus_skin_url,
     parse_deadline,
@@ -92,6 +94,7 @@ def test_event_persistence_members_submissions_and_votes(tmp_path):
         guild_id=1,
         name="Concours été",
         preset=PRESET_SKIN,
+        theme="Royal bouftou",
         created_by=10,
         state=EVENT_OPEN,
         registration_close_at=registration_close_at,
@@ -100,9 +103,8 @@ def test_event_persistence_members_submissions_and_votes(tmp_path):
 
     db.update_event(
         event_id,
-        participant_role_id=101,
-        admin_role_id=102,
         channel_id=201,
+        admin_channel_id=203,
         announcement_channel_id=202,
         announcement_message_id=301,
     )
@@ -119,17 +121,22 @@ def test_event_persistence_members_submissions_and_votes(tmp_path):
     )
     db.cast_event_vote(event_id, submission_id, 1000)
     db.cast_event_vote(event_id, submission_id, 1000)
+    db.cast_event_admin_vote(event_id, submission_id, 2000)
+    db.cast_event_admin_vote(event_id, submission_id, 2000)
 
     event = db.get_event(event_id)
     submissions = db.list_event_submissions(event_id)
 
-    assert event["participant_role_id"] == 101
+    assert event["theme"] == "Royal bouftou"
+    assert event["admin_channel_id"] == 203
     assert event["registration_close_at"] == registration_close_at.isoformat()
     assert db.count_event_members(event_id) == 1
     assert db.is_event_member(event_id, 42) is True
     assert submissions[0]["id"] == submission_id
     assert submissions[0]["user_id"] == 42
+    assert submissions[0]["stage"] == SUBMISSION_ACTIVE
     assert db.get_event_vote_counts(event_id) == {submission_id: 1}
+    assert db.get_event_admin_vote_counts(event_id) == {submission_id: 1}
 
 
 def test_event_ban_removes_member_and_blocks_rejoin(tmp_path):
@@ -174,3 +181,12 @@ def test_event_pending_registration_then_approval(tmp_path):
     assert db.count_event_members(event_id) == 1
     assert db.count_pending_event_members(event_id) == 0
     assert db.is_event_member(event_id, 42) is True
+
+
+def test_finalist_target_scales_with_submission_count():
+    assert _finalist_target(0) == 0
+    assert _finalist_target(2) == 2
+    assert _finalist_target(5) == 3
+    assert _finalist_target(6) == 5
+    assert _finalist_target(10) == 5
+    assert _finalist_target(11) == 10

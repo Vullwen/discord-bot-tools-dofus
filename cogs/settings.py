@@ -28,6 +28,9 @@ _CHANNEL_LABEL = {
     db.SETTING_MARKET_FORUM_CHANNEL: "Forum marché",
     db.SETTING_METAMOB_TALK_CHANNEL: "Salon Metamob",
     db.SETTING_METAMOB_FORUM_CHANNEL: "Forum Metamob",
+    db.SETTING_EVENT_REGISTRATION_CHANNEL: "Salon inscriptions event",
+    db.SETTING_EVENT_ADMIN_CHANNEL: "Salon admin event",
+    db.SETTING_EVENT_CHANNEL: "Salon event",
 }
 
 _ROLE_LABEL = {
@@ -85,6 +88,9 @@ _CHANNEL_CHOICES = [
     app_commands.Choice(name="market_forum", value=db.SETTING_MARKET_FORUM_CHANNEL),
     app_commands.Choice(name="metamob-talk", value=db.SETTING_METAMOB_TALK_CHANNEL),
     app_commands.Choice(name="metamob-forum", value=db.SETTING_METAMOB_FORUM_CHANNEL),
+    app_commands.Choice(name="event-inscription", value=db.SETTING_EVENT_REGISTRATION_CHANNEL),
+    app_commands.Choice(name="event-admin", value=db.SETTING_EVENT_ADMIN_CHANNEL),
+    app_commands.Choice(name="event", value=db.SETTING_EVENT_CHANNEL),
 ]
 
 _ROLE_CHOICES = [
@@ -291,6 +297,13 @@ class SettingsCog(commands.Cog):
         embed.add_field(name="Forum marché", value=_mention(db.SETTING_MARKET_FORUM_CHANNEL), inline=False)
         embed.add_field(name="Salon Metamob", value=_mention(db.SETTING_METAMOB_TALK_CHANNEL), inline=False)
         embed.add_field(name="Forum Metamob", value=_mention(db.SETTING_METAMOB_FORUM_CHANNEL), inline=False)
+        embed.add_field(
+            name="Salon inscriptions event",
+            value=_mention(db.SETTING_EVENT_REGISTRATION_CHANNEL),
+            inline=False,
+        )
+        embed.add_field(name="Salon admin event", value=_mention(db.SETTING_EVENT_ADMIN_CHANNEL), inline=False)
+        embed.add_field(name="Salon event", value=_mention(db.SETTING_EVENT_CHANNEL), inline=False)
         embed.add_field(
             name="Rôle admin bot",
             value=_role_mention(db.SETTING_BOT_ADMIN_ROLE, "*(non défini — ADMIN_IDS/propriétaire/Administrateur)*"),
