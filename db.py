@@ -62,6 +62,10 @@ MIGRATIONS = (
     ("019_events_cancelled_by", "ALTER TABLE events ADD COLUMN cancelled_by INTEGER"),
     ("020_events_cancel_reason", "ALTER TABLE events ADD COLUMN cancel_reason TEXT"),
     ("021_events_cancelled_at", "ALTER TABLE events ADD COLUMN cancelled_at TEXT"),
+    ("022_event_members_status", "ALTER TABLE event_members ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'"),
+    ("023_event_members_approval_message_id", "ALTER TABLE event_members ADD COLUMN approval_message_id INTEGER"),
+    ("024_event_members_approved_by", "ALTER TABLE event_members ADD COLUMN approved_by INTEGER"),
+    ("025_event_members_approved_at", "ALTER TABLE event_members ADD COLUMN approved_at TEXT"),
 )
 
 
@@ -341,6 +345,10 @@ def init(db_path: str = DB_PATH) -> None:
         CREATE TABLE IF NOT EXISTS event_members (
             event_id   INTEGER NOT NULL,
             user_id    INTEGER NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'approved',
+            approval_message_id  INTEGER,
+            approved_by INTEGER,
+            approved_at TEXT,
             joined_at  TEXT NOT NULL,
             PRIMARY KEY (event_id, user_id),
             FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
@@ -470,6 +478,10 @@ def _create_indexes() -> None:
             ON event_votes(submission_id);
         CREATE INDEX IF NOT EXISTS idx_event_bans_user
             ON event_bans(user_id, event_id);
+        CREATE INDEX IF NOT EXISTS idx_event_members_status
+            ON event_members(event_id, status, joined_at);
+        CREATE INDEX IF NOT EXISTS idx_event_members_approval_message
+            ON event_members(approval_message_id);
         """
     )
 
@@ -2156,13 +2168,19 @@ def list_events_for_reschedule() -> list[sqlite3.Row]:
     return list(rows)
 
 
-def add_event_member(event_id: int, user_id: int) -> None:
+def add_event_member(event_id: int, user_id: int, status: str = "approved") -> None:
+    now = _now_iso()
     _db().execute(
         """
-        INSERT OR IGNORE INTO event_members (event_id, user_id, joined_at)
-        VALUES (?, ?, ?)
+        INSERT INTO event_members (event_id, user_id, status, joined_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(event_id, user_id) DO UPDATE SET
+            status = CASE
+                WHEN event_members.status = 'approved' THEN event_members.status
+                ELSE excluded.status
+            END
         """,
-        (event_id, user_id, _now_iso()),
+        (event_id, user_id, status, now),
     )
     _db().commit()
 
@@ -2178,15 +2196,30 @@ def remove_event_member(event_id: int, user_id: int) -> bool:
 
 def is_event_member(event_id: int, user_id: int) -> bool:
     row = _db().execute(
-        "SELECT 1 FROM event_members WHERE event_id = ? AND user_id = ?",
+        "SELECT 1 FROM event_members WHERE event_id = ? AND user_id = ? AND status = 'approved'",
         (event_id, user_id),
     ).fetchone()
     return row is not None
 
 
+def get_event_member(event_id: int, user_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM event_members WHERE event_id = ? AND user_id = ?",
+        (event_id, user_id),
+    ).fetchone()
+
+
 def count_event_members(event_id: int) -> int:
     row = _db().execute(
-        "SELECT COUNT(*) AS n FROM event_members WHERE event_id = ?",
+        "SELECT COUNT(*) AS n FROM event_members WHERE event_id = ? AND status = 'approved'",
+        (event_id,),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def count_pending_event_members(event_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM event_members WHERE event_id = ? AND status = 'pending'",
         (event_id,),
     ).fetchone()
     return row["n"] if row else 0
@@ -2194,10 +2227,54 @@ def count_event_members(event_id: int) -> int:
 
 def list_event_member_ids(event_id: int) -> list[int]:
     rows = _db().execute(
-        "SELECT user_id FROM event_members WHERE event_id = ? ORDER BY joined_at ASC",
+        """
+        SELECT user_id FROM event_members
+        WHERE event_id = ? AND status = 'approved'
+        ORDER BY joined_at ASC
+        """,
         (event_id,),
     ).fetchall()
     return [row["user_id"] for row in rows]
+
+
+def set_event_member_approval_message(event_id: int, user_id: int, message_id: int) -> None:
+    _db().execute(
+        """
+        UPDATE event_members
+        SET approval_message_id = ?
+        WHERE event_id = ? AND user_id = ?
+        """,
+        (message_id, event_id, user_id),
+    )
+    _db().commit()
+
+
+def approve_event_member(event_id: int, user_id: int, approved_by: int) -> bool:
+    cur = _db().execute(
+        """
+        UPDATE event_members
+        SET status = 'approved', approved_by = ?, approved_at = ?
+        WHERE event_id = ? AND user_id = ? AND status = 'pending'
+        """,
+        (approved_by, _now_iso(), event_id, user_id),
+    )
+    _db().commit()
+    return cur.rowcount > 0
+
+
+def list_pending_event_members_with_messages() -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT event_members.*
+        FROM event_members
+        JOIN events ON events.id = event_members.event_id
+        WHERE events.state = 'open'
+          AND event_members.status = 'pending'
+          AND event_members.approval_message_id IS NOT NULL
+        ORDER BY event_members.event_id, event_members.joined_at
+        """
+    ).fetchall()
+    return list(rows)
 
 
 def ban_event_member(

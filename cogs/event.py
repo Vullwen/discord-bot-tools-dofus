@@ -86,7 +86,7 @@ class EventConfigModal(discord.ui.Modal):
         self.submissions_input: Optional[discord.ui.TextInput] = None
         if preset == PRESET_SKIN:
             self.submissions_input = discord.ui.TextInput(
-                label="Durée/fin des dépôts",
+                label="Fin du concours / dépôts",
                 placeholder="ex: 48h, 3j, demain 21h",
                 required=True,
                 max_length=80,
@@ -173,6 +173,27 @@ class EventRegistrationView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(_JoinEventButton(cog, event_id, disabled=disabled))
         self.add_item(_LeaveEventButton(cog, event_id, disabled=disabled))
+
+
+class _ApproveRegistrationButton(discord.ui.Button):
+    def __init__(self, cog: "EventCog", event_id: int, user_id: int):
+        super().__init__(
+            label="Valider cash entry",
+            style=discord.ButtonStyle.success,
+            custom_id=f"bebraid:event:approve:{event_id}:{user_id}",
+        )
+        self.cog = cog
+        self.event_id = event_id
+        self.user_id = user_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.approve_registration(interaction, self.event_id, self.user_id)
+
+
+class EventApprovalView(discord.ui.View):
+    def __init__(self, cog: "EventCog", event_id: int, user_id: int):
+        super().__init__(timeout=None)
+        self.add_item(_ApproveRegistrationButton(cog, event_id, user_id))
 
 
 class _SubmitSkinButton(discord.ui.Button):
@@ -362,6 +383,11 @@ class EventCog(commands.Cog):
                 EventVoteView(self, submission["id"]),
                 message_id=submission["message_id"],
             )
+        for member in db.list_pending_event_members_with_messages():
+            self.bot.add_view(
+                EventApprovalView(self, member["event_id"], member["user_id"]),
+                message_id=member["approval_message_id"],
+            )
 
     @app_commands.command(name="event", description="Crée un événement avec inscriptions")
     @app_commands.describe(
@@ -466,6 +492,7 @@ class EventCog(commands.Cog):
                 name=name,
                 preset=event_preset,
                 participant_count=0,
+                pending_count=0,
                 registration_close_at=registration_close_at,
                 submissions_close_at=submissions_close_at,
             ),
@@ -614,6 +641,52 @@ class EventCog(commands.Cog):
         detail = f" Raison: {reason}" if reason else ""
         await interaction.followup.send(f"<@{user_id}> est ban de l'event.{detail}", ephemeral=True)
 
+    async def approve_registration(
+        self,
+        interaction: discord.Interaction,
+        event_id: int,
+        user_id: int,
+    ) -> None:
+        event = await self._load_admin_event(interaction, event_id)
+        if event is None:
+            return
+        if db.is_event_banned(event_id, user_id):
+            await interaction.response.send_message("Ce membre est ban de l'event.", ephemeral=True)
+            return
+        registration = db.get_event_member(event_id, user_id)
+        if registration is None:
+            await interaction.response.send_message("Aucune demande d'inscription pour ce membre.", ephemeral=True)
+            return
+        role = interaction.guild.get_role(event["participant_role_id"])
+        if role is None:
+            await interaction.response.send_message("Rôle event introuvable.", ephemeral=True)
+            return
+        member = interaction.guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await interaction.guild.fetch_member(user_id)
+            except discord.DiscordException:
+                await interaction.response.send_message("Membre introuvable sur le serveur.", ephemeral=True)
+                return
+
+        changed = db.approve_event_member(event_id, user_id, interaction.user.id)
+        try:
+            await member.add_roles(role, reason=f"Validation cash entry event #{event_id}")
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "Inscription validée en base, mais je ne peux pas donner le rôle event.",
+                ephemeral=True,
+            )
+            await self._refresh_announcement(event_id)
+            return
+        await self._refresh_announcement(event_id)
+        content = "Inscription validée." if changed else "Inscription déjà validée."
+        try:
+            await interaction.message.edit(view=None)
+        except discord.DiscordException:
+            pass
+        await interaction.response.send_message(f"{content} Rôle donné à {member.mention}.", ephemeral=True)
+
     async def join_event(self, interaction: discord.Interaction, event_id: int) -> None:
         event = await self._load_interaction_event(interaction, event_id)
         if event is None:
@@ -624,26 +697,24 @@ class EventCog(commands.Cog):
         if db.is_event_banned(event_id, interaction.user.id):
             await interaction.response.send_message("Tu es ban de cet event.", ephemeral=True)
             return
-        role = interaction.guild.get_role(event["participant_role_id"])
-        if role is None:
-            await interaction.response.send_message("Rôle event introuvable.", ephemeral=True)
-            return
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("Inscription possible uniquement en serveur.", ephemeral=True)
             return
-
-        db.add_event_member(event_id, interaction.user.id)
-        try:
-            await interaction.user.add_roles(role, reason=f"Inscription event #{event_id}")
-        except discord.Forbidden:
+        existing = db.get_event_member(event_id, interaction.user.id)
+        if existing is not None and existing["status"] == "approved":
+            await interaction.response.send_message("Tu es déjà inscrit à cet event.", ephemeral=True)
+            return
+        if existing is not None and existing["status"] == "pending":
             await interaction.response.send_message(
-                "Inscription enregistrée, mais je ne peux pas donner le rôle event.",
+                self._pending_registration_message(event),
                 ephemeral=True,
             )
-            await self._refresh_announcement(event_id)
             return
+
+        db.add_event_member(event_id, interaction.user.id, status="pending")
+        await self._send_registration_review(event, interaction.user)
         await interaction.response.send_message(
-            f"Inscription validée. Le salon event est accessible via le rôle {role.mention}.",
+            self._pending_registration_message(event),
             ephemeral=True,
         )
         await self._refresh_announcement(event_id)
@@ -657,8 +728,9 @@ class EventCog(commands.Cog):
             await interaction.response.send_message("Désinscription possible uniquement en serveur.", ephemeral=True)
             return
 
+        was_approved = db.is_event_member(event_id, interaction.user.id)
         db.remove_event_member(event_id, interaction.user.id)
-        if role is not None:
+        if role is not None and was_approved:
             try:
                 await interaction.user.remove_roles(role, reason=f"Désinscription event #{event_id}")
             except discord.Forbidden:
@@ -795,6 +867,50 @@ class EventCog(commands.Cog):
             await member.remove_roles(role, reason=f"Ban event #{event['id']}")
         except discord.DiscordException as exc:
             logger.warning("Retrait rôle event #%d pour %s échoué: %s", event["id"], user_id, exc)
+
+    async def _send_registration_review(self, event, member: discord.Member) -> None:
+        channel = await self._get_channel(event["channel_id"])
+        if channel is None:
+            return
+        admin_role = member.guild.get_role(event["admin_role_id"])
+        mention = admin_role.mention if admin_role is not None else "Admin event"
+        message = await channel.send(
+            content=mention,
+            embed=self._registration_review_embed(event, member),
+            view=EventApprovalView(self, event["id"], member.id),
+            allowed_mentions=discord.AllowedMentions(roles=[admin_role] if admin_role else []),
+        )
+        db.set_event_member_approval_message(event["id"], member.id, message.id)
+        self.bot.add_view(EventApprovalView(self, event["id"], member.id), message_id=message.id)
+
+    def _pending_registration_message(self, event) -> str:
+        lines = [
+            "Inscription prise en compte.",
+            "Un admin validera ton inscription une fois la cash entry payée.",
+        ]
+        contest_end = _contest_end_at(event)
+        if contest_end is not None:
+            lines.append(f"Fin du concours : {discord.utils.format_dt(contest_end, style='F')}.")
+        return "\n".join(lines)
+
+    def _registration_review_embed(self, event, member: discord.Member) -> discord.Embed:
+        embed = discord.Embed(
+            title="Inscription event en attente",
+            description=(
+                f"Membre: {member.mention}\n"
+                "Valider après paiement de la cash entry."
+            ),
+            color=0xF1C40F,
+        )
+        contest_end = _contest_end_at(event)
+        if contest_end is not None:
+            embed.add_field(
+                name="Fin du concours",
+                value=discord.utils.format_dt(contest_end, style="F"),
+                inline=False,
+            )
+        embed.set_footer(text=f"Event #{event['id']}")
+        return embed
 
     async def _get_or_create_admin_role(self, guild: discord.Guild) -> discord.Role:
         existing = discord.utils.get(guild.roles, name=EVENT_ADMIN_ROLE_NAME)
@@ -995,6 +1111,7 @@ class EventCog(commands.Cog):
                     name=event["name"],
                     preset=event["preset"],
                     participant_count=db.count_event_members(event["id"]),
+                    pending_count=db.count_pending_event_members(event["id"]),
                     registration_close_at=_parse_optional_when(event["registration_close_at"]),
                     submissions_close_at=_parse_optional_when(event["submissions_close_at"]),
                     ended=event["state"] == EVENT_DONE,
@@ -1020,6 +1137,7 @@ class EventCog(commands.Cog):
                     name=event["name"],
                     preset=event["preset"],
                     participant_count=db.count_event_members(event_id),
+                    pending_count=db.count_pending_event_members(event_id),
                     registration_close_at=_parse_optional_when(event["registration_close_at"]),
                     submissions_close_at=_parse_optional_when(event["submissions_close_at"]),
                     ended=event["state"] == EVENT_DONE,
@@ -1083,6 +1201,7 @@ class EventCog(commands.Cog):
         name: str,
         preset: Optional[str],
         participant_count: int,
+        pending_count: int,
         registration_close_at,
         submissions_close_at,
         ended: bool = False,
@@ -1092,7 +1211,8 @@ class EventCog(commands.Cog):
             title=f"Event #{event_id} · {name}",
             color=0x95A5A6 if ended else 0x2ECC71,
         )
-        embed.add_field(name="Participants", value=str(participant_count), inline=True)
+        embed.add_field(name="Inscrits validés", value=str(participant_count), inline=True)
+        embed.add_field(name="En attente", value=str(pending_count), inline=True)
         embed.add_field(name="Preset", value=_preset_label(preset), inline=True)
         if registration_close_at:
             embed.add_field(
@@ -1279,6 +1399,13 @@ def _event_close_reached(event) -> bool:
 def _registrations_closed(event) -> bool:
     when = _parse_optional_when(event["registration_close_at"])
     return bool(when and now_paris() >= when)
+
+
+def _contest_end_at(event):
+    return (
+        _parse_optional_when(event["submissions_close_at"])
+        or _parse_optional_when(event["registration_close_at"])
+    )
 
 
 def _parse_optional_when(value: Optional[str]):

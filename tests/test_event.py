@@ -149,3 +149,28 @@ def test_event_ban_removes_member_and_blocks_rejoin(tmp_path):
     assert db.count_event_members(event_id) == 0
     assert db.is_event_member(event_id, 42) is False
     assert db.is_event_banned(event_id, 42) is True
+
+
+def test_event_pending_registration_then_approval(tmp_path):
+    _fresh(tmp_path)
+    event_id = db.create_event(
+        guild_id=1,
+        name="Concours été",
+        preset=PRESET_SKIN,
+        created_by=10,
+        state=EVENT_OPEN,
+        registration_close_at=datetime(2026, 9, 1, 21, 0, tzinfo=PARIS),
+        submissions_close_at=datetime(2026, 9, 2, 21, 0, tzinfo=PARIS),
+    )
+
+    db.add_event_member(event_id, 42, status="pending")
+    db.set_event_member_approval_message(event_id, 42, 1234)
+
+    assert db.count_event_members(event_id) == 0
+    assert db.count_pending_event_members(event_id) == 1
+    assert db.is_event_member(event_id, 42) is False
+    assert db.get_event_member(event_id, 42)["approval_message_id"] == 1234
+    assert db.approve_event_member(event_id, 42, approved_by=10) is True
+    assert db.count_event_members(event_id) == 1
+    assert db.count_pending_event_members(event_id) == 0
+    assert db.is_event_member(event_id, 42) is True
