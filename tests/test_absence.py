@@ -308,8 +308,8 @@ async def test_stop_abs_marks_member_absence_deleted(tmp_path, monkeypatch):
         guild_id=2,
         user_id=20,
         user_display="Bob",
-        start_date="2026-08-28",
-        end_date="2026-08-30",
+        start_date="2099-08-28",
+        end_date="2099-08-30",
         public_channel_id=public_channel.id,
         public_message_id=public_message.id,
     )

@@ -21,6 +21,8 @@ def test_help_embed_lists_main_commands():
         "/help",
         "/ping",
         "/stuff refresh",
+        "/event",
+        "/event_submissions",
         "/raid start",
         "/raid list",
         "/raid warn",

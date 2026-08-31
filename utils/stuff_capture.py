@@ -8,6 +8,7 @@ from PIL import Image
 
 VIEWPORT = {"width": 1540, "height": 920}
 CAPTURE_CLIP = {"x": 70, "y": 206, "width": 1470, "height": 690}
+BARBOFUS_VIEWPORT_CLIP = {"x": 0, "y": 0, "width": 1540, "height": 920}
 TOP_PADDING = 12
 CAPTURE_BACKGROUND = "#241f1b"
 CHROMIUM_ARGS = [
@@ -38,6 +39,30 @@ CONSENT_BUTTON_SELECTORS = (
 
 
 async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
+    return await capture_web_page(
+        url,
+        site_name="Dofusbook",
+        clip=CAPTURE_CLIP,
+        blocked_reason="Dofusbook a bloque la capture automatique.",
+    )
+
+
+async def capture_barbofus_page(url: str) -> tuple[bytes | None, str | None]:
+    return await capture_web_page(
+        url,
+        site_name="Barbofus",
+        clip=BARBOFUS_VIEWPORT_CLIP,
+        blocked_reason="Barbofus a bloque la capture automatique.",
+    )
+
+
+async def capture_web_page(
+    url: str,
+    *,
+    site_name: str,
+    clip: dict[str, int] | None = None,
+    blocked_reason: str | None = None,
+) -> tuple[bytes | None, str | None]:
     try:
         from playwright.async_api import Error as PlaywrightError
         from playwright.async_api import async_playwright
@@ -73,15 +98,15 @@ async def capture_dofusbook_page(url: str) -> tuple[bytes | None, str | None]:
                 title = await _read_page_title(page)
                 body_text = await _read_body_text(page)
                 if _has_blocked_marker(title, body_text):
-                    return None, "Dofusbook a bloque la capture automatique."
+                    return None, blocked_reason or f"{site_name} a bloque la capture automatique."
 
                 await _hide_ad_overlays(page)
-                image = await page.screenshot(type="png", clip=CAPTURE_CLIP)
+                image = await page.screenshot(type="png", clip=clip)
                 return _add_top_padding(image), None
             finally:
                 await browser.close()
     except Exception as exc:
-        return None, _format_capture_error(exc)
+        return None, _format_capture_error(exc, site_name=site_name)
 
 
 async def _read_page_title(page) -> str:
@@ -102,9 +127,9 @@ def _has_blocked_marker(*values: str) -> bool:
     return any(marker in value for marker in BLOCKED_MARKERS for value in values)
 
 
-def _format_capture_error(exc: Exception) -> str:
+def _format_capture_error(exc: Exception, site_name: str = "Dofusbook") -> str:
     if type(exc).__name__ == "TimeoutError":
-        return "Capture navigateur impossible: Dofusbook n'a pas repondu a temps."
+        return f"Capture navigateur impossible: {site_name} n'a pas repondu a temps."
     return f"Capture navigateur impossible: {type(exc).__name__}: {exc}"
 
 

@@ -307,6 +307,59 @@ def init(db_path: str = DB_PATH) -> None:
             FOREIGN KEY(trade_id) REFERENCES metamob_trades(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS events (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id                 INTEGER NOT NULL,
+            name                     TEXT NOT NULL,
+            preset                   TEXT,
+            participant_role_id      INTEGER,
+            admin_role_id            INTEGER,
+            channel_id               INTEGER,
+            announcement_channel_id  INTEGER,
+            announcement_message_id  INTEGER,
+            control_message_id       INTEGER,
+            submissions_message_id   INTEGER,
+            created_by               INTEGER NOT NULL,
+            state                    TEXT NOT NULL,
+            submissions_close_at     TEXT,
+            created_at               TEXT NOT NULL,
+            updated_at               TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS event_members (
+            event_id   INTEGER NOT NULL,
+            user_id    INTEGER NOT NULL,
+            joined_at  TEXT NOT NULL,
+            PRIMARY KEY (event_id, user_id),
+            FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS event_submissions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id        INTEGER NOT NULL,
+            user_id         INTEGER NOT NULL,
+            url             TEXT NOT NULL,
+            reference       TEXT NOT NULL,
+            label           TEXT NOT NULL,
+            image           BLOB,
+            capture_reason  TEXT,
+            message_id      INTEGER,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL,
+            UNIQUE(event_id, user_id),
+            FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS event_votes (
+            event_id       INTEGER NOT NULL,
+            submission_id  INTEGER NOT NULL,
+            voter_id       INTEGER NOT NULL,
+            created_at     TEXT NOT NULL,
+            PRIMARY KEY (event_id, voter_id),
+            FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
+            FOREIGN KEY(submission_id) REFERENCES event_submissions(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version     TEXT PRIMARY KEY,
             description TEXT NOT NULL,
@@ -383,6 +436,16 @@ def _create_indexes() -> None:
             ON onboarding_tickets(guild_id, user_id, status, created_at);
         CREATE INDEX IF NOT EXISTS idx_onboarding_close_after
             ON onboarding_tickets(status, close_after);
+        CREATE INDEX IF NOT EXISTS idx_events_state_close
+            ON events(state, submissions_close_at, id);
+        CREATE INDEX IF NOT EXISTS idx_events_messages
+            ON events(announcement_message_id, control_message_id, submissions_message_id);
+        CREATE INDEX IF NOT EXISTS idx_event_submissions_event
+            ON event_submissions(event_id, id);
+        CREATE INDEX IF NOT EXISTS idx_event_submissions_message
+            ON event_submissions(message_id);
+        CREATE INDEX IF NOT EXISTS idx_event_votes_submission
+            ON event_votes(submission_id);
         """
     )
 
@@ -2001,6 +2064,217 @@ def list_metamob_trade_items(trade_id: int) -> list[sqlite3.Row]:
 
 def clear_metamob_trade_confirmation(trade_id: int) -> None:
     update_metamob_trade(trade_id, status="open", confirmed_by=None)
+
+
+# --------------------------------------------------------------------------- events
+
+
+def create_event(
+    *,
+    guild_id: int,
+    name: str,
+    preset: Optional[str],
+    created_by: int,
+    state: str,
+    submissions_close_at: Optional[datetime] = None,
+) -> int:
+    now = _now_iso()
+    cur = _db().execute(
+        """
+        INSERT INTO events
+            (guild_id, name, preset, created_by, state, submissions_close_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            guild_id,
+            name,
+            preset,
+            created_by,
+            state,
+            submissions_close_at.isoformat() if submissions_close_at else None,
+            now,
+            now,
+        ),
+    )
+    _db().commit()
+    return cur.lastrowid
+
+
+def get_event(event_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+
+
+def update_event(event_id: int, **fields: Any) -> None:
+    if not fields:
+        return
+    serialized = {}
+    for key, value in fields.items():
+        serialized[key] = value.isoformat() if isinstance(value, datetime) else value
+    serialized["updated_at"] = _now_iso()
+    assignments = ", ".join(f"{col} = ?" for col in serialized)
+    _db().execute(
+        f"UPDATE events SET {assignments} WHERE id = ?",
+        (*serialized.values(), event_id),
+    )
+    _db().commit()
+
+
+def list_events_for_reschedule() -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM events
+        WHERE state IN ('open', 'voting')
+        ORDER BY id
+        """
+    ).fetchall()
+    return list(rows)
+
+
+def add_event_member(event_id: int, user_id: int) -> None:
+    _db().execute(
+        """
+        INSERT OR IGNORE INTO event_members (event_id, user_id, joined_at)
+        VALUES (?, ?, ?)
+        """,
+        (event_id, user_id, _now_iso()),
+    )
+    _db().commit()
+
+
+def remove_event_member(event_id: int, user_id: int) -> bool:
+    cur = _db().execute(
+        "DELETE FROM event_members WHERE event_id = ? AND user_id = ?",
+        (event_id, user_id),
+    )
+    _db().commit()
+    return cur.rowcount > 0
+
+
+def is_event_member(event_id: int, user_id: int) -> bool:
+    row = _db().execute(
+        "SELECT 1 FROM event_members WHERE event_id = ? AND user_id = ?",
+        (event_id, user_id),
+    ).fetchone()
+    return row is not None
+
+
+def count_event_members(event_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM event_members WHERE event_id = ?",
+        (event_id,),
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def upsert_event_submission(
+    *,
+    event_id: int,
+    user_id: int,
+    url: str,
+    reference: str,
+    label: str,
+    image: Optional[bytes],
+    capture_reason: Optional[str],
+) -> int:
+    now = _now_iso()
+    conn = _db()
+    conn.execute(
+        """
+        INSERT INTO event_submissions
+            (event_id, user_id, url, reference, label, image, capture_reason, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(event_id, user_id) DO UPDATE SET
+            url = excluded.url,
+            reference = excluded.reference,
+            label = excluded.label,
+            image = excluded.image,
+            capture_reason = excluded.capture_reason,
+            updated_at = excluded.updated_at
+        """,
+        (event_id, user_id, url, reference, label, image, capture_reason, now, now),
+    )
+    row = conn.execute(
+        "SELECT id FROM event_submissions WHERE event_id = ? AND user_id = ?",
+        (event_id, user_id),
+    ).fetchone()
+    conn.commit()
+    return row["id"]
+
+
+def get_event_submission(submission_id: int) -> Optional[sqlite3.Row]:
+    return _db().execute(
+        "SELECT * FROM event_submissions WHERE id = ?",
+        (submission_id,),
+    ).fetchone()
+
+
+def list_event_submissions(event_id: int) -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT * FROM event_submissions
+        WHERE event_id = ?
+        ORDER BY id
+        """,
+        (event_id,),
+    ).fetchall()
+    return list(rows)
+
+
+def list_votable_event_submissions() -> list[sqlite3.Row]:
+    rows = _db().execute(
+        """
+        SELECT event_submissions.*
+        FROM event_submissions
+        JOIN events ON events.id = event_submissions.event_id
+        WHERE events.state = 'voting'
+          AND event_submissions.message_id IS NOT NULL
+        ORDER BY event_submissions.id
+        """
+    ).fetchall()
+    return list(rows)
+
+
+def set_event_submission_message(submission_id: int, message_id: int) -> None:
+    _db().execute(
+        "UPDATE event_submissions SET message_id = ?, updated_at = ? WHERE id = ?",
+        (message_id, _now_iso(), submission_id),
+    )
+    _db().commit()
+
+
+def cast_event_vote(event_id: int, submission_id: int, voter_id: int) -> None:
+    _db().execute(
+        """
+        INSERT INTO event_votes (event_id, submission_id, voter_id, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(event_id, voter_id) DO UPDATE SET
+            submission_id = excluded.submission_id,
+            created_at = excluded.created_at
+        """,
+        (event_id, submission_id, voter_id, _now_iso()),
+    )
+    _db().commit()
+
+
+def get_event_vote_counts(event_id: int) -> dict[int, int]:
+    rows = _db().execute(
+        """
+        SELECT submission_id, COUNT(*) AS n
+        FROM event_votes
+        WHERE event_id = ?
+        GROUP BY submission_id
+        """,
+        (event_id,),
+    ).fetchall()
+    return {row["submission_id"]: row["n"] for row in rows}
+
+
+def count_event_votes(submission_id: int) -> int:
+    row = _db().execute(
+        "SELECT COUNT(*) AS n FROM event_votes WHERE submission_id = ?",
+        (submission_id,),
+    ).fetchone()
+    return row["n"] if row else 0
 
 
 # ----------------------------------------------------------------- helpers tests

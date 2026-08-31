@@ -51,6 +51,13 @@ HELP_SECTIONS = (
         ),
     ),
     (
+        "Events",
+        (
+            ("`/event`", "crée un event avec rôle, salon privé et inscriptions"),
+            ("`/event_submissions`", "publie les participations anonymes pour le vote admin"),
+        ),
+    ),
+    (
         "Metamob",
         (
             ("`/metamob help`", "explique comment lier ton compte Metamob"),

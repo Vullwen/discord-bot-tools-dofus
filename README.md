@@ -159,6 +159,10 @@ réservé aux raids.
 ### Autres modules
 
 - `/stuff refresh` : régénère le dernier stuff Dofusbook trouvé dans le salon.
+- `/event nom preset duree_depot_heures` : crée un event avec inscription,
+  rôle `event_<id>` et salon privé.
+- `/event_submissions event_id` : publie les dépôts anonymes d'un concours de
+  skin pour ouvrir le vote des admins event.
 - `/rolemenu ...` : crée et maintient les panneaux de rôles.
 - `/sync` : resynchronise les commandes Discord.
 - `/reload cog` : recharge un cog à chaud.
@@ -179,6 +183,10 @@ sur les posts du forum configuré.
 - `guild_member` : rôle donné après acceptation d'une candidature guilde.
 - `visitor` : rôle donné pour l'accès visiteur au marché.
 - `bot_admin` : rôle qui donne les droits admin du bot.
+- `event_<id>` : rôle créé automatiquement pour accéder au salon privé d'un
+  event.
+- `admin_event` : rôle créé automatiquement pour voter sur les participations
+  anonymes des concours de skin.
 
 Si aucun rôle organisateur n'est configuré, les membres avec la permission
 Administrateur Discord gardent la main.

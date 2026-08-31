@@ -51,6 +51,7 @@ COGS = [
     "cogs.absence",
     "cogs.rolemenu",
     "cogs.stuff",
+    "cogs.event",
     "cogs.market",
     "cogs.metamob",
     "cogs.deathnote",
