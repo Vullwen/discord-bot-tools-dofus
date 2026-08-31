@@ -159,8 +159,8 @@ réservé aux raids.
 ### Autres modules
 
 - `/stuff refresh` : régénère le dernier stuff Dofusbook trouvé dans le salon.
-- `/event nom preset duree_depot_heures` : crée un event avec inscription,
-  rôle `event_<id>` et salon privé.
+- `/event nom preset` : ouvre un formulaire de configuration, puis crée un
+  event avec inscription, rôle `event_<id>` et salon privé.
 - `/event_submissions event_id` : publie les dépôts anonymes d'un concours de
   skin pour ouvrir le vote des admins event.
 - `/rolemenu ...` : crée et maintient les panneaux de rôles.

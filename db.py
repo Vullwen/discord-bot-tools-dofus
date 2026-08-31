@@ -56,6 +56,7 @@ MIGRATIONS = (
         "015_onboarding_application_goals",
         "ALTER TABLE onboarding_tickets ADD COLUMN application_goals TEXT",
     ),
+    ("016_events_end_at", "ALTER TABLE events ADD COLUMN event_end_at TEXT"),
 )
 
 
@@ -322,6 +323,7 @@ def init(db_path: str = DB_PATH) -> None:
             created_by               INTEGER NOT NULL,
             state                    TEXT NOT NULL,
             submissions_close_at     TEXT,
+            event_end_at             TEXT,
             created_at               TEXT NOT NULL,
             updated_at               TEXT NOT NULL
         );
@@ -2076,14 +2078,15 @@ def create_event(
     preset: Optional[str],
     created_by: int,
     state: str,
+    event_end_at: datetime,
     submissions_close_at: Optional[datetime] = None,
 ) -> int:
     now = _now_iso()
     cur = _db().execute(
         """
         INSERT INTO events
-            (guild_id, name, preset, created_by, state, submissions_close_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (guild_id, name, preset, created_by, state, submissions_close_at, event_end_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             guild_id,
@@ -2092,6 +2095,7 @@ def create_event(
             created_by,
             state,
             submissions_close_at.isoformat() if submissions_close_at else None,
+            event_end_at.isoformat(),
             now,
             now,
         ),

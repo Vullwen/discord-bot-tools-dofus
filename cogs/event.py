@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from io import BytesIO
 from typing import Optional
 from urllib.parse import urlparse
@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import db
 from config import now_paris
+from utils import dates as dates_utils
 from utils.perms import is_bot_admin
 from utils.stuff_capture import capture_barbofus_page
 
@@ -34,6 +35,8 @@ BARBOFUS_LINK_RE = re.compile(
 )
 TRAILING_URL_PUNCTUATION = ".,;:!?)>]}"
 MAX_VOTING_BUTTONS = 25
+TASK_SUBMISSIONS_CLOSE = "submissions_close"
+TASK_EVENT_END = "event_end"
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,51 @@ def parse_barbofus_skin_url(raw_url: str) -> BarbofusSkinLink:
     )
 
 
+class EventConfigModal(discord.ui.Modal):
+    def __init__(self, cog: "EventCog", *, name: str, preset: Optional[str]):
+        super().__init__(title="Configuration event")
+        self.cog = cog
+        self.name = name
+        self.preset = preset
+        self.end_input = discord.ui.TextInput(
+            label="Fin de l'event",
+            placeholder="ex: dimanche 23h, 31/08 21h, demain 20h",
+            required=True,
+            max_length=80,
+        )
+        self.add_item(self.end_input)
+        self.submissions_input: Optional[discord.ui.TextInput] = None
+        if preset == PRESET_SKIN:
+            self.submissions_input = discord.ui.TextInput(
+                label="Durée/fin des dépôts",
+                placeholder="ex: 48h, 3j, demain 21h",
+                required=True,
+                max_length=80,
+            )
+            self.add_item(self.submissions_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            event_end_at = parse_event_datetime(str(self.end_input.value))
+            submissions_close_at = None
+            if self.submissions_input is not None:
+                submissions_close_at = parse_submission_close(
+                    str(self.submissions_input.value),
+                    event_end_at=event_end_at,
+                )
+        except ValueError as exc:
+            await interaction.response.send_message(f"Date invalide : {exc}", ephemeral=True)
+            return
+
+        await self.cog.create_configured_event(
+            interaction,
+            name=self.name,
+            preset=self.preset,
+            event_end_at=event_end_at,
+            submissions_close_at=submissions_close_at,
+        )
+
+
 class EventSubmitModal(discord.ui.Modal):
     def __init__(self, cog: "EventCog", event_id: int):
         super().__init__(title="Dépôt Barbofus anonyme")
@@ -89,11 +137,12 @@ class EventSubmitModal(discord.ui.Modal):
 
 
 class _JoinEventButton(discord.ui.Button):
-    def __init__(self, cog: "EventCog", event_id: int):
+    def __init__(self, cog: "EventCog", event_id: int, *, disabled: bool = False):
         super().__init__(
             label="S'inscrire",
             style=discord.ButtonStyle.success,
             custom_id=f"bebraid:event:join:{event_id}",
+            disabled=disabled,
         )
         self.cog = cog
         self.event_id = event_id
@@ -103,11 +152,12 @@ class _JoinEventButton(discord.ui.Button):
 
 
 class _LeaveEventButton(discord.ui.Button):
-    def __init__(self, cog: "EventCog", event_id: int):
+    def __init__(self, cog: "EventCog", event_id: int, *, disabled: bool = False):
         super().__init__(
             label="Se désinscrire",
             style=discord.ButtonStyle.secondary,
             custom_id=f"bebraid:event:leave:{event_id}",
+            disabled=disabled,
         )
         self.cog = cog
         self.event_id = event_id
@@ -117,10 +167,10 @@ class _LeaveEventButton(discord.ui.Button):
 
 
 class EventRegistrationView(discord.ui.View):
-    def __init__(self, cog: "EventCog", event_id: int):
+    def __init__(self, cog: "EventCog", event_id: int, *, disabled: bool = False):
         super().__init__(timeout=None)
-        self.add_item(_JoinEventButton(cog, event_id))
-        self.add_item(_LeaveEventButton(cog, event_id))
+        self.add_item(_JoinEventButton(cog, event_id, disabled=disabled))
+        self.add_item(_LeaveEventButton(cog, event_id, disabled=disabled))
 
 
 class _SubmitSkinButton(discord.ui.Button):
@@ -167,7 +217,7 @@ class EventVoteView(discord.ui.View):
 class EventCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._tasks: dict[int, asyncio.Task] = {}
+        self._tasks: dict[tuple[int, str], asyncio.Task] = {}
 
     async def cog_load(self) -> None:
         await self._reschedule_all()
@@ -190,6 +240,8 @@ class EventCog(commands.Cog):
                     EventSkinSubmitView(self, event_id),
                     message_id=event["control_message_id"],
                 )
+            if event["state"] in (EVENT_OPEN, EVENT_VOTING) and event["event_end_at"]:
+                self._schedule_event_end(event)
             if event["state"] == EVENT_OPEN and event["submissions_close_at"]:
                 self._schedule_submission_close(event)
 
@@ -203,7 +255,6 @@ class EventCog(commands.Cog):
     @app_commands.describe(
         nom="Nom de l'événement",
         preset="Preset optionnel",
-        duree_depot_heures="Pour le concours de skin: délai avant ouverture des votes",
     )
     @app_commands.choices(
         preset=[app_commands.Choice(name=PRESET_SKIN_LABEL, value=PRESET_SKIN)]
@@ -213,7 +264,6 @@ class EventCog(commands.Cog):
         interaction: discord.Interaction,
         nom: str,
         preset: Optional[app_commands.Choice[str]] = None,
-        duree_depot_heures: app_commands.Range[int, 1, 720] = 72,
     ) -> None:
         if interaction.guild is None:
             await interaction.response.send_message("À utiliser dans un serveur.", ephemeral=True)
@@ -228,20 +278,36 @@ class EventCog(commands.Cog):
             await interaction.response.send_message("Salon de création introuvable.", ephemeral=True)
             return
 
+        await interaction.response.send_modal(
+            EventConfigModal(
+                self,
+                name=nom.strip(),
+                preset=preset.value if preset else None,
+            )
+        )
+
+    async def create_configured_event(
+        self,
+        interaction: discord.Interaction,
+        *,
+        name: str,
+        preset: Optional[str],
+        event_end_at: datetime,
+        submissions_close_at: Optional[datetime],
+    ) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         guild = interaction.guild
-        event_preset = preset.value if preset else None
-        submissions_close_at = (
-            now_paris() + timedelta(hours=int(duree_depot_heures))
-            if event_preset == PRESET_SKIN
-            else None
-        )
+        if guild is None or interaction.channel is None:
+            await interaction.followup.send("Event impossible hors serveur.", ephemeral=True)
+            return
+        event_preset = preset
         event_id = db.create_event(
             guild_id=guild.id,
-            name=nom.strip(),
+            name=name,
             preset=event_preset,
             created_by=interaction.user.id,
             state=EVENT_OPEN,
+            event_end_at=event_end_at,
             submissions_close_at=submissions_close_at,
         )
 
@@ -257,7 +323,7 @@ class EventCog(commands.Cog):
             channel = await self._create_event_channel(
                 guild,
                 event_id=event_id,
-                event_name=nom,
+                event_name=name,
                 participant_role=participant_role,
                 admin_role=admin_role,
             )
@@ -284,10 +350,11 @@ class EventCog(commands.Cog):
         announcement = await interaction.channel.send(
             embed=self._announcement_embed(
                 event_id=event_id,
-                name=nom,
+                name=name,
                 preset=event_preset,
                 participant_count=0,
                 submissions_close_at=submissions_close_at,
+                event_end_at=event_end_at,
             ),
             view=EventRegistrationView(self, event_id),
         )
@@ -295,10 +362,10 @@ class EventCog(commands.Cog):
         self.bot.add_view(EventRegistrationView(self, event_id), message_id=announcement.id)
 
         control_message_id = None
-        await channel.send(embed=self._event_channel_embed(event_id, nom, participant_role))
+        await channel.send(embed=self._event_channel_embed(event_id, name, participant_role, event_end_at))
         if event_preset == PRESET_SKIN:
             control = await channel.send(
-                embed=self._skin_submit_embed(event_id, nom, submissions_close_at),
+                embed=self._skin_submit_embed(event_id, name, submissions_close_at),
                 view=EventSkinSubmitView(self, event_id),
             )
             control_message_id = control.id
@@ -308,6 +375,9 @@ class EventCog(commands.Cog):
                 self._schedule_submission_close(event)
 
         db.update_event(event_id, control_message_id=control_message_id)
+        event = db.get_event(event_id)
+        if event is not None:
+            self._schedule_event_end(event)
         if warning is None:
             await interaction.followup.send(
                 f"Event **#{event_id}** créé: {channel.mention}. "
@@ -489,6 +559,10 @@ class EventCog(commands.Cog):
         if event is None or interaction.guild is None or event["guild_id"] != interaction.guild.id:
             await interaction.response.send_message("Event introuvable.", ephemeral=True)
             return None
+        if _event_end_reached(event):
+            db.update_event(event_id, state=EVENT_DONE)
+            await interaction.response.send_message("Cet event est terminé.", ephemeral=True)
+            return None
         if event["state"] == EVENT_DONE:
             await interaction.response.send_message("Cet event est terminé.", ephemeral=True)
             return None
@@ -558,12 +632,25 @@ class EventCog(commands.Cog):
 
     def _schedule_submission_close(self, event) -> None:
         event_id = event["id"]
-        self._cancel_submission_close(event_id)
+        self._cancel_task(event_id, TASK_SUBMISSIONS_CLOSE)
         when = event["submissions_close_at"]
         if not when:
             return
         delay = max(0.0, (_parse_when(when) - now_paris()).total_seconds())
-        self._tasks[event_id] = asyncio.create_task(self._run_submission_close(event_id, delay))
+        self._tasks[(event_id, TASK_SUBMISSIONS_CLOSE)] = asyncio.create_task(
+            self._run_submission_close(event_id, delay)
+        )
+
+    def _schedule_event_end(self, event) -> None:
+        event_id = event["id"]
+        self._cancel_task(event_id, TASK_EVENT_END)
+        when = event["event_end_at"]
+        if not when:
+            return
+        delay = max(0.0, (_parse_when(when) - now_paris()).total_seconds())
+        self._tasks[(event_id, TASK_EVENT_END)] = asyncio.create_task(
+            self._run_event_end(event_id, delay)
+        )
 
     async def _run_submission_close(self, event_id: int, delay: float) -> None:
         try:
@@ -575,16 +662,47 @@ class EventCog(commands.Cog):
         except Exception:
             logger.exception("Clôture dépôts event #%d échouée", event_id)
         finally:
-            self._tasks.pop(event_id, None)
+            self._tasks.pop((event_id, TASK_SUBMISSIONS_CLOSE), None)
 
-    def _cancel_submission_close(self, event_id: int) -> None:
-        task = self._tasks.pop(event_id, None)
+    async def _run_event_end(self, event_id: int, delay: float) -> None:
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            await self._finish_event(event_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Fin event #%d échouée", event_id)
+        finally:
+            self._tasks.pop((event_id, TASK_EVENT_END), None)
+
+    def _cancel_task(self, event_id: int, kind: str) -> None:
+        task = self._tasks.pop((event_id, kind), None)
         if task is not None:
             task.cancel()
+
+    async def _finish_event(self, event_id: int) -> None:
+        event = db.get_event(event_id)
+        if event is None or event["state"] == EVENT_DONE:
+            return
+        if event["state"] == EVENT_OPEN and event["preset"] == PRESET_SKIN:
+            await self._publish_skin_submissions(event_id, force=True)
+        event = db.get_event(event_id)
+        if event is None or event["state"] == EVENT_DONE:
+            return
+        db.update_event(event_id, state=EVENT_DONE)
+        self._cancel_task(event_id, TASK_SUBMISSIONS_CLOSE)
+        await self._disable_submit_button(event)
+        await self._disable_registration_buttons(event)
+        channel = await self._get_channel(event["channel_id"])
+        if channel is not None:
+            await channel.send(f"Event **{event['name']}** terminé.")
 
     async def _publish_skin_submissions(self, event_id: int, *, force: bool = False) -> int:
         event = db.get_event(event_id)
         if event is None or event["preset"] != PRESET_SKIN:
+            return 0
+        if event["state"] == EVENT_DONE:
             return 0
         if event["state"] == EVENT_OPEN and not force and not _event_close_reached(event):
             return -1
@@ -638,6 +756,29 @@ class EventCog(commands.Cog):
         except discord.DiscordException as exc:
             logger.warning("Désactivation bouton dépôt event #%d échouée: %s", event["id"], exc)
 
+    async def _disable_registration_buttons(self, event) -> None:
+        if not event["announcement_message_id"]:
+            return
+        channel = await self._get_channel(event["announcement_channel_id"])
+        if channel is None:
+            return
+        try:
+            message = await channel.fetch_message(event["announcement_message_id"])
+            await message.edit(
+                embed=self._announcement_embed(
+                    event_id=event["id"],
+                    name=event["name"],
+                    preset=event["preset"],
+                    participant_count=db.count_event_members(event["id"]),
+                    submissions_close_at=_parse_optional_when(event["submissions_close_at"]),
+                    event_end_at=_parse_optional_when(event["event_end_at"]),
+                    ended=True,
+                ),
+                view=EventRegistrationView(self, event["id"], disabled=True),
+            )
+        except discord.DiscordException as exc:
+            logger.warning("Désactivation boutons event #%d échouée: %s", event["id"], exc)
+
     async def _refresh_announcement(self, event_id: int) -> None:
         event = db.get_event(event_id)
         if event is None or not event["announcement_message_id"]:
@@ -654,8 +795,10 @@ class EventCog(commands.Cog):
                     preset=event["preset"],
                     participant_count=db.count_event_members(event_id),
                     submissions_close_at=_parse_optional_when(event["submissions_close_at"]),
+                    event_end_at=_parse_optional_when(event["event_end_at"]),
+                    ended=event["state"] == EVENT_DONE,
                 ),
-                view=EventRegistrationView(self, event_id),
+                view=EventRegistrationView(self, event_id, disabled=event["state"] == EVENT_DONE),
             )
         except discord.DiscordException as exc:
             logger.warning("Refresh annonce event #%d échoué: %s", event_id, exc)
@@ -710,20 +853,29 @@ class EventCog(commands.Cog):
         preset: Optional[str],
         participant_count: int,
         submissions_close_at,
+        event_end_at,
+        ended: bool = False,
     ) -> discord.Embed:
         embed = discord.Embed(
             title=f"Event #{event_id} · {name}",
-            color=0x2ECC71,
+            color=0x95A5A6 if ended else 0x2ECC71,
         )
         embed.add_field(name="Participants", value=str(participant_count), inline=True)
         embed.add_field(name="Preset", value=_preset_label(preset), inline=True)
+        if event_end_at:
+            embed.add_field(
+                name="Fin de l'event",
+                value=discord.utils.format_dt(event_end_at, style="F"),
+                inline=False,
+            )
         if submissions_close_at:
             embed.add_field(
                 name="Dépôts jusqu'à",
                 value=discord.utils.format_dt(submissions_close_at, style="F"),
                 inline=False,
             )
-        embed.set_footer(text="Inscription via les boutons ci-dessous.")
+        footer = "Event terminé." if ended else "Inscription via les boutons ci-dessous."
+        embed.set_footer(text=footer)
         return embed
 
     def _event_channel_embed(
@@ -731,10 +883,15 @@ class EventCog(commands.Cog):
         event_id: int,
         name: str,
         participant_role: discord.Role,
+        event_end_at: datetime,
     ) -> discord.Embed:
         embed = discord.Embed(
             title=f"Salon event #{event_id}",
-            description=f"Event: **{name}**\nAccès participants: {participant_role.mention}",
+            description=(
+                f"Event: **{name}**\n"
+                f"Accès participants: {participant_role.mention}\n"
+                f"Fin: {discord.utils.format_dt(event_end_at, style='F')}"
+            ),
             color=0x3498DB,
         )
         return embed
@@ -814,8 +971,67 @@ def _preset_label(preset: Optional[str]) -> str:
     return "aucun"
 
 
+def parse_event_datetime(raw: str, *, now: Optional[datetime] = None) -> datetime:
+    current = now or now_paris()
+    value = (raw or "").strip()
+    if not value:
+        raise ValueError("fin de l'event vide")
+    if _parse_duration(value.lower()) is not None:
+        raise ValueError("la fin de l'event doit être une date, pas une durée")
+    day = dates_utils.parse_raid_date(value, current)
+    parsed_time = dates_utils.parse_time(value) or time(hour=23, minute=59)
+    result = datetime.combine(day, parsed_time, tzinfo=current.tzinfo)
+    if result <= current:
+        raise ValueError("la fin de l'event doit être dans le futur")
+    return result
+
+
+def parse_submission_close(
+    raw: str,
+    *,
+    event_end_at: datetime,
+    now: Optional[datetime] = None,
+) -> datetime:
+    current = now or now_paris()
+    value = (raw or "").strip().lower()
+    if not value:
+        raise ValueError("durée/fin des dépôts vide")
+
+    duration = _parse_duration(value)
+    if duration is not None:
+        result = current + duration
+    else:
+        result = parse_event_datetime(value, now=current)
+
+    if result >= event_end_at:
+        raise ValueError("les dépôts doivent fermer avant la fin de l'event")
+    return result
+
+
+def _parse_duration(value: str) -> Optional[timedelta]:
+    match = re.fullmatch(r"(\d+)\s*([a-z]*)", value)
+    if match is None:
+        return None
+    amount = int(match.group(1))
+    unit = match.group(2) or "h"
+    if amount <= 0:
+        raise ValueError("la durée des dépôts doit être positive")
+    if unit in {"h", "heure", "heures"}:
+        return timedelta(hours=amount)
+    if unit in {"j", "d", "jour", "jours", "day", "days"}:
+        return timedelta(days=amount)
+    if unit in {"m", "min", "mins", "minute", "minutes"}:
+        return timedelta(minutes=amount)
+    return None
+
+
 def _event_close_reached(event) -> bool:
     when = _parse_optional_when(event["submissions_close_at"])
+    return bool(when and now_paris() >= when)
+
+
+def _event_end_reached(event) -> bool:
+    when = _parse_optional_when(event["event_end_at"])
     return bool(when and now_paris() >= when)
 
 
@@ -824,8 +1040,6 @@ def _parse_optional_when(value: Optional[str]):
 
 
 def _parse_when(value: str):
-    from datetime import datetime
-
     return datetime.fromisoformat(value)
 
 
