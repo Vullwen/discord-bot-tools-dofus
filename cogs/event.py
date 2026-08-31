@@ -326,6 +326,7 @@ class EventCog(commands.Cog):
                 event_name=name,
                 participant_role=participant_role,
                 admin_role=admin_role,
+                anchor_channel=interaction.channel,
             )
         except discord.Forbidden:
             db.update_event(event_id, state=EVENT_DONE)
@@ -598,6 +599,7 @@ class EventCog(commands.Cog):
         event_name: str,
         participant_role: discord.Role,
         admin_role: discord.Role,
+        anchor_channel: discord.abc.GuildChannel,
     ) -> discord.TextChannel:
         overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -624,11 +626,22 @@ class EventCog(commands.Cog):
                 manage_roles=True,
                 read_message_history=True,
             )
-        return await guild.create_text_channel(
+        channel = await guild.create_text_channel(
             name=_safe_event_channel_name(event_id, event_name),
             overwrites=overwrites,
+            category=getattr(anchor_channel, "category", None),
             reason=f"Création event #{event_id}",
         )
+        anchor_position = getattr(anchor_channel, "position", None)
+        if isinstance(anchor_position, int):
+            try:
+                await channel.edit(
+                    position=anchor_position + 1,
+                    reason=f"Placement event #{event_id} sous le salon de création",
+                )
+            except discord.DiscordException as exc:
+                logger.warning("Placement salon event #%d échoué: %s", event_id, exc)
+        return channel
 
     def _schedule_submission_close(self, event) -> None:
         event_id = event["id"]
