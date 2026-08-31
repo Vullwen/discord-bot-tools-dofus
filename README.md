@@ -160,9 +160,12 @@ réservé aux raids.
 
 - `/stuff refresh` : régénère le dernier stuff Dofusbook trouvé dans le salon.
 - `/event nom preset` : ouvre un formulaire de configuration, puis crée un
-  event avec inscription, rôle `event_<id>` et salon privé.
+  event avec clôture d'inscriptions, compteur d'inscrits, rôle `event_<id>` et
+  salon privé.
 - `/event_submissions event_id` : publie les dépôts anonymes d'un concours de
   skin pour ouvrir le vote des admins event.
+  Le salon event contient aussi un panneau admin pour fermer les inscriptions,
+  bannir un membre de l'event ou annuler l'event.
 - `/rolemenu ...` : crée et maintient les panneaux de rôles.
 - `/sync` : resynchronise les commandes Discord.
 - `/reload cog` : recharge un cog à chaud.

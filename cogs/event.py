@@ -35,8 +35,8 @@ BARBOFUS_LINK_RE = re.compile(
 )
 TRAILING_URL_PUNCTUATION = ".,;:!?)>]}"
 MAX_VOTING_BUTTONS = 25
+TASK_REGISTRATION_CLOSE = "registration_close"
 TASK_SUBMISSIONS_CLOSE = "submissions_close"
-TASK_EVENT_END = "event_end"
 
 
 @dataclass(frozen=True)
@@ -76,13 +76,13 @@ class EventConfigModal(discord.ui.Modal):
         self.cog = cog
         self.name = name
         self.preset = preset
-        self.end_input = discord.ui.TextInput(
-            label="Fin de l'event",
-            placeholder="ex: dimanche 23h, 31/08 21h, demain 20h",
+        self.registration_input = discord.ui.TextInput(
+            label="Clôture des inscriptions",
+            placeholder="ex: 24h, dimanche 20h, 31/08 21h",
             required=True,
             max_length=80,
         )
-        self.add_item(self.end_input)
+        self.add_item(self.registration_input)
         self.submissions_input: Optional[discord.ui.TextInput] = None
         if preset == PRESET_SKIN:
             self.submissions_input = discord.ui.TextInput(
@@ -95,12 +95,14 @@ class EventConfigModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
-            event_end_at = parse_event_datetime(str(self.end_input.value))
+            registration_close_at = parse_deadline(
+                str(self.registration_input.value),
+                field_name="clôture des inscriptions",
+            )
             submissions_close_at = None
             if self.submissions_input is not None:
                 submissions_close_at = parse_submission_close(
                     str(self.submissions_input.value),
-                    event_end_at=event_end_at,
                 )
         except ValueError as exc:
             await interaction.response.send_message(f"Date invalide : {exc}", ephemeral=True)
@@ -110,7 +112,7 @@ class EventConfigModal(discord.ui.Modal):
             interaction,
             name=self.name,
             preset=self.preset,
-            event_end_at=event_end_at,
+            registration_close_at=registration_close_at,
             submissions_close_at=submissions_close_at,
         )
 
@@ -214,6 +216,111 @@ class EventVoteView(discord.ui.View):
         self.add_item(_VoteSubmissionButton(cog, submission_id))
 
 
+class EventCancelModal(discord.ui.Modal):
+    def __init__(self, cog: "EventCog", event_id: int):
+        super().__init__(title="Annuler l'event")
+        self.cog = cog
+        self.event_id = event_id
+        self.reason_input = discord.ui.TextInput(
+            label="Raison",
+            placeholder="Optionnel",
+            required=False,
+            max_length=300,
+        )
+        self.add_item(self.reason_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.cog.cancel_event(
+            interaction,
+            self.event_id,
+            str(self.reason_input.value).strip() or None,
+        )
+
+
+class EventBanModal(discord.ui.Modal):
+    def __init__(self, cog: "EventCog", event_id: int):
+        super().__init__(title="Ban event")
+        self.cog = cog
+        self.event_id = event_id
+        self.member_input = discord.ui.TextInput(
+            label="Membre",
+            placeholder="@membre ou ID Discord",
+            required=True,
+            max_length=80,
+        )
+        self.reason_input = discord.ui.TextInput(
+            label="Raison",
+            placeholder="Optionnel",
+            required=False,
+            max_length=300,
+        )
+        self.add_item(self.member_input)
+        self.add_item(self.reason_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            user_id = parse_user_id(str(self.member_input.value))
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        await self.cog.ban_event_member(
+            interaction,
+            self.event_id,
+            user_id,
+            str(self.reason_input.value).strip() or None,
+        )
+
+
+class _CloseRegistrationsButton(discord.ui.Button):
+    def __init__(self, cog: "EventCog", event_id: int):
+        super().__init__(
+            label="Fermer inscriptions",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"bebraid:event:admin_close_reg:{event_id}",
+        )
+        self.cog = cog
+        self.event_id = event_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.close_registrations_now(interaction, self.event_id)
+
+
+class _BanEventMemberButton(discord.ui.Button):
+    def __init__(self, cog: "EventCog", event_id: int):
+        super().__init__(
+            label="Ban event",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"bebraid:event:admin_ban:{event_id}",
+        )
+        self.cog = cog
+        self.event_id = event_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.open_ban_modal(interaction, self.event_id)
+
+
+class _CancelEventButton(discord.ui.Button):
+    def __init__(self, cog: "EventCog", event_id: int):
+        super().__init__(
+            label="Annuler event",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"bebraid:event:admin_cancel:{event_id}",
+        )
+        self.cog = cog
+        self.event_id = event_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.cog.open_cancel_modal(interaction, self.event_id)
+
+
+class EventAdminView(discord.ui.View):
+    def __init__(self, cog: "EventCog", event_id: int):
+        super().__init__(timeout=None)
+        self.add_item(_CloseRegistrationsButton(cog, event_id))
+        self.add_item(_BanEventMemberButton(cog, event_id))
+        self.add_item(_CancelEventButton(cog, event_id))
+
+
 class EventCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -235,13 +342,18 @@ class EventCog(commands.Cog):
                     EventRegistrationView(self, event_id),
                     message_id=event["announcement_message_id"],
                 )
+            if event["admin_message_id"]:
+                self.bot.add_view(
+                    EventAdminView(self, event_id),
+                    message_id=event["admin_message_id"],
+                )
             if event["state"] == EVENT_OPEN and event["control_message_id"]:
                 self.bot.add_view(
                     EventSkinSubmitView(self, event_id),
                     message_id=event["control_message_id"],
                 )
-            if event["state"] in (EVENT_OPEN, EVENT_VOTING) and event["event_end_at"]:
-                self._schedule_event_end(event)
+            if event["state"] == EVENT_OPEN and event["registration_close_at"]:
+                self._schedule_registration_close(event)
             if event["state"] == EVENT_OPEN and event["submissions_close_at"]:
                 self._schedule_submission_close(event)
 
@@ -292,7 +404,7 @@ class EventCog(commands.Cog):
         *,
         name: str,
         preset: Optional[str],
-        event_end_at: datetime,
+        registration_close_at: datetime,
         submissions_close_at: Optional[datetime],
     ) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -307,7 +419,7 @@ class EventCog(commands.Cog):
             preset=event_preset,
             created_by=interaction.user.id,
             state=EVENT_OPEN,
-            event_end_at=event_end_at,
+            registration_close_at=registration_close_at,
             submissions_close_at=submissions_close_at,
         )
 
@@ -354,8 +466,8 @@ class EventCog(commands.Cog):
                 name=name,
                 preset=event_preset,
                 participant_count=0,
+                registration_close_at=registration_close_at,
                 submissions_close_at=submissions_close_at,
-                event_end_at=event_end_at,
             ),
             view=EventRegistrationView(self, event_id),
         )
@@ -363,7 +475,12 @@ class EventCog(commands.Cog):
         self.bot.add_view(EventRegistrationView(self, event_id), message_id=announcement.id)
 
         control_message_id = None
-        await channel.send(embed=self._event_channel_embed(event_id, name, participant_role, event_end_at))
+        admin = await channel.send(
+            embed=self._admin_embed(event_id, name),
+            view=EventAdminView(self, event_id),
+        )
+        self.bot.add_view(EventAdminView(self, event_id), message_id=admin.id)
+        await channel.send(embed=self._event_channel_embed(event_id, name, participant_role, registration_close_at))
         if event_preset == PRESET_SKIN:
             control = await channel.send(
                 embed=self._skin_submit_embed(event_id, name, submissions_close_at),
@@ -375,10 +492,10 @@ class EventCog(commands.Cog):
             if event is not None:
                 self._schedule_submission_close(event)
 
-        db.update_event(event_id, control_message_id=control_message_id)
+        db.update_event(event_id, control_message_id=control_message_id, admin_message_id=admin.id)
         event = db.get_event(event_id)
         if event is not None:
-            self._schedule_event_end(event)
+            self._schedule_registration_close(event)
         if warning is None:
             await interaction.followup.send(
                 f"Event **#{event_id}** créé: {channel.mention}. "
@@ -423,9 +540,89 @@ class EventCog(commands.Cog):
             ephemeral=True,
         )
 
+    async def close_registrations_now(self, interaction: discord.Interaction, event_id: int) -> None:
+        event = await self._load_admin_event(interaction, event_id)
+        if event is None:
+            return
+        db.update_event(event_id, registration_close_at=now_paris())
+        self._cancel_task(event_id, TASK_REGISTRATION_CLOSE)
+        event = db.get_event(event_id)
+        if event is not None:
+            await self._disable_registration_buttons(event)
+        await interaction.response.send_message("Inscriptions fermées.", ephemeral=True)
+
+    async def open_cancel_modal(self, interaction: discord.Interaction, event_id: int) -> None:
+        event = await self._load_admin_event(interaction, event_id)
+        if event is None:
+            return
+        await interaction.response.send_modal(EventCancelModal(self, event_id))
+
+    async def cancel_event(
+        self,
+        interaction: discord.Interaction,
+        event_id: int,
+        reason: Optional[str],
+    ) -> None:
+        event = await self._load_admin_event(interaction, event_id)
+        if event is None:
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        db.update_event(
+            event_id,
+            state=EVENT_DONE,
+            cancelled_by=interaction.user.id,
+            cancel_reason=reason,
+            cancelled_at=now_paris(),
+        )
+        self._cancel_task(event_id, TASK_REGISTRATION_CLOSE)
+        self._cancel_task(event_id, TASK_SUBMISSIONS_CLOSE)
+        event = db.get_event(event_id)
+        if event is not None:
+            await self._disable_registration_buttons(event)
+            await self._disable_submit_button(event)
+            channel = await self._get_channel(event["channel_id"])
+            if channel is not None:
+                detail = f"\nRaison: {reason}" if reason else ""
+                await channel.send(f"Event **{event['name']}** annulé par {interaction.user.mention}.{detail}")
+        await interaction.followup.send("Event annulé.", ephemeral=True)
+
+    async def open_ban_modal(self, interaction: discord.Interaction, event_id: int) -> None:
+        event = await self._load_admin_event(interaction, event_id)
+        if event is None:
+            return
+        await interaction.response.send_modal(EventBanModal(self, event_id))
+
+    async def ban_event_member(
+        self,
+        interaction: discord.Interaction,
+        event_id: int,
+        user_id: int,
+        reason: Optional[str],
+    ) -> None:
+        event = await self._load_admin_event(interaction, event_id)
+        if event is None:
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        db.ban_event_member(
+            event_id=event_id,
+            user_id=user_id,
+            banned_by=interaction.user.id,
+            reason=reason,
+        )
+        await self._remove_event_role(interaction.guild, event, user_id)
+        await self._refresh_announcement(event_id)
+        detail = f" Raison: {reason}" if reason else ""
+        await interaction.followup.send(f"<@{user_id}> est ban de l'event.{detail}", ephemeral=True)
+
     async def join_event(self, interaction: discord.Interaction, event_id: int) -> None:
         event = await self._load_interaction_event(interaction, event_id)
         if event is None:
+            return
+        if _registrations_closed(event):
+            await interaction.response.send_message("Les inscriptions sont fermées.", ephemeral=True)
+            return
+        if db.is_event_banned(event_id, interaction.user.id):
+            await interaction.response.send_message("Tu es ban de cet event.", ephemeral=True)
             return
         role = interaction.guild.get_role(event["participant_role_id"])
         if role is None:
@@ -484,6 +681,9 @@ class EventCog(commands.Cog):
         if event["state"] != EVENT_OPEN or _event_close_reached(event):
             await interaction.response.send_message("Les dépôts sont fermés.", ephemeral=True)
             return
+        if db.is_event_banned(event_id, interaction.user.id):
+            await interaction.response.send_message("Tu es ban de cet event.", ephemeral=True)
+            return
         if not db.is_event_member(event_id, interaction.user.id):
             await interaction.response.send_message("Inscris-toi d'abord à l'event.", ephemeral=True)
             return
@@ -501,6 +701,9 @@ class EventCog(commands.Cog):
             return
         if event["state"] != EVENT_OPEN or _event_close_reached(event):
             await interaction.response.send_message("Les dépôts sont fermés.", ephemeral=True)
+            return
+        if db.is_event_banned(event_id, interaction.user.id):
+            await interaction.response.send_message("Tu es ban de cet event.", ephemeral=True)
             return
         if not db.is_event_member(event_id, interaction.user.id):
             await interaction.response.send_message("Inscris-toi d'abord à l'event.", ephemeral=True)
@@ -560,14 +763,38 @@ class EventCog(commands.Cog):
         if event is None or interaction.guild is None or event["guild_id"] != interaction.guild.id:
             await interaction.response.send_message("Event introuvable.", ephemeral=True)
             return None
-        if _event_end_reached(event):
-            db.update_event(event_id, state=EVENT_DONE)
-            await interaction.response.send_message("Cet event est terminé.", ephemeral=True)
-            return None
         if event["state"] == EVENT_DONE:
             await interaction.response.send_message("Cet event est terminé.", ephemeral=True)
             return None
         return event
+
+    async def _load_admin_event(
+        self,
+        interaction: discord.Interaction,
+        event_id: int,
+    ) -> Optional[db.sqlite3.Row]:
+        event = await self._load_interaction_event(interaction, event_id)
+        if event is None:
+            return None
+        if not self._can_event_admin(interaction, event):
+            await interaction.response.send_message("Rôle admin_event requis.", ephemeral=True)
+            return None
+        return event
+
+    async def _remove_event_role(self, guild: discord.Guild, event, user_id: int) -> None:
+        role = guild.get_role(event["participant_role_id"])
+        if role is None:
+            return
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except discord.DiscordException:
+                return
+        try:
+            await member.remove_roles(role, reason=f"Ban event #{event['id']}")
+        except discord.DiscordException as exc:
+            logger.warning("Retrait rôle event #%d pour %s échoué: %s", event["id"], user_id, exc)
 
     async def _get_or_create_admin_role(self, guild: discord.Guild) -> discord.Role:
         existing = discord.utils.get(guild.roles, name=EVENT_ADMIN_ROLE_NAME)
@@ -654,15 +881,15 @@ class EventCog(commands.Cog):
             self._run_submission_close(event_id, delay)
         )
 
-    def _schedule_event_end(self, event) -> None:
+    def _schedule_registration_close(self, event) -> None:
         event_id = event["id"]
-        self._cancel_task(event_id, TASK_EVENT_END)
-        when = event["event_end_at"]
+        self._cancel_task(event_id, TASK_REGISTRATION_CLOSE)
+        when = event["registration_close_at"]
         if not when:
             return
         delay = max(0.0, (_parse_when(when) - now_paris()).total_seconds())
-        self._tasks[(event_id, TASK_EVENT_END)] = asyncio.create_task(
-            self._run_event_end(event_id, delay)
+        self._tasks[(event_id, TASK_REGISTRATION_CLOSE)] = asyncio.create_task(
+            self._run_registration_close(event_id, delay)
         )
 
     async def _run_submission_close(self, event_id: int, delay: float) -> None:
@@ -677,39 +904,24 @@ class EventCog(commands.Cog):
         finally:
             self._tasks.pop((event_id, TASK_SUBMISSIONS_CLOSE), None)
 
-    async def _run_event_end(self, event_id: int, delay: float) -> None:
+    async def _run_registration_close(self, event_id: int, delay: float) -> None:
         try:
             if delay > 0:
                 await asyncio.sleep(delay)
-            await self._finish_event(event_id)
+            event = db.get_event(event_id)
+            if event is not None and event["state"] != EVENT_DONE:
+                await self._disable_registration_buttons(event)
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Fin event #%d échouée", event_id)
+            logger.exception("Clôture inscriptions event #%d échouée", event_id)
         finally:
-            self._tasks.pop((event_id, TASK_EVENT_END), None)
+            self._tasks.pop((event_id, TASK_REGISTRATION_CLOSE), None)
 
     def _cancel_task(self, event_id: int, kind: str) -> None:
         task = self._tasks.pop((event_id, kind), None)
         if task is not None:
             task.cancel()
-
-    async def _finish_event(self, event_id: int) -> None:
-        event = db.get_event(event_id)
-        if event is None or event["state"] == EVENT_DONE:
-            return
-        if event["state"] == EVENT_OPEN and event["preset"] == PRESET_SKIN:
-            await self._publish_skin_submissions(event_id, force=True)
-        event = db.get_event(event_id)
-        if event is None or event["state"] == EVENT_DONE:
-            return
-        db.update_event(event_id, state=EVENT_DONE)
-        self._cancel_task(event_id, TASK_SUBMISSIONS_CLOSE)
-        await self._disable_submit_button(event)
-        await self._disable_registration_buttons(event)
-        channel = await self._get_channel(event["channel_id"])
-        if channel is not None:
-            await channel.send(f"Event **{event['name']}** terminé.")
 
     async def _publish_skin_submissions(self, event_id: int, *, force: bool = False) -> int:
         event = db.get_event(event_id)
@@ -783,9 +995,10 @@ class EventCog(commands.Cog):
                     name=event["name"],
                     preset=event["preset"],
                     participant_count=db.count_event_members(event["id"]),
+                    registration_close_at=_parse_optional_when(event["registration_close_at"]),
                     submissions_close_at=_parse_optional_when(event["submissions_close_at"]),
-                    event_end_at=_parse_optional_when(event["event_end_at"]),
-                    ended=True,
+                    ended=event["state"] == EVENT_DONE,
+                    registrations_closed=True,
                 ),
                 view=EventRegistrationView(self, event["id"], disabled=True),
             )
@@ -807,11 +1020,16 @@ class EventCog(commands.Cog):
                     name=event["name"],
                     preset=event["preset"],
                     participant_count=db.count_event_members(event_id),
+                    registration_close_at=_parse_optional_when(event["registration_close_at"]),
                     submissions_close_at=_parse_optional_when(event["submissions_close_at"]),
-                    event_end_at=_parse_optional_when(event["event_end_at"]),
                     ended=event["state"] == EVENT_DONE,
+                    registrations_closed=_registrations_closed(event),
                 ),
-                view=EventRegistrationView(self, event_id, disabled=event["state"] == EVENT_DONE),
+                view=EventRegistrationView(
+                    self,
+                    event_id,
+                    disabled=event["state"] == EVENT_DONE or _registrations_closed(event),
+                ),
             )
         except discord.DiscordException as exc:
             logger.warning("Refresh annonce event #%d échoué: %s", event_id, exc)
@@ -865,9 +1083,10 @@ class EventCog(commands.Cog):
         name: str,
         preset: Optional[str],
         participant_count: int,
+        registration_close_at,
         submissions_close_at,
-        event_end_at,
         ended: bool = False,
+        registrations_closed: bool = False,
     ) -> discord.Embed:
         embed = discord.Embed(
             title=f"Event #{event_id} · {name}",
@@ -875,10 +1094,10 @@ class EventCog(commands.Cog):
         )
         embed.add_field(name="Participants", value=str(participant_count), inline=True)
         embed.add_field(name="Preset", value=_preset_label(preset), inline=True)
-        if event_end_at:
+        if registration_close_at:
             embed.add_field(
-                name="Fin de l'event",
-                value=discord.utils.format_dt(event_end_at, style="F"),
+                name="Inscriptions jusqu'à",
+                value=discord.utils.format_dt(registration_close_at, style="F"),
                 inline=False,
             )
         if submissions_close_at:
@@ -887,7 +1106,12 @@ class EventCog(commands.Cog):
                 value=discord.utils.format_dt(submissions_close_at, style="F"),
                 inline=False,
             )
-        footer = "Event terminé." if ended else "Inscription via les boutons ci-dessous."
+        if ended:
+            footer = "Event annulé/terminé."
+        elif registrations_closed:
+            footer = "Inscriptions fermées."
+        else:
+            footer = "Inscription via les boutons ci-dessous."
         embed.set_footer(text=footer)
         return embed
 
@@ -896,17 +1120,26 @@ class EventCog(commands.Cog):
         event_id: int,
         name: str,
         participant_role: discord.Role,
-        event_end_at: datetime,
+        registration_close_at: datetime,
     ) -> discord.Embed:
         embed = discord.Embed(
             title=f"Salon event #{event_id}",
             description=(
                 f"Event: **{name}**\n"
                 f"Accès participants: {participant_role.mention}\n"
-                f"Fin: {discord.utils.format_dt(event_end_at, style='F')}"
+                f"Inscriptions jusqu'à: {discord.utils.format_dt(registration_close_at, style='F')}"
             ),
             color=0x3498DB,
         )
+        return embed
+
+    def _admin_embed(self, event_id: int, name: str) -> discord.Embed:
+        embed = discord.Embed(
+            title=f"Admin event #{event_id}",
+            description=f"Event: **{name}**",
+            color=0xE67E22,
+        )
+        embed.set_footer(text="Actions réservées au rôle admin_event.")
         return embed
 
     def _skin_submit_embed(self, event_id: int, name: str, submissions_close_at) -> discord.Embed:
@@ -984,41 +1217,34 @@ def _preset_label(preset: Optional[str]) -> str:
     return "aucun"
 
 
-def parse_event_datetime(raw: str, *, now: Optional[datetime] = None) -> datetime:
+def parse_deadline(
+    raw: str,
+    *,
+    field_name: str,
+    now: Optional[datetime] = None,
+) -> datetime:
     current = now or now_paris()
     value = (raw or "").strip()
     if not value:
-        raise ValueError("fin de l'event vide")
-    if _parse_duration(value.lower()) is not None:
-        raise ValueError("la fin de l'event doit être une date, pas une durée")
-    day = dates_utils.parse_raid_date(value, current)
-    parsed_time = dates_utils.parse_time(value) or time(hour=23, minute=59)
-    result = datetime.combine(day, parsed_time, tzinfo=current.tzinfo)
+        raise ValueError(f"{field_name} vide")
+    duration = _parse_duration(value.lower())
+    if duration is not None:
+        result = current + duration
+    else:
+        day = dates_utils.parse_raid_date(value, current)
+        parsed_time = dates_utils.parse_time(value) or time(hour=23, minute=59)
+        result = datetime.combine(day, parsed_time, tzinfo=current.tzinfo)
     if result <= current:
-        raise ValueError("la fin de l'event doit être dans le futur")
+        raise ValueError(f"{field_name} doit être dans le futur")
     return result
 
 
 def parse_submission_close(
     raw: str,
     *,
-    event_end_at: datetime,
     now: Optional[datetime] = None,
 ) -> datetime:
-    current = now or now_paris()
-    value = (raw or "").strip().lower()
-    if not value:
-        raise ValueError("durée/fin des dépôts vide")
-
-    duration = _parse_duration(value)
-    if duration is not None:
-        result = current + duration
-    else:
-        result = parse_event_datetime(value, now=current)
-
-    if result >= event_end_at:
-        raise ValueError("les dépôts doivent fermer avant la fin de l'event")
-    return result
+    return parse_deadline(raw, field_name="clôture des dépôts", now=now)
 
 
 def _parse_duration(value: str) -> Optional[timedelta]:
@@ -1038,13 +1264,20 @@ def _parse_duration(value: str) -> Optional[timedelta]:
     return None
 
 
+def parse_user_id(raw: str) -> int:
+    match = re.search(r"\d{15,25}", raw or "")
+    if match is None:
+        raise ValueError("Membre invalide: donne une mention ou un ID Discord.")
+    return int(match.group(0))
+
+
 def _event_close_reached(event) -> bool:
     when = _parse_optional_when(event["submissions_close_at"])
     return bool(when and now_paris() >= when)
 
 
-def _event_end_reached(event) -> bool:
-    when = _parse_optional_when(event["event_end_at"])
+def _registrations_closed(event) -> bool:
+    when = _parse_optional_when(event["registration_close_at"])
     return bool(when and now_paris() >= when)
 
 

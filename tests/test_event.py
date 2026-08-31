@@ -8,9 +8,10 @@ from cogs.event import (
     EVENT_OPEN,
     PRESET_SKIN,
     build_skin_fallback_card,
-    parse_event_datetime,
     parse_barbofus_skin_url,
+    parse_deadline,
     parse_submission_close,
+    parse_user_id,
 )
 
 PARIS = ZoneInfo("Europe/Paris")
@@ -47,56 +48,53 @@ def test_build_skin_fallback_card_is_png():
         assert image.size == (900, 420)
 
 
-def test_parse_event_datetime_accepts_date_and_hour():
+def test_parse_deadline_accepts_date_and_hour():
     now = datetime(2026, 8, 31, 12, 0, tzinfo=PARIS)
 
-    result = parse_event_datetime("demain 21h30", now=now)
+    result = parse_deadline("demain 21h30", field_name="clôture", now=now)
 
     assert result.isoformat() == "2026-09-01T21:30:00+02:00"
 
 
-def test_parse_event_datetime_rejects_duration():
+def test_parse_deadline_accepts_duration():
     now = datetime(2026, 8, 31, 12, 0, tzinfo=PARIS)
 
-    try:
-        parse_event_datetime("48h", now=now)
-    except ValueError as exc:
-        assert "date" in str(exc)
-    else:
-        raise AssertionError("event end should require a date")
-
-
-def test_parse_submission_close_accepts_duration_before_event_end():
-    now = datetime(2026, 8, 31, 12, 0, tzinfo=PARIS)
-    event_end = datetime(2026, 9, 3, 20, 0, tzinfo=PARIS)
-
-    result = parse_submission_close("48h", event_end_at=event_end, now=now)
+    result = parse_deadline("48h", field_name="clôture", now=now)
 
     assert result.isoformat() == "2026-09-02T12:00:00+02:00"
 
 
-def test_parse_submission_close_rejects_after_event_end():
+def test_parse_submission_close_accepts_duration():
     now = datetime(2026, 8, 31, 12, 0, tzinfo=PARIS)
-    event_end = datetime(2026, 9, 1, 12, 0, tzinfo=PARIS)
 
+    result = parse_submission_close("48h", now=now)
+
+    assert result.isoformat() == "2026-09-02T12:00:00+02:00"
+
+
+def test_parse_user_id_accepts_mentions():
+    assert parse_user_id("<@123456789012345678>") == 123456789012345678
+
+
+def test_parse_user_id_rejects_invalid_value():
     try:
-        parse_submission_close("48h", event_end_at=event_end, now=now)
+        parse_user_id("pas un membre")
     except ValueError as exc:
-        assert "avant la fin" in str(exc)
+        assert "mention" in str(exc)
     else:
-        raise AssertionError("submission close after event end should fail")
+        raise AssertionError("invalid member value should fail")
 
 
 def test_event_persistence_members_submissions_and_votes(tmp_path):
     _fresh(tmp_path)
-    event_end_at = datetime(2026, 9, 1, 21, 0, tzinfo=PARIS)
+    registration_close_at = datetime(2026, 9, 1, 21, 0, tzinfo=PARIS)
     event_id = db.create_event(
         guild_id=1,
         name="Concours été",
         preset=PRESET_SKIN,
         created_by=10,
         state=EVENT_OPEN,
-        event_end_at=event_end_at,
+        registration_close_at=registration_close_at,
         submissions_close_at=datetime(2026, 8, 31, 21, 0, tzinfo=PARIS),
     )
 
@@ -126,9 +124,28 @@ def test_event_persistence_members_submissions_and_votes(tmp_path):
     submissions = db.list_event_submissions(event_id)
 
     assert event["participant_role_id"] == 101
-    assert event["event_end_at"] == event_end_at.isoformat()
+    assert event["registration_close_at"] == registration_close_at.isoformat()
     assert db.count_event_members(event_id) == 1
     assert db.is_event_member(event_id, 42) is True
     assert submissions[0]["id"] == submission_id
     assert submissions[0]["user_id"] == 42
     assert db.get_event_vote_counts(event_id) == {submission_id: 1}
+
+
+def test_event_ban_removes_member_and_blocks_rejoin(tmp_path):
+    _fresh(tmp_path)
+    event_id = db.create_event(
+        guild_id=1,
+        name="Concours été",
+        preset=None,
+        created_by=10,
+        state=EVENT_OPEN,
+        registration_close_at=datetime(2026, 9, 1, 21, 0, tzinfo=PARIS),
+    )
+    db.add_event_member(event_id, 42)
+
+    db.ban_event_member(event_id=event_id, user_id=42, banned_by=10, reason="test")
+
+    assert db.count_event_members(event_id) == 0
+    assert db.is_event_member(event_id, 42) is False
+    assert db.is_event_banned(event_id, 42) is True

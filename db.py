@@ -57,6 +57,11 @@ MIGRATIONS = (
         "ALTER TABLE onboarding_tickets ADD COLUMN application_goals TEXT",
     ),
     ("016_events_end_at", "ALTER TABLE events ADD COLUMN event_end_at TEXT"),
+    ("017_events_registration_close_at", "ALTER TABLE events ADD COLUMN registration_close_at TEXT"),
+    ("018_events_admin_message_id", "ALTER TABLE events ADD COLUMN admin_message_id INTEGER"),
+    ("019_events_cancelled_by", "ALTER TABLE events ADD COLUMN cancelled_by INTEGER"),
+    ("020_events_cancel_reason", "ALTER TABLE events ADD COLUMN cancel_reason TEXT"),
+    ("021_events_cancelled_at", "ALTER TABLE events ADD COLUMN cancelled_at TEXT"),
 )
 
 
@@ -319,11 +324,16 @@ def init(db_path: str = DB_PATH) -> None:
             announcement_channel_id  INTEGER,
             announcement_message_id  INTEGER,
             control_message_id       INTEGER,
+            admin_message_id         INTEGER,
             submissions_message_id   INTEGER,
             created_by               INTEGER NOT NULL,
             state                    TEXT NOT NULL,
+            registration_close_at    TEXT,
             submissions_close_at     TEXT,
             event_end_at             TEXT,
+            cancelled_by             INTEGER,
+            cancel_reason            TEXT,
+            cancelled_at             TEXT,
             created_at               TEXT NOT NULL,
             updated_at               TEXT NOT NULL
         );
@@ -360,6 +370,16 @@ def init(db_path: str = DB_PATH) -> None:
             PRIMARY KEY (event_id, voter_id),
             FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
             FOREIGN KEY(submission_id) REFERENCES event_submissions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS event_bans (
+            event_id    INTEGER NOT NULL,
+            user_id     INTEGER NOT NULL,
+            banned_by   INTEGER NOT NULL,
+            reason      TEXT,
+            created_at  TEXT NOT NULL,
+            PRIMARY KEY (event_id, user_id),
+            FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -441,13 +461,15 @@ def _create_indexes() -> None:
         CREATE INDEX IF NOT EXISTS idx_events_state_close
             ON events(state, submissions_close_at, id);
         CREATE INDEX IF NOT EXISTS idx_events_messages
-            ON events(announcement_message_id, control_message_id, submissions_message_id);
+            ON events(announcement_message_id, control_message_id, admin_message_id, submissions_message_id);
         CREATE INDEX IF NOT EXISTS idx_event_submissions_event
             ON event_submissions(event_id, id);
         CREATE INDEX IF NOT EXISTS idx_event_submissions_message
             ON event_submissions(message_id);
         CREATE INDEX IF NOT EXISTS idx_event_votes_submission
             ON event_votes(submission_id);
+        CREATE INDEX IF NOT EXISTS idx_event_bans_user
+            ON event_bans(user_id, event_id);
         """
     )
 
@@ -2078,14 +2100,14 @@ def create_event(
     preset: Optional[str],
     created_by: int,
     state: str,
-    event_end_at: datetime,
+    registration_close_at: datetime,
     submissions_close_at: Optional[datetime] = None,
 ) -> int:
     now = _now_iso()
     cur = _db().execute(
         """
         INSERT INTO events
-            (guild_id, name, preset, created_by, state, submissions_close_at, event_end_at, created_at, updated_at)
+            (guild_id, name, preset, created_by, state, registration_close_at, submissions_close_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -2094,8 +2116,8 @@ def create_event(
             preset,
             created_by,
             state,
+            registration_close_at.isoformat(),
             submissions_close_at.isoformat() if submissions_close_at else None,
-            event_end_at.isoformat(),
             now,
             now,
         ),
@@ -2168,6 +2190,48 @@ def count_event_members(event_id: int) -> int:
         (event_id,),
     ).fetchone()
     return row["n"] if row else 0
+
+
+def list_event_member_ids(event_id: int) -> list[int]:
+    rows = _db().execute(
+        "SELECT user_id FROM event_members WHERE event_id = ? ORDER BY joined_at ASC",
+        (event_id,),
+    ).fetchall()
+    return [row["user_id"] for row in rows]
+
+
+def ban_event_member(
+    *,
+    event_id: int,
+    user_id: int,
+    banned_by: int,
+    reason: Optional[str],
+) -> None:
+    conn = _db()
+    conn.execute(
+        """
+        INSERT INTO event_bans (event_id, user_id, banned_by, reason, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(event_id, user_id) DO UPDATE SET
+            banned_by = excluded.banned_by,
+            reason = excluded.reason,
+            created_at = excluded.created_at
+        """,
+        (event_id, user_id, banned_by, reason, _now_iso()),
+    )
+    conn.execute(
+        "DELETE FROM event_members WHERE event_id = ? AND user_id = ?",
+        (event_id, user_id),
+    )
+    conn.commit()
+
+
+def is_event_banned(event_id: int, user_id: int) -> bool:
+    row = _db().execute(
+        "SELECT 1 FROM event_bans WHERE event_id = ? AND user_id = ?",
+        (event_id, user_id),
+    ).fetchone()
+    return row is not None
 
 
 def upsert_event_submission(
